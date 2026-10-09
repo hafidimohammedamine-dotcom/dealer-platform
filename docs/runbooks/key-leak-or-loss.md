@@ -22,7 +22,8 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 
 Signs of a leak:
 
-- The CI secret scan (gitleaks) fails on a pull request or a push. See the [CI runbook](ci-pipeline.md).
+- A secret scan (gitleaks) fails. On a pull request, the `guards` job scans that pull request's commits. On a push to
+  `main`, `ci.yml` scans the full history. See the [CI runbook](ci-pipeline.md) and [Guards and review](ci-guards.md).
 - A provider or GitHub alert about a secret, if one is enabled for the repo.
 - A key shows up where it should not be: an issue, a PR comment, a log, a screenshot, or a chat.
 - Logins you cannot explain, in the admin log, if you can see one.

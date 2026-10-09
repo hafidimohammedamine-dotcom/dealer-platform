@@ -67,7 +67,8 @@ Run locally to see which case broke:
 - `bash scripts/check-founder-files.test.sh`, `bash scripts/check-skills.test.sh`, `bash scripts/check-review-prepare.test.sh`,
   `bash scripts/check-pr-ci-status.test.sh`, `bash scripts/check-review-post.test.sh`
 - `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh` (exits 2 if gitleaks can't run)
-  "Secret scan of all history (pushes to main)" failing means a secret reached `main`: follow "Real key" above.
+
+"Secret scan of all history (pushes to main)" is a step in `ci.yml`, not in this workflow. Failing means a secret reached `main`: follow "Real key" above.
 
 ## Known limits
 

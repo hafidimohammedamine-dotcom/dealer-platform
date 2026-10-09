@@ -1,7 +1,10 @@
 # Runbook: CI pipeline and build failures
 
 The pipeline is `.github/workflows/ci.yml`. It runs on pull requests into `main` and on pushes to `main`.
-It has one job, `checks`, on Ubuntu, with a 30-minute timeout and read-only repo permissions.
+It has one job, `checks`, on Ubuntu, with a 30-minute timeout and read-only repo permissions (`contents: read`).
+
+Two other workflows also check every pull request. `guards.yml` runs from `main`, checks founder-only files and scans
+the pull request's commits for secrets. The review workflow reads the result. See [Guards and review](ci-guards.md).
 
 The workflow is founder-owned (`.github/` is in the founders-only list in `CLAUDE.md`). To change a step, comment on the
 issue with `REQUEST: .github/workflows/ci.yml - <change> - <why>`.
@@ -9,20 +12,29 @@ issue with `REQUEST: .github/workflows/ci.yml - <change> - <why>`.
 ## Step order
 
 GitHub runs the steps in this order. When a step fails, GitHub stops the job, so later steps do not run.
+Steps marked "Push to `main` only" are skipped on pull requests. Steps marked "If `package.json`" are skipped when the
+repo has no `package.json`.
 
-| #   | Step             | Command or action                                              | Runs                          |
-| --- | ---------------- | -------------------------------------------------------------- | ----------------------------- |
-| 1   | Checkout         | `actions/checkout`, full history (`fetch-depth: 0`)            | Always                        |
-| 2   | Secret scan      | gitleaks in Docker: `detect --source=/repo --redact --verbose` | Always                        |
-| 3   | Set up Node      | `actions/setup-node`, Node 20                                  | Only if `package.json` exists |
-| 4   | Install          | `corepack enable && yarn install --immutable`                  | Only if `package.json` exists |
-| 5   | Lint             | `yarn lint` (ESLint, then Prettier check)                      | Only if `package.json` exists |
-| 6   | Type check       | `yarn typecheck`                                               | Only if `package.json` exists |
-| 7   | Tests            | `yarn test` (Vitest, 90% coverage gate, config tests)          | Only if `package.json` exists |
-| 8   | Dependency audit | `yarn npm audit --severity moderate --all --recursive`         | Only if `package.json` exists |
-| 9   | Build            | `yarn build`                                                   | Only if `package.json` exists |
+| #   | Step               | Command or action                                                                                        | Runs                |
+| --- | ------------------ | -------------------------------------------------------------------------------------------------------- | ------------------- |
+| 1   | Checkout           | `actions/checkout`, full history (`fetch-depth: 0`), no persisted token                                  | Always              |
+| 2   | Install gitleaks   | `./.github/actions/install-gitleaks`: gitleaks 8.18.4 from its GitHub release, sha256 checked, no Docker | Always              |
+| 3   | Secret scan        | `gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose` on the full history              | Push to `main` only |
+| 4   | Guard script tests | The five `scripts/check-*.test.sh` tests, then `scripts/gitleaks-config.test.sh`                         | Always              |
+| 5   | Set up Node        | `actions/setup-node`, Node 20                                                                            | If `package.json`   |
+| 6   | Install            | `corepack enable && yarn install --immutable`                                                            | If `package.json`   |
+| 7   | Lint               | `yarn lint` (ESLint, then Prettier check)                                                                | If `package.json`   |
+| 8   | Type check         | `yarn typecheck`                                                                                         | If `package.json`   |
+| 9   | Tests              | `yarn test` (Vitest, 90% coverage gate, config tests)                                                    | If `package.json`   |
+| 10  | Build              | `yarn build`                                                                                             | If `package.json`   |
+| 11  | Dependency audit   | `yarn npm audit --severity moderate --all --recursive`                                                   | If `package.json`   |
 
-Build is the last step. If it is the one that fails, steps 1 to 8 already passed on that run.
+Two things to know about the order:
+
+- **Build runs before the dependency audit.** The audit is the last step. If the audit fails, the build already passed on
+  that run.
+- **The pull request's own secret scan is not in `ci.yml`.** It runs in `guards.yml` (job `guards`), against the
+  pull request's commits only. The full-history scan in step 3 runs only on pushes to `main`.
 
 ## Before you push
 
@@ -33,22 +45,67 @@ corepack yarn lint
 corepack yarn typecheck
 corepack yarn test
 corepack yarn build
+corepack yarn npm audit --severity moderate --all --recursive
 ```
 
-The secret scan needs Docker. It is the same command CI runs:
+## Secret scan on your machine
+
+Use gitleaks **8.18.4**, the same version CI installs. CI downloads the release file and checks its sha256 before it
+runs. Install the same release, or use the Docker image with the same tag. The image is the same version, but it is a
+different file, so CI's checksum check does not cover it.
+
+The full-history scan, the same command and flags as CI step 3:
 
 ```bash
-docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --redact --verbose
+gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose
 ```
+
+Docker version of the same scan:
+
+```bash
+docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --config=/repo/.gitleaks.toml --redact --verbose
+```
+
+To check a pull request's commits the way the `guards` job does, run this after `origin/main` is fetched. It ignores
+`.gitleaksignore` and inline `gitleaks:allow` comments, as CI does:
+
+```bash
+mkdir -p /tmp/noignore
+gitleaks detect --source=. --config=.gitleaks.toml --gitleaks-ignore-path=/tmp/noignore --ignore-gitleaks-allow --redact --verbose --log-opts="origin/main..HEAD"
+```
+
+gitleaks prints matches redacted. Do not paste a match anywhere, even redacted, outside the terminal.
 
 ## When a step fails
 
 Open the job log, find the first red step, and fix that. Push the fix to your branch. CI runs again on the pull request.
 
+### Install gitleaks fails
+
+- The download failed, or the checksum did not match. Re-run the job once.
+- If it fails again, tell a founder. The action is founder-owned.
+
+### Guard script tests fail
+
+- The log names the test script. Run it locally, for example `bash scripts/check-skills.test.sh`, and read the failing case.
+- For the secret config test, set `GITLEAKS` to your local binary: `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh`.
+- The `scripts/check-*` files and `.gitleaks.toml` are founder-owned. Do not change them to make a test pass. Follow
+  [Guards and review](ci-guards.md) and send a `REQUEST:`.
+
+### Secret scan fails (push to `main`)
+
+- This step runs only after a change reached `main`. The log shows the file, the line and the rule. The secret itself is redacted.
+- **Treat a real key as leaked, even if the pull request is closed.** Revoke or rotate it at the provider now.
+  Then follow [Key leak or loss](key-leak-or-loss.md) for our own keys.
+- Removing the key from a later commit does not stop the leak. The old commit still holds it.
+- Do not add an ignore rule yourself. Ask a founder with `REQUEST:`.
+- A secret in a pull request is caught earlier, by the `guards` job. See [Guards and review](ci-guards.md).
+
 ### Lint fails
 
-- **ESLint error.** Read the rule name in the log. The Payload rule bans direct `payload.find`, `payload.create`,
-  `payload.update`, `payload.delete` and similar calls outside `packages/data`. Use `packages/data` instead.
+- **ESLint error.** Read the rule name in the log. The Payload rule bans direct calls such as `payload.find`,
+  `payload.create`, `payload.update` and `payload.delete`, and the other Payload data methods, outside `packages/data`.
+  Use `packages/data` instead.
 - **Prettier: "Code style issues found".** Run `yarn format` locally and commit the result. Prettier also checks Markdown
   in `docs/`.
 
@@ -62,14 +119,7 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 - Run `yarn test` locally. The log names the failing test file, or the coverage line that is under 90%.
 - Add tests for new code. Do not lower the threshold in `vitest.config.ts`. That is a founder decision.
 - Config tests in `infra/checks` also run here. They check `tsconfig.base.json`, every workspace's scripts, `.yarnrc.yml`
-  and the `.env.example` keys.
-
-### Dependency audit fails
-
-- The log lists a dependency advisory at moderate severity or higher.
-- Do not delete or skip this step. Post the advisory name on the pull request so the security reviewer sees it.
-- If a fixed version exists, upgrade it and commit the lockfile change. Security advisories for Payload are patched within
-  48 hours (`CLAUDE.md`, Payload rule 6).
+  (including `enableScripts: false`) and the `.env.example` keys.
 
 ### Build fails
 
@@ -96,22 +146,17 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 5. Do not remove the Build step, do not set `continue-on-error`, and do not commit `dist/` folders. `dist/` is git-ignored.
 6. If the failure is in the workflow file itself, send a `REQUEST:` to the founders.
 
-### Secret scan fails
+### Dependency audit fails
 
-- gitleaks found something that looks like a secret in this pull request's commits. The log shows the file, the line and
-  the rule. The secret itself is redacted.
-- **Treat a real key as leaked, even if the pull request is closed.** Revoke or rotate it at the provider now.
-  Then follow [Key leak or loss](key-leak-or-loss.md) for our own keys.
-- Removing the key from a later commit does not stop the leak. The old commit still holds it.
-- Do not add an ignore rule yourself. Ask a founder with `REQUEST:`.
+- The build passed on this run, because Build runs first. Only the audit failed.
+- The log lists a dependency advisory at moderate severity or higher.
+- Do not delete or skip this step. Post the advisory name on the pull request so the security reviewer sees it.
+- If a fixed version exists, upgrade it and commit the lockfile change. Security advisories for Payload are patched within 48 hours (`CLAUDE.md`, Payload rule 6).
+- If the package is pinned in `package.json` `resolutions`, check the "Pinned overrides" table in
+  [Developer setup](../dev/setup.md#pinned-overrides) before you change the pin.
 
-## Known gaps (as of this page)
+## Not in CI yet
 
 - There is no migration job in `ci.yml`. The plan is one migration job in CI, before deploy, never at container start.
   It is not built.
 - There is no deploy step.
-- Until a founder adds `enableScripts: false` to `.yarnrc.yml`, the config test "keeps dependency install scripts off"
-  fails.
-- `main` may get a newer `ci.yml`. At the time this page was written, `main` also runs guard-script tests, scans the full
-  history on pushes to `main`, and runs Build before the dependency audit. When this branch picks up that change, update
-  the step table above to match the file.
