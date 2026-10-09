@@ -33,19 +33,7 @@ Payload is a Next.js native CMS with TypeScript-first architecture, providing ad
 | Custom API routes        | Collection custom endpoints               | [ADVANCED.md#custom-endpoints](reference/ADVANCED.md#custom-endpoints)                                                           |
 | Cloud storage            | Storage adapter plugins                   | [ADAPTERS.md#storage-adapters](reference/ADAPTERS.md#storage-adapters)                                                           |
 | Multi-language           | `localization` config + `localized: true` | [ADVANCED.md#localization](reference/ADVANCED.md#localization)                                                                   |
-| Create plugin            | `(options) => (config) => Config`         | [PLUGIN-DEVELOPMENT.md#plugin-architecture](reference/PLUGIN-DEVELOPMENT.md#plugin-architecture)                                 |
-| Plugin package setup     | Package structure with SWC                | [PLUGIN-DEVELOPMENT.md#plugin-package-structure](reference/PLUGIN-DEVELOPMENT.md#plugin-package-structure)                       |
-| Add fields to collection | Map collections, spread fields            | [PLUGIN-DEVELOPMENT.md#adding-fields-to-collections](reference/PLUGIN-DEVELOPMENT.md#adding-fields-to-collections)               |
-| Plugin hooks             | Preserve existing hooks in array          | [PLUGIN-DEVELOPMENT.md#adding-hooks](reference/PLUGIN-DEVELOPMENT.md#adding-hooks)                                               |
 | Check field type         | Type guard functions                      | [FIELD-TYPE-GUARDS.md](reference/FIELD-TYPE-GUARDS.md)                                                                           |
-
-## Quick Start
-
-```bash
-npx create-payload-app@latest my-app
-cd my-app
-pnpm dev
-```
 
 ### Minimal Config
 
@@ -437,12 +425,3 @@ import type { Post, User } from '@/payload-types'
 - **[ENDPOINTS.md](reference/ENDPOINTS.md)** - Custom API endpoints: authentication, helpers, request/response patterns
 - **[ADAPTERS.md](reference/ADAPTERS.md)** - Database, storage, email adapters, transactions
 - **[ADVANCED.md](reference/ADVANCED.md)** - Authentication, jobs, endpoints, components, plugins, localization
-- **[PLUGIN-DEVELOPMENT.md](reference/PLUGIN-DEVELOPMENT.md)** - Plugin architecture, monorepo structure, patterns, best practices
-
-## Resources
-
-- llms-full.txt: <https://payloadcms.com/llms-full.txt>
-- Docs: <https://payloadcms.com/docs>
-- GitHub: <https://github.com/payloadcms/payload>
-- Examples: <https://github.com/payloadcms/payload/tree/3.x/examples>
-- Templates: <https://github.com/payloadcms/payload/tree/3.x/templates>

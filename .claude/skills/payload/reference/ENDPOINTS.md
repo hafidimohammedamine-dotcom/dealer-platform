@@ -625,10 +625,3 @@ export const endpoint = {
 8. **Log errors** - Use `req.payload.logger` for debugging
 9. **Document with `custom`** - Add OpenAPI metadata for API docs
 10. **Factory pattern for reuse** - Create endpoint factories for plugins
-
-## Resources
-
-- REST API Overview: <https://payloadcms.com/docs/rest-api/overview>
-- Custom Endpoints: <https://payloadcms.com/docs/rest-api/overview#custom-endpoints>
-- Access Control: <https://payloadcms.com/docs/access-control/overview>
-- Local API: <https://payloadcms.com/docs/local-api/overview>

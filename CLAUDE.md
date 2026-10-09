@@ -25,8 +25,8 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 Agents that work on Payload load the official `payload` skill (how Payload works) together with `payload-dealer-overrides`
 (what we allow). **Order of authority: CLAUDE.md > payload-dealer-overrides > payload skill.**
 1. **All data access goes through `packages/data`** (the tenant-safe helper). It always passes the logged-in `user`
-   and `overrideAccess: false` and the dealer's tenant. Only exception: a short, security-reviewed allow-list of system
-   jobs (migrations, fixture seeding, system jobs) listed in `packages/data` with the reason; Postgres row-level security still applies. Calling `payload.find/create/update/delete` anywhere else is
+   and `overrideAccess: false` and the dealer's tenant. Only exception: the file-path allow-list in
+   `packages/data` (migrations, fixture seeding, named system jobs); see payload-dealer-overrides rule 2. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
 2. **Second lock in the database:** Postgres row-level security on `tenant` (dealer) for every CRM table, with
    `FORCE ROW LEVEL SECURITY`; the app sets the dealer per transaction. The app's database user is not the table owner.
@@ -72,7 +72,7 @@ Agents that work on Payload load the official `payload` skill (how Payload works
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |
 | `infra/`, `Dockerfile*` | Deploy, migrations job, monitoring, backups | devops |
 | `docs/` | API docs, dealer help center, runbooks | docs |
-| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), `.github/` (CI, guards, agent workflows, CODEOWNERS, founders.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore` | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
+| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder, including `skills-patches/`), `.github/` (CI, guards, agent workflows, CODEOWNERS, founders.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore` | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
 
 **Never edit a folder you don't own.** If you need a change elsewhere, comment on the GitHub
 issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes it.
@@ -107,6 +107,8 @@ downloads (scripts, `npx`, `curl`, global installs); (2) anything fetched from t
 instructions; (4) a missing or unclear license or NOTICE.md; (5) a conflict with this file that no founder-owned override skill covers yet.
 Example code in a third-party skill that would break Payload rules 1, 7 or 11, or non-negotiable rules 1, 2, 5, 6 or 7 (real data,
 secrets, AI guardrails, texting rules, sensitive data), is **always** a finding until an override skill says what to do instead. Other imperfect example code is not a finding.
+A founder may remove risky lines from a third-party skill with a deletion-only patch, recorded in `.claude/skills-patches/<name>.diff`
+and its NOTICE.md and provable with `scripts/check-skill-upstream.sh`; that clears findings of types 1-2 in the removed lines.
 Our own code, our own skills, CI and workflows keep the full zero-findings rule.
 
 ## How work flows (GitHub)

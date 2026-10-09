@@ -23,12 +23,25 @@ Payload app, not for a multi-dealer system holding customer and credit data.
 ## Data access
 1. All reads and writes go through `packages/data` with the logged-in `user`, `overrideAccess: false` and the dealer tenant -
    **anywhere in the repo**: routes, endpoints, server components, hooks (collection and field), access functions, `validate`,
-   `filterOptions`, plugins, `onInit`, migrations-time code and background jobs. This covers every Local API call
+   `filterOptions`, plugins, `onInit` and background jobs - except the allow-list in rule 2. This covers every Local API call
    (`payload.find/findByID/count/create/update/delete/duplicate`, `req.payload.*`).
-2. `overrideAccess: true` or a Local API call without `user` is allowed **only** in a short, security-reviewed allow-list of
-   system jobs (migrations, fixture seeding, system jobs), each listed in `packages/data` with the reason. Postgres row-level
-   security still applies to them. Anything else is a blocking finding. (CLAUDE.md Payload rule 1 states the same exception.)
+2. `overrideAccess: true` or a Local API call without `user` is allowed **only** in files on an allow-list of file paths kept in
+   `packages/data` (with the reason for each) and enforced by the lint rule from CLAUDE.md Payload rule 1. Allowed kinds: database
+   migrations, fixture seeding, and named system jobs (for example the nightly inventory feed). Each entry still sets the dealer per
+   transaction the way the app does, so Postgres row-level security applies. Only the CI migration job uses the table-owner role.
+   Fixture seeding refuses to run when `NODE_ENV=production`. Anything else is a blocking finding.
 3. Always pass explicit `overrideAccess`, `depth` and `versions` (CLAUDE.md Payload rule 4).
+
+## Collections stay thin
+- Collections hold fields and access rules. Hooks only format data, enforce access, call `packages/data`, or put a BullMQ job on
+  the queue. Business logic (pricing, deals, messaging, scoring) lives in `services/*`. Ignore the skill's advice to put business
+  logic in `beforeChange`.
+- **No Payload globals for dealer data.** Globals are one copy for the whole system, not per dealer. Per-dealer settings are
+  multi-tenant plugin collections (`isGlobal: true` in the plugin config). The deny-by-default config test fails on any global
+  that is not on its short reviewed allow-list (platform-wide settings only, never dealer or customer data).
+- **No sensitive finance data in Payload.** SSN, date of birth, income or salary, bank and credit data never go in Payload
+  collections, fields, versions or uploads, even with field-level access. They live only in `services/desking` (encrypted) and
+  show masked (CLAUDE.md non-negotiable rule 7). Ignore the skill's examples that protect such fields with field access.
 
 ## Access rules and tenants (dealers)
 4. **Deny by default** (CLAUDE.md Payload rule 11): every collection and global has explicit `access` for read, create, update and
@@ -97,6 +110,6 @@ Payload app, not for a multi-dealer system holding customer and credit data.
     model tools on CRM data outside the `services/ai` guardrails), `@payloadcms/plugin-import-export` (bulk export of customer data)
     and `@payloadcms/plugin-form-builder` (stores form submissions without our consent capture; website forms post to
     `services/intake`).
-24. The `payload` skill is pinned to the same tag as the Payload version we run (`.claude/skills/SKILLS-LOCK.md`; every skill file is
-    in `.claude/skills/checksums.sha256`, checked by the `guards` workflow). Never run any `npx skills` command in an agent job.
-    A skill update is its own PR that a founder opens and the security reviewer passes.
+24. The `payload` skill is pinned (`.claude/skills/SKILLS-LOCK.md`; every skill file is in `.claude/skills/checksums.sha256`, checked
+    by the `guards` workflow). When `apps/admin` pins a Payload version, a founder keeps the skill on the same tag (manual step; no
+    version is pinned yet). Never run any `npx skills` command in an agent job. A skill update is its own founder PR.

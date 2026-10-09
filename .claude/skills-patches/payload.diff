@@ -1,0 +1,79 @@
+diff -ru -x NOTICE.md -x UPSTREAM-LICENSE.md upstream/SKILL.md ours/SKILL.md
+--- upstream/SKILL.md
++++ ours/SKILL.md
+@@ -33,20 +33,8 @@
+ | Custom API routes        | Collection custom endpoints               | [ADVANCED.md#custom-endpoints](reference/ADVANCED.md#custom-endpoints)                                                           |
+ | Cloud storage            | Storage adapter plugins                   | [ADAPTERS.md#storage-adapters](reference/ADAPTERS.md#storage-adapters)                                                           |
+ | Multi-language           | `localization` config + `localized: true` | [ADVANCED.md#localization](reference/ADVANCED.md#localization)                                                                   |
+-| Create plugin            | `(options) => (config) => Config`         | [PLUGIN-DEVELOPMENT.md#plugin-architecture](reference/PLUGIN-DEVELOPMENT.md#plugin-architecture)                                 |
+-| Plugin package setup     | Package structure with SWC                | [PLUGIN-DEVELOPMENT.md#plugin-package-structure](reference/PLUGIN-DEVELOPMENT.md#plugin-package-structure)                       |
+-| Add fields to collection | Map collections, spread fields            | [PLUGIN-DEVELOPMENT.md#adding-fields-to-collections](reference/PLUGIN-DEVELOPMENT.md#adding-fields-to-collections)               |
+-| Plugin hooks             | Preserve existing hooks in array          | [PLUGIN-DEVELOPMENT.md#adding-hooks](reference/PLUGIN-DEVELOPMENT.md#adding-hooks)                                               |
+ | Check field type         | Type guard functions                      | [FIELD-TYPE-GUARDS.md](reference/FIELD-TYPE-GUARDS.md)                                                                           |
+ 
+-## Quick Start
+-
+-```bash
+-npx create-payload-app@latest my-app
+-cd my-app
+-pnpm dev
+-```
+-
+ ### Minimal Config
+ 
+ ```ts
+@@ -437,12 +425,3 @@
+ - **[ENDPOINTS.md](reference/ENDPOINTS.md)** - Custom API endpoints: authentication, helpers, request/response patterns
+ - **[ADAPTERS.md](reference/ADAPTERS.md)** - Database, storage, email adapters, transactions
+ - **[ADVANCED.md](reference/ADVANCED.md)** - Authentication, jobs, endpoints, components, plugins, localization
+-- **[PLUGIN-DEVELOPMENT.md](reference/PLUGIN-DEVELOPMENT.md)** - Plugin architecture, monorepo structure, patterns, best practices
+-
+-## Resources
+-
+-- llms-full.txt: <https://payloadcms.com/llms-full.txt>
+-- Docs: <https://payloadcms.com/docs>
+-- GitHub: <https://github.com/payloadcms/payload>
+-- Examples: <https://github.com/payloadcms/payload/tree/3.x/examples>
+-- Templates: <https://github.com/payloadcms/payload/tree/3.x/templates>
+diff -ru -x NOTICE.md -x UPSTREAM-LICENSE.md upstream/reference/ADVANCED.md ours/reference/ADVANCED.md
+--- upstream/reference/ADVANCED.md
++++ ours/reference/ADVANCED.md
+@@ -364,23 +364,3 @@
+   locale: 'es',
+ })
+ ```
+-
+-## TypeScript Type References
+-
+-For complete TypeScript type definitions and signatures, reference these files from the Payload source:
+-
+-### Core Configuration Types
+-
+-- **[All Commonly-Used Types](https://github.com/payloadcms/payload/blob/3.x/packages/payload/src/index.ts)** - Check here first for commonly used types and interfaces. All core types are exported from this file.
+-
+-### Database & Adapters
+-
+-- **[Database Adapter Types](https://github.com/payloadcms/payload/blob/3.x/packages/payload/src/database/types.ts)** - Base adapter interface
+-- **[MongoDB Adapter](https://github.com/payloadcms/payload/blob/3.x/packages/db-mongodb/src/index.ts)** - MongoDB-specific options
+-- **[Postgres Adapter](https://github.com/payloadcms/payload/blob/3.x/packages/db-postgres/src/index.ts)** - Postgres-specific options
+-
+-### Rich Text & Plugins
+-
+-- **[Lexical Types](https://github.com/payloadcms/payload/blob/3.x/packages/richtext-lexical/src/exports/server/index.ts)** - Lexical editor configuration
+-
+-When users need detailed type information, fetch these URLs to provide complete signatures and optional parameters.
+diff -ru -x NOTICE.md -x UPSTREAM-LICENSE.md upstream/reference/ENDPOINTS.md ours/reference/ENDPOINTS.md
+--- upstream/reference/ENDPOINTS.md
++++ ours/reference/ENDPOINTS.md
+@@ -625,10 +625,3 @@
+ 8. **Log errors** - Use `req.payload.logger` for debugging
+ 9. **Document with `custom`** - Add OpenAPI metadata for API docs
+ 10. **Factory pattern for reuse** - Create endpoint factories for plugins
+-
+-## Resources
+-
+-- REST API Overview: <https://payloadcms.com/docs/rest-api/overview>
+-- Custom Endpoints: <https://payloadcms.com/docs/rest-api/overview#custom-endpoints>
+-- Access Control: <https://payloadcms.com/docs/access-control/overview>
+-- Local API: <https://payloadcms.com/docs/local-api/overview>
+Only in upstream/reference: PLUGIN-DEVELOPMENT.md

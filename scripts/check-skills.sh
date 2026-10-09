@@ -50,14 +50,20 @@ for name in "${!listed[@]}"; do [ -d "$DIR/$name" ] || err "manifest lists '$nam
 for name in "${!third[@]}"; do
   [ -d "$DIR/$name" ] || continue
   [ -f "$DIR/$name/NOTICE.md" ] || err "third-party skill '$name' has no NOTICE.md"
-  ls "$DIR/$name" | grep -qiE '^(upstream-)?licen[cs]e' || err "third-party skill '$name' has no license file"
+  lic=0
+  for lf in "$DIR/$name"/*; do
+    b=$(basename "$lf")
+    if [[ "${b,,}" =~ ^(upstream-)?licen[cs]e(\.(md|txt))?$ ]] && [ -f "$lf" ] && [ ! -L "$lf" ] && [ -s "$lf" ]; then lic=1; fi
+  done
+  [ "$lic" = 1 ] || err "third-party skill '$name' has no license file (LICENSE, LICENSE.md/.txt or UPSTREAM-LICENSE*, non-empty, at the top of the folder)"
   row=""
   [ -f "$DIR/SKILLS-LOCK.md" ] && row=$(grep -E "^\| *([^|]*[ ,])?$name([ ,][^|]*)? *\|" "$DIR/SKILLS-LOCK.md" | head -n1 || true)
   if [ -z "$row" ]; then err "third-party skill '$name' has no row in SKILLS-LOCK.md"; continue; fi
-  lock_sha=$(grep -oE '\b[0-9a-f]{40}\b' <<<"$row" | head -n1 || true)
-  notice_sha=$( [ -f "$DIR/$name/NOTICE.md" ] && grep -oE '\b[0-9a-f]{40}\b' "$DIR/$name/NOTICE.md" | head -n1 || true)
+  lock_sha=$(grep -oiE '\b[0-9a-f]{40}\b' <<<"$row" | head -n1 | tr 'A-F' 'a-f' || true)
+  notice_sha=$( [ -f "$DIR/$name/NOTICE.md" ] && grep -oiE '\b[0-9a-f]{40}\b' "$DIR/$name/NOTICE.md" | head -n1 | tr 'A-F' 'a-f' || true)
   [ -n "$lock_sha" ] || err "SKILLS-LOCK.md row for '$name' has no full 40-character commit"
-  [ -z "$lock_sha" ] || [ "$lock_sha" = "$notice_sha" ] || err "commit for '$name' differs between SKILLS-LOCK.md and NOTICE.md"
+  [ -n "$notice_sha" ] || err "NOTICE.md for '$name' has no full 40-character commit"
+  [ -z "$lock_sha" ] || [ -z "$notice_sha" ] || [ "$lock_sha" = "$notice_sha" ] || err "commit for '$name' differs between SKILLS-LOCK.md and NOTICE.md"
 done
 # Each skill's front matter name matches its folder.
 for name in "${!listed[@]}"; do
@@ -70,10 +76,18 @@ for name in "${!requires[@]}"; do
   [ -n "${listed[${requires[$name]}]:-}" ] || err "skill '$name' requires '${requires[$name]}', which is not in the manifest"
 done
 # Agents may only preload skills from the manifest, and always together with what they require.
-if [ -d .claude/agents ]; then
+if [ ! -d .claude/agents ]; then
+  err "missing .claude/agents (the agent skill preloads can't be checked)"
+else
+  shopt -s nullglob
   for agent in .claude/agents/*.md; do
-    line=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1 && /^skills:/{sub(/^skills:[ ]*/,""); print; exit}' "$agent")
-    [ -n "$line" ] || continue
+    [ -f "$agent" ] || continue
+    fmt=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$agent")
+    grep -q '^skills:' <<<"$fmt" || continue
+    line=$(grep -m1 '^skills:' <<<"$fmt" | sed 's/^skills:[[:space:]]*//; s/[[:space:]]*$//')
+    if ! [[ "$line" =~ ^[a-z0-9][a-z0-9-]*([[:space:]]*,[[:space:]]*[a-z0-9][a-z0-9-]*)*$ ]]; then
+      err "$(basename "$agent"): 'skills:' must be a one-line comma list (e.g. skills: a, b), got '$line'"; continue
+    fi
     IFS=',' read -r -a sk <<< "$line"
     have=" "; for x in "${sk[@]}"; do x="${x//[[:space:]]/}"; have+="$x "; done
     for x in $have; do
@@ -82,6 +96,7 @@ if [ -d .claude/agents ]; then
       [ -z "$r" ] || [[ "$have" == *" $r "* ]] || err "$(basename "$agent"): '$x' must be loaded together with '$r'"
     done
   done
+  shopt -u nullglob
 fi
 
 while IFS= read -r -d '' p; do err "symlink not allowed: $p"; done < <(find "$DIR" -mindepth 2 -type l -print0)

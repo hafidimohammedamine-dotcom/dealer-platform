@@ -51,7 +51,7 @@ jobs:
             --model opus
             --max-turns 200
             --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,TodoWrite,Skill,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(node:*),Bash(corepack:*),Bash(cd:*),Bash(pwd),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(mkdir:*),Bash(test:*),Bash(true),Bash(rm -rf .worktrees/:*)"
-            --disallowedTools "Bash(npx:*),Bash(npm:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env),Bash(printenv:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --disallowedTools "Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env),Bash(printenv:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # Builders work only inside the repo (worktrees in .worktrees/, git-ignored). Allow-list: git, gh, yarn and basic
           # shell; no npx/npm/curl, no reading the runner's environment or credentials. Agents ask with REQUEST: when blocked.
       - name: Show blocked tool calls (names and commands only)
