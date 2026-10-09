@@ -94,7 +94,7 @@ issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes i
 A pull request merges only when **all** of these say PASS with **zero findings at any level**:
 security, tester, architect, compliance, designer (if screens changed). Plus CI is green and a founder approves.
 There is no "fix it later". Every finding is fixed in the same pull request.
-Escalation: builder fixes for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1) finds the root cause and fixes it
+Escalation: builder fixes for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1; Opus while Fable usage is unavailable) finds the root cause and fixes it
 itself -> if that still fails review, the PR is `blocked` for the founders.
 The Chief Engineer may edit any folder to fix a root cause, except founders-only files.
 
