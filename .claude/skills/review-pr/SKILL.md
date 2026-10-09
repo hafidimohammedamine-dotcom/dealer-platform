@@ -21,7 +21,9 @@ Launch these agents **at the same time**, each with the PR number, the diff, and
 - `designer` - only if files changed under `apps/admin/src/views/`, `apps/admin/src/website/`, `packages/ui/`, or admin components
 - `docs` - always (checks that behavior changes updated `docs/`)
 
-Tell each one: "Review only. Do not edit files. Use your exact report format."
+Tell each one: "Review only. Do not edit files. Use your exact report format. For third-party skill folders under
+`.claude/skills/` (those marked `third-party` in `.claude/skills/manifest.txt`), report only the five risk types listed in
+CLAUDE.md 'Review policy'; everything else keeps the full zero-findings rule."
 
 ## Step 3 - Decide
 - PASS only if: CI commands all passed, and **every** reviewer returned PASS or NOT APPLICABLE with zero findings.

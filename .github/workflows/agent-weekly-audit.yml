@@ -14,22 +14,21 @@ jobs:
       issues: write
       pull-requests: read
       actions: read
-      id-token: write
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
       - run: corepack enable
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
-          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          github_token: ${{ github.token }}
           prompt: "/weekly-audit"
           claude_args: |
             --model opus

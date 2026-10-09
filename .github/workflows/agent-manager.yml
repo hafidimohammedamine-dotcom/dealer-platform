@@ -22,17 +22,16 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
       GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}   # pushes/PRs with this token trigger the review workflow
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           token: ${{ secrets.AGENT_GH_TOKEN }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
       - run: corepack enable
@@ -40,11 +39,10 @@ jobs:
         run: |
           git config user.name "agent-manager"
           git config user.email "agents@users.noreply.github.com"
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
           github_token: ${{ secrets.AGENT_GH_TOKEN }}
-          show_full_output: true   # temporary: shows every step in the log while we tune permissions
           prompt: "/manager ${{ github.event.inputs.focus }}"
           claude_args: |
             --model opus

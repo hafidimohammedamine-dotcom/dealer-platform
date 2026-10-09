@@ -1,0 +1,13 @@
+# Founder-owned paths. GitHub asks the code owner to review PRs that touch them.
+# This file only enforces anything when branch protection on main has "Require review from Code Owners" on
+# (needs a paid GitHub plan for a private repo). Until then the real guards are the CI checks
+# (scripts/check-founder-files.sh, scripts/check-skills.sh) and founders reading every PR.
+CLAUDE.md                        @hafidimohammedamine-dotcom
+CLAUDE.local.md                  @hafidimohammedamine-dotcom
+.mcp.json                        @hafidimohammedamine-dotcom
+/.claude/                        @hafidimohammedamine-dotcom
+/.github/                        @hafidimohammedamine-dotcom
+/scripts/check-*                 @hafidimohammedamine-dotcom
+/scripts/gitleaks-config*        @hafidimohammedamine-dotcom
+/.gitleaks.toml                  @hafidimohammedamine-dotcom
+/packages/contracts/             @hafidimohammedamine-dotcom

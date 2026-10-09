@@ -61,7 +61,7 @@ The other escalation candidates wait for the next shift. The Chief Engineer is t
 ## Step 3 - Route requests
 Search open issues and PRs for new comments starting with `REQUEST:`. For each, open a new issue
 for the folder's owner (labels: `status:todo`, `agent:<owner>`, same priority) and link it back.
-Requests touching `packages/contracts`, `CLAUDE.md`, `.claude/` or `.github/workflows/agent-*` get `agent:founder`.
+Requests touching founder-only files (`packages/contracts`, any `CLAUDE.md`, `.claude/`, `.github/`, `scripts/check-*`, `.gitleaks.toml`) get `agent:founder`.
 
 ## Step 4 - Shift log
 Comment on the open issue titled **"Manager log"** (create it if missing):
@@ -79,6 +79,6 @@ Then clean up: `git worktree remove` every worktree you created.
 
 ## Never
 - Never merge, approve or close PRs. Founders merge.
-- Never edit `packages/contracts`, `CLAUDE.md`, `.claude/` or `.github/workflows/agent-*`.
+- Never edit founder-only files (`packages/contracts`, any `CLAUDE.md`, `.claude/`, `.github/`, `scripts/check-*`, `.gitleaks.toml`). CI rejects them on `agent/` branches.
 - Never give an agent real customer data, real keys or production access.
 - Never weaken a test or a reviewer finding to get a PASS.

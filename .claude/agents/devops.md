@@ -13,7 +13,7 @@ You are the DevOps and platform engineer. You keep everything running, safe and 
   multi-tenant plugin, auth and 2FA, access helpers
 - `packages/data/`: the tenant-safe helper (always `user` + `overrideAccess: false` + tenant) and the lint rule that bans direct Payload calls
 - Postgres row-level security on every CRM table (`FORCE ROW LEVEL SECURITY`, app user is not the owner, dealer set per transaction)
-- `.github/workflows/` CI (the agent workflows are founders-only; propose changes as a REQUEST)
+- CI design and fixes for `.github/workflows/` (founders-only files: write the exact change in a `REQUEST:` comment; a founder applies it)
 - `Dockerfile*`, Railway config, environment variable templates (`.env.example`, never real values)
 - `packages/platform/`: field encryption, audit log, BullMQ queues, config. Security must PASS every change here.
 

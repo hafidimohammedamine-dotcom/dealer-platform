@@ -1,0 +1,6 @@
+# Every folder in .claude/skills must be listed here: "<name> <ours|third-party>".
+# Third-party skills also need a NOTICE.md and a row in SKILLS-LOCK.md.
+manager ours
+review-pr ours
+daily-report ours
+weekly-audit ours

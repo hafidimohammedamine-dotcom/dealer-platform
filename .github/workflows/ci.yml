@@ -1,4 +1,4 @@
-# Normal checks on every PR. Branch protection should require this to pass.
+# Normal checks on every PR and on main. Founder-owned file.
 name: CI
 on:
   pull_request:
@@ -12,13 +12,54 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      BASE_REF: ${{ github.base_ref }}
+      HEAD_REF: ${{ github.head_ref }}
+      EVENT: ${{ github.event_name }}
+      GITLEAKS_VERSION: 8.18.4
+      GITLEAKS_SHA256: ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - name: Secret scan (gitleaks, free CLI)
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --redact --verbose
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - name: Install gitleaks (pinned by checksum)
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum --check
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+      - name: Secret scan (full history)
+        run: /tmp/gitleaks detect --source=. --redact --verbose
+      - name: Use the base branch's guard scripts
+        # A PR must not be able to change the checks it is judged by. If the base branch doesn't have a script yet,
+        # only a founder/ branch may bring it in.
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/guards
+          for s in check-founder-files.sh check-skills.sh; do
+            if [ "$EVENT" = pull_request ]; then
+              git fetch -q origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+              if git cat-file -e "origin/$BASE_REF:scripts/$s" 2>/dev/null; then
+                git show "origin/$BASE_REF:scripts/$s" > "/tmp/guards/$s"; echo "$s: base branch copy"
+              else
+                case "$HEAD_REF" in founder/*) cp "scripts/$s" "/tmp/guards/$s"; echo "$s: new, from founder branch";;
+                  *) echo "ERROR: scripts/$s is missing on $BASE_REF and this is not a founder/ branch"; exit 1;; esac
+              fi
+            else
+              cp "scripts/$s" "/tmp/guards/$s"
+            fi
+          done
+      - name: Founder-only files unchanged (non-founder branches)
+        if: github.event_name == 'pull_request'
+        run: bash /tmp/guards/check-founder-files.sh "origin/$BASE_REF" "$HEAD_REF"
+      - name: Skills match manifest and checksums
+        run: bash /tmp/guards/check-skills.sh "$PWD"
+      - name: Guard script tests
+        run: |
+          bash scripts/check-founder-files.test.sh
+          bash scripts/check-skills.test.sh
+          GITLEAKS=/tmp/gitleaks bash scripts/gitleaks-config.test.sh
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: hashFiles('package.json') != ''
         with:
           node-version: 20
@@ -34,6 +75,9 @@ jobs:
       - name: Tests
         if: hashFiles('package.json') != ''
         run: yarn test
+      - name: Build
+        if: hashFiles('package.json') != ''
+        run: yarn build
       - name: Dependency audit
         if: hashFiles('package.json') != ''
         run: yarn npm audit --severity moderate --all --recursive

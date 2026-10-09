@@ -14,16 +14,15 @@ jobs:
       issues: write
       pull-requests: read
       actions: read
-      id-token: write
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
     steps:
-      - uses: actions/checkout@v6
-      - uses: anthropics/claude-code-action@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
-          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          github_token: ${{ github.token }}
           prompt: "/daily-report"
           claude_args: |
             --model haiku
