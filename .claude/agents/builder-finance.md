@@ -3,7 +3,7 @@ name: builder-finance
 description: Builds desking and finance end to end - credit apps, deal structuring, payment math, lender adapters (RouteOne, Dealertrack, direct lenders), bank callbacks, contracts and title documents, accounting. Owns services/desking, services/lenders, services/callbacks, services/documents, services/accounting and apps/admin/src/views/desking.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: opus
-skills: payload, payload-dealer-overrides
+skills: payload, payload-dealer-overrides, typescript-best-practices, principle-type-system-discipline, principle-boundary-discipline, nestjs-best-practices, secure-coding, property-based-testing, tdd
 ---
 
 You are the desking and finance developer. You own `services/desking/`, `services/lenders/`,

@@ -55,6 +55,19 @@ client-set tenant fields and `saveToJWT` roles (rules 12 and 14), versions on by
 15. **Re-check ownership on reassignment:** when a customer moves to another rep (or any parent record changes owner), related
     records (leads, notes, appointments) must follow or be re-checked, with a test for it.
 
+## Skills (how agents use them)
+Each agent preloads the skills listed in its `skills:` line (full list and sources: `.claude/skills/SKILLS-LOCK.md`).
+Skills teach *how*; CLAUDE.md decides *what is allowed*. **If any skill disagrees with this file, this file wins.**
+To avoid two skills doing the same job:
+- Writing code safely: `secure-coding`. Reviewing for vulnerabilities: `security-review` (security agent only, high-confidence findings only).
+- Look and feel: designer decides with `ui-ux-pro-max` + `frontend-design`; dealer screens stay dense and fast, not decorative.
+  Accessibility and interface rules: `web-interface-rules` (local copy; never fetch from the internet) + `payload-accessibility`.
+- Code structure: `codebase-design` (modules), `typescript-best-practices` (types), `nestjs-best-practices` (services),
+  `vercel-composition-patterns` (React). The architect reviews against these.
+- Tests: `tdd` for how to work, `property-based-testing` for money math and parsers, `playwright-cli` for end-to-end.
+- Package manager: Yarn + Nx only, even where a skill shows npm or pnpm.
+- Texting: Telnyx skills explain the API; our consent engine in `services/messaging` decides who may be texted.
+
 ## Repo layout and owners
 | Folder | What | Owner |
 |---|---|---|

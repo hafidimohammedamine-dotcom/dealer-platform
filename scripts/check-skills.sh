@@ -3,7 +3,7 @@
 # --write regenerates the file (founders only, in a skill-update PR).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PINNED=(payload)
+PINNED=(payload payload-accessibility frontend-design web-design-guidelines vercel-react-best-practices vercel-composition-patterns writing-guidelines ui-ux-pro-max supabase-postgres-best-practices nx-workspace nx-run-tasks link-workspace-packages security-review agentic-actions-auditor property-based-testing tdd codebase-design playwright-cli typescript-best-practices principle-type-system-discipline principle-boundary-discipline nestjs-best-practices telnyx-messaging-javascript telnyx-10dlc-javascript resend email-best-practices)
 SUMS=.claude/skills/checksums.sha256
 list() { for s in "${PINNED[@]}"; do find ".claude/skills/$s" -type f ! -name NOTICE.md; done | LC_ALL=C sort; }
 if [ "${1:-}" = "--write" ]; then

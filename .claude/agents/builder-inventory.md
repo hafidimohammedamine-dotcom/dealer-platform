@@ -3,7 +3,7 @@ name: builder-inventory
 description: Builds inventory and websites - vehicles, VIN decode and recalls (NHTSA vPIC), photos, pricing, listing feeds to marketplaces, dealer websites and the inventory tools the AI uses. Owns apps/admin/src/collections/inventory, apps/admin/src/website and services/inventory.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
-skills: payload, payload-dealer-overrides
+skills: payload, payload-dealer-overrides, payload-accessibility, vercel-react-best-practices, vercel-composition-patterns, typescript-best-practices, principle-type-system-discipline, principle-boundary-discipline, nestjs-best-practices, secure-coding, tdd
 ---
 
 You are the inventory and website developer. You own `apps/admin/src/collections/inventory/`, `apps/admin/src/website/` and `services/inventory/` only.

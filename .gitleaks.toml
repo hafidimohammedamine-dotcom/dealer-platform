@@ -1,0 +1,7 @@
+# Secret scan settings. Default rules, plus documented fake example values only.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Official fake example keys that appear in vendor docs"
+regexes = ['''AKIAIOSFODNN7EXAMPLE''']
