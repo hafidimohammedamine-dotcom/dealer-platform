@@ -11,10 +11,15 @@ MIN="${1:-90}"
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TESTS=(check-founder-files check-skills check-skill-upstream check-skill-deletions check-skills-upstream-all
        check-skills-vs-base check-skills-lib check-workflows check-egress-lock check-review-prepare check-pr-ci-status
-       check-review-post check-agent-token check-scrub-probe check-coverage gitleaks-config)
+       check-review-post check-agent-token check-scrub-probe check-claude-probe check-coverage check-coverage-sh
+       gitleaks-config)
+# COV_TESTS / COV_VENV: only for scripts/check-coverage-sh.test.sh (a small tree of its own, one shared venv).
+[ -z "${COV_TESTS:-}" ] || read -r -a TESTS <<<"$COV_TESTS"
 LOCK="$ROOT/.github/actions/agent-egress-lock/lock.sh"
-BASH_SCRIPTS=("$LOCK")   # every guard script except the tests and this runner (CI runs it, so it is exercised end to end)
-for f in "$ROOT"/scripts/check-*.sh; do case "$f" in *.test.sh|*/check-coverage.sh) ;; *) BASH_SCRIPTS+=("$f");; esac; done
+BASH_SCRIPTS=("$LOCK")   # every guard script except the tests (this runner too: check-coverage-sh.test.sh runs copies of it)
+for f in "$ROOT"/scripts/check-*.sh; do
+  case "$f" in *.test.sh) ;; */check-coverage.sh) [ -n "${COV_INNER:-}" ] || BASH_SCRIPTS+=("$f");; *) BASH_SCRIPTS+=("$f");; esac
+done   # a runner started by check-coverage-sh.test.sh (COV_INNER) is traced by the outer run, not by itself
 PY_SCRIPTS=("$ROOT"/scripts/check-*.py)
 for f in "$HERE"/*.test.sh; do   # every test file must be in TESTS, so none is silently skipped
   b=$(basename "$f" .test.sh); case " ${TESTS[*]} " in *" $b "*) ;; *) echo "ERROR: $f is not in TESTS in $0"; exit 1;; esac
@@ -23,9 +28,11 @@ W=$(mktemp -d "${TMPDIR:-/tmp}/cov.XXXXXX"); trap 'rm -rf "$W"' EXIT
 
 # Python: a private venv (system site-packages for PyYAML) with the pinned coverage.py.
 REAL_PY=$(command -v python3)
-"$REAL_PY" -m venv --system-site-packages "$W/venv" >/dev/null
-"$W/venv/bin/python" -m pip install -q --disable-pip-version-check --require-hashes --no-deps \
-  -r "$HERE/check-coverage-requirements.txt" >/dev/null
+if [ -n "${COV_VENV:-}" ] && [ -x "$COV_VENV/bin/python" ]; then ln -s "$COV_VENV" "$W/venv"; else
+  "$REAL_PY" -m venv --system-site-packages "$W/venv" >/dev/null
+  "$W/venv/bin/python" -m pip install -q --disable-pip-version-check --require-hashes --no-deps \
+    -r "$HERE/check-coverage-requirements.txt" >/dev/null
+fi
 # [paths]: tests that run copies of the scripts in temp folders (…/<temp>/scripts/) count for the real ones.
 printf '[run]\ndata_file = %s/py.cov\nparallel = True\n[paths]\nsource =\n    %s/scripts/\n    */scripts/\n' "$W" "$ROOT" > "$W/rc"
 mkdir -p "$W/bin"
@@ -49,24 +56,28 @@ EOF
 for t in "${TESTS[@]}"; do
   f="$HERE/$t.test.sh"
   [ -f "$f" ] || { echo "ERROR: missing test $f"; exit 1; }
-  if [ "$t" = check-coverage ] && [ -n "${COV_INNER:-}" ]; then continue; fi
+  if [ "$t" = check-coverage-sh ] && [ -n "${COV_INNER:-}" ]; then continue; fi   # that test runs this runner: no loops
   echo "== $t"
   PATH="$W/bin:$PATH" COV_TRACE="$W/trace" BASH_ENV="$W/bash-env" COV_INNER=1 bash "$f" > "$W/out" 2>&1 \
     || { cat "$W/out"; echo "ERROR: $t tests failed"; exit 1; }
   tail -n 1 "$W/out"
 done
-PATH="$W/bin:$PATH" COV_TRACE="$W/trace" BASH_ENV="$W/bash-env" bash "$HERE/check-workflows.sh" >/dev/null
+[ ! -f "$HERE/check-workflows.sh" ] || PATH="$W/bin:$PATH" COV_TRACE="$W/trace" BASH_ENV="$W/bash-env" bash "$HERE/check-workflows.sh" >/dev/null
 
 echo "== coverage (minimum $MIN% per script)"
 rc=0
-# check-egress-lock.test.sh runs temp copies of lock.sh (…/el.XXXXXX/action/lock.sh).
-"$REAL_PY" -I "$HERE/check-coverage.py" --alias ".*/el\.[A-Za-z0-9]+/action/lock\.sh=$LOCK" "$W/trace" "$MIN" "${BASH_SCRIPTS[@]}" || rc=1
+# Tests that run temp copies: check-egress-lock.test.sh (…/el.XXXXXX/action/lock.sh) and check-coverage-sh.test.sh
+# (…/ccs.XXXXXX/t.XXXXXX/scripts/check-coverage.sh).
+"$REAL_PY" -I "$HERE/check-coverage.py" --alias ".*/el\.[A-Za-z0-9]+/action/lock\.sh=$LOCK" \
+  --alias ".*/ccs\.[A-Za-z0-9]+/t\.[A-Za-z0-9]+/scripts/check-coverage\.sh=$HERE/check-coverage.sh" \
+  "$W/trace" "$MIN" "${BASH_SCRIPTS[@]}" || rc=1
 "$W/venv/bin/python" -m coverage combine --rcfile="$W/rc" -q
 "$W/venv/bin/python" -m coverage report --rcfile="$W/rc" -m --include="$(IFS=,; echo "${PY_SCRIPTS[*]}")" > "$W/py.txt" || true
 cat "$W/py.txt"
-for p in "${PY_SCRIPTS[@]}"; do
-  pct=$("$W/venv/bin/python" -m coverage report --rcfile="$W/rc" --include="$p" --format=total 2>/dev/null || echo 0)
-  if [ "${pct:-0}" -lt "$MIN" ]; then echo "ERROR: $p line coverage $pct% is below $MIN%"; rc=1; fi
+for p in "${PY_SCRIPTS[@]}"; do   # two decimals, so 89.6% is not rounded up to 90
+  pct=$("$W/venv/bin/python" -m coverage report --rcfile="$W/rc" --include="$p" --format=total --precision=2 2>/dev/null) || pct=0
+  [[ "$pct" =~ ^[0-9]+(\.[0-9]+)?$ ]] || pct=0   # "No data to report" counts as 0
+  if ! awk -v p="${pct:-0}" -v m="$MIN" 'BEGIN { exit !(p + 0 >= m + 0) }'; then echo "ERROR: $p line coverage $pct% is below $MIN%"; rc=1; fi
 done
 [ "$rc" = 0 ] && echo "Coverage OK (every guard script at least $MIN%)"
 exit "$rc"

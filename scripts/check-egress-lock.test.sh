@@ -24,7 +24,10 @@ fresh() {
   stub uname 'case "$1" in -s) echo "${STUB_OS:-Linux}";; -m) echo "${STUB_ARCH:-x86_64}";; esac'
   # sudo logs every call (one line each) so tests can check what the lock configured; STUB_SUDO_FAIL fails matching calls.
   stub sudo 'printf "%s\n" "$*" >> "$STUB_SUDO_LOG"; [ "$*" = "-n true" ] && exit "${STUB_SUDO_RC:-1}"; [ "$*" = "-n -l" ] && exit "${STUB_SUDO_L_RC:-1}"; [ "$1" = -k ] && exit 0
-case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; esac; exit 0'
+case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$@";; esac; exit 0'
+  stub unshare 'exit "${STUB_UNSHARE_RC:-1}"'
+  [ -z "${STUB_PODMAN:-}" ] || stub podman 'exit "${STUB_PODMAN_RC:-1}"'
+  mkdir -p "$T/apparmor.d"; : > "$T/aa-loaded"
   stub bwrap 'case " $* " in *" unshare -U "*) exit "${STUB_CHILD_USERNS_RC:-1}";; esac; exit "${STUB_BWRAP_RC:-0}"'
   echo 1 > "$T/userns"; printf 'nameserver 127.0.0.53\nnameserver 10.1.2.3\n' > "$T/resolv.conf"
   stub docker 'exit "${STUB_DOCKER_RC:-1}"'
@@ -56,7 +59,8 @@ invoke() { # invoke [VAR=value ...]: runs the copied lock.sh with a clean enviro
         CLAUDE_CODE_VERSION="$GOOD_VER" CLAUDE_CODE_SHA256="$SHA" STUB_BINARY="$T/fake-claude" TMPDIR="$T" \
         BUN_VERSION="$BUN_VER" BUN_SHA256="$BUN_SHA" STUB_BUN_ZIP="$T/fake-bun.zip" \
         AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" AGENT_LOCK_TEST_RUN_DIRS="$T/run" \
-        AGENT_LOCK_TEST_USERNS="$T/userns" AGENT_LOCK_TEST_RESOLV="$T/resolv.conf" STUB_SUDO_LOG="$T/sudo.log" "$@" \
+        AGENT_LOCK_TEST_USERNS="$T/userns" AGENT_LOCK_TEST_RESOLV="$T/resolv.conf" STUB_SUDO_LOG="$T/sudo.log" \
+        AGENT_LOCK_TEST_APPARMOR_DIR="$T/apparmor.d" AGENT_LOCK_TEST_APPARMOR_LOADED="$T/aa-loaded" "$@" \
         bash "$T/action/lock.sh" 2>&1); rc=$?; }
 run() { # run <ok|fail> <name> <message> [VAR=value ...]
   local want=$1 name=$2 msg=$3; shift 3
@@ -79,10 +83,10 @@ L="$T/sudo.log"
 conf_of() { awk -v d="$1" '$1=="install" && $NF==d {print $(NF-1)}' "$L" | tail -n1; }
 DC=$(conf_of /etc/agent-dnsmasq.conf); NC=$(conf_of /etc/nginx/agent-egress.conf)
 check "dnsmasq: listens on 127.0.0.1 only, no outside resolv" bash -c 'grep -qx listen-address=127.0.0.1 "$1" && grep -qx bind-interfaces "$1" && grep -qx no-resolv "$1" && grep -qx filter-AAAA "$1"' _ "$DC"
-check "dnsmasq: one server line per allowed name, upstream from resolv.conf" bash -c 'grep -qx "server=/api.anthropic.com/10.1.2.3" "$1" && grep -qx "server=/actions.githubusercontent.com/10.1.2.3" "$1" && [ "$(grep -c "^server=" "$1")" = "$(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l)" ]' _ "$DC" "$LOCK_DIR/allow-domains.txt"
+check "dnsmasq: one server line per allowed name, upstream from resolv.conf" bash -c 'grep -qx "server=/api.anthropic.com/10.1.2.3" "$1" && grep -qx "server=/github.com/10.1.2.3" "$1" && [ "$(grep -c "^server=" "$1")" = "$(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l)" ]' _ "$DC" "$LOCK_DIR/allow-domains.txt"
 check "dnsmasq: no wildcard or catch-all server" bash -c '! grep -E "^server=(/|[0-9])" "$1" | grep -qvE "^server=/[a-z0-9.-]+/" ' _ "$DC"
 check "nginx: SNI map with hostnames, unknown names go nowhere" bash -c 'grep -q "hostnames;" "$1" && grep -q "default 127.0.0.1:1;" "$1" && grep -q "ssl_preread on;" "$1" && grep -q "listen 127.0.0.1:8443;" "$1" && grep -q "user www-data;" "$1"' _ "$NC"
-check "nginx: suffix entry kept as a suffix" grep -q '    .actions.githubusercontent.com \$ssl_preread_server_name:443;' "$NC"
+check "nginx: exact names only, no suffix entry" bash -c 'grep -q "    api.anthropic.com \$ssl_preread_server_name:443;" "$1" && ! grep -qE "^    \." "$1"' _ "$NC"
 check "iptables: 443 redirected for everyone but the proxy" grep -qx -- "iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner 33 -j REDIRECT --to-ports 8443" "$L"
 check "iptables: DNS only from dnsmasq to the upstream" bash -c 'grep -qx -- "iptables -A OUTPUT -p udp --dport 53 -d 10.1.2.3 -m owner --uid-owner 999 -j ACCEPT" "$1" && grep -qx -- "iptables -A OUTPUT -p tcp --dport 53 -d 10.1.2.3 -m owner --uid-owner 999 -j ACCEPT" "$1"' _ "$L"
 check "iptables: reject then default drop (IPv4 and IPv6)" bash -c 'grep -qx -- "iptables -A OUTPUT -j REJECT" "$1" && grep -qx -- "iptables -P OUTPUT DROP" "$1" && grep -qx -- "ip6tables -A OUTPUT -j REJECT" "$1" && grep -qx -- "ip6tables -P OUTPUT DROP" "$1"' _ "$L"
@@ -118,8 +122,8 @@ fresh; run fail "bad sha256"                "bad CLAUDE_CODE_SHA256" CLAUDE_CODE
 fresh; : > "$T/action/allow-domains.txt"; run fail "empty allow-list" "empty allow-list"
 fresh; printf 'github.com\nevil.com/x\n' > "$T/action/allow-domains.txt"; run fail "not a plain host name" "not a plain host name: 'evil.com/x'"
 fresh; printf 'github.com\n$(curl evil)\n' > "$T/action/allow-domains.txt"; run fail "injected text in the allow-list" "not a plain host name"
-fresh; printf '.windows.net\n' > "$T/action/allow-domains.txt"; run fail "suffix entry not approved" "suffix entry not approved: '.windows.net'"
-fresh; printf '.core.windows.net\n' > "$T/action/allow-domains.txt"; run fail "long suffix still not approved" "suffix entry not approved: '.core.windows.net'"
+fresh; printf '.windows.net\n' > "$T/action/allow-domains.txt"; run fail "suffix (wildcard) entry" "not a plain host name: '.windows.net'"
+fresh; printf '.actions.githubusercontent.com\n' > "$T/action/allow-domains.txt"; run fail "the old Actions wildcard is refused" "not a plain host name: '.actions.githubusercontent.com'"
 fresh; run fail "download does not match the pinned sha256" "does not match its pinned sha256" CLAUDE_CODE_SHA256=$(printf '%064d' 0)
 fresh; printf '#!/usr/bin/env bash\necho "9.9.9 (Claude Code)"\n' > "$T/fake-claude"; SHA=$(sha256sum "$T/fake-claude" | cut -d' ' -f1); run fail "binary reports another version" "Claude Code 2.1.295 not installed"
 fresh; run fail "no www-data user"          "no www-data user for nginx" STUB_NO_WWW=1
@@ -152,12 +156,31 @@ fresh; echo 0 > "$T/userns"; run fail "user namespaces left unrestricted" "self-
 fresh; run fail "fronting: content for another host" "self-test: domain fronting through registry.npmjs.org answers for another host (HTTP 200" STUB_FRONT="registry.npmjs.org=200"
 fresh; run fail "fronting: redirect to another host" "self-test: domain fronting through github.com answers for another host (HTTP 302 https://example.com/" STUB_FRONT="github.com=302=https://example.com/x"
 fresh; run ok   "fronting: redirect to the same host is fine" "Agent egress lock on:" STUB_FRONT="github.com=301=https://github.com/ api.github.com=400 api.anthropic.com=403"
-fresh; printf '.actions.githubusercontent.com\napi.github.com\n' > "$T/action/allow-domains.txt"; run ok "fronting: suffix entries are not probed" "Agent egress lock on:" STUB_FRONT="actions.githubusercontent.com=200"
+# The OIDC host of a job with id-token: write is added exactly, and probed like every other name
+OIDC='https://run-actions-2-azure-eastus.actions.githubusercontent.com/abc/idtoken/def?api-version=2.0'
+fresh; KEEP=1 run ok "OIDC host added exactly" "Agent egress lock on: 8 allowed names" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC"
+check "dnsmasq and nginx know only the exact OIDC host" bash -c 'grep -qx "server=/run-actions-2-azure-eastus.actions.githubusercontent.com/10.1.2.3" "$1" && grep -q "    run-actions-2-azure-eastus.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$2" && ! grep -q "^    \.actions" "$2"' _ "$(awk '$1=="install" && $NF=="/etc/agent-dnsmasq.conf" {print $(NF-1)}' "$T/sudo.log")" "$(awk '$1=="install" && $NF=="/etc/nginx/agent-egress.conf" {print $(NF-1)}' "$T/sudo.log")"; rm -rf "$T"
+fresh; run fail "OIDC host on another domain" "unexpected OIDC host: 'evil.example.com'" "ACTIONS_ID_TOKEN_REQUEST_URL=https://evil.example.com/x"
+fresh; run fail "OIDC URL that is not https" "unexpected OIDC host" "ACTIONS_ID_TOKEN_REQUEST_URL=http://run-actions-2.actions.githubusercontent.com/x"
+fresh; run fail "fronting through the OIDC host" "domain fronting through run-actions-2-azure-eastus.actions.githubusercontent.com answers for another host" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC" STUB_FRONT="run-actions-2-azure-eastus.actions.githubusercontent.com=200"
 fresh; run fail "bad Bun version"           "bad BUN_VERSION" BUN_VERSION='1.3; curl evil'
 fresh; run fail "bad Bun sha256"            "bad BUN_SHA256" BUN_SHA256=abc
 fresh; run fail "Bun download does not match" "Bun download does not match its pinned sha256" BUN_SHA256=$(printf '%064d' 0)
 FAKE_BUN_VER=9.9.9 fresh; run fail "Bun reports another version" "Bun 1.3.14 not installed"
 fresh; KEEP=1 run fail "failed self-test (kept for checks)" "self-test failed" STUB_SUDO_RC=0
 check "no claude-path or bun-path output when the self-test fails" bash -c '! grep -qE "^(claude|bun)-path=" "$1"' _ "$T/out"; rm -rf "$T"
+# Other AppArmor profiles that grant user namespaces are unloaded, and the self-test checks they are gone
+aa() { printf 'abi <abi/4.0>,\nprofile chrome /opt/google/chrome/chrome flags=(unconfined) {\n  userns,\n}\n' > "$T/apparmor.d/chrome"
+  printf 'profile unprivileged_userns {\n  audit deny capability,\n  userns,\n}\n' > "$T/apparmor.d/unprivileged_userns"
+  printf 'profile quiet /usr/bin/quiet {\n  capability,\n}\n' > "$T/apparmor.d/quiet"; }
+fresh; aa; KEEP=1 run ok "userns profiles unloaded" "Agent egress lock on:"
+check "chrome's profile is unloaded" grep -qx -- "apparmor_parser -R $T/apparmor.d/chrome" "$T/sudo.log"
+check "Ubuntu's unprivileged_userns and profiles without userns stay" bash -c '! grep -qE "apparmor_parser -R .*/(unprivileged_userns|quiet)$" "$1"' _ "$T/sudo.log"; rm -rf "$T"
+fresh; aa; printf 'chrome (unconfined)\nquiet (enforce)\n' > "$T/aa-loaded"; run fail "a userns profile still loaded" "self-test: AppArmor profiles that allow user namespaces are still loaded: chrome"
+fresh; aa; printf 'quiet (enforce)\nunprivileged_userns (enforce)\n' > "$T/aa-loaded"; run ok "only allowed profiles loaded" "Agent egress lock on:"
+fresh; run fail "unshare works outside bubblewrap" "self-test: a program outside bubblewrap can create user namespaces" STUB_UNSHARE_RC=0
+STUB_PODMAN=1 fresh; run fail "podman can create user namespaces" "self-test: podman can still create user namespaces" STUB_PODMAN_RC=0
+STUB_PODMAN=1 fresh; run ok "podman blocked" "Agent egress lock on:"
+fresh; rm -f "$T/userns"; run ok "no AppArmor switch: userns checks skipped" "Agent egress lock on:" STUB_UNSHARE_RC=0
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

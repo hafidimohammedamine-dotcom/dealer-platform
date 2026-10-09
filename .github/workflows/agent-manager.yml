@@ -20,7 +20,7 @@ jobs:
     # since the focus text goes into the manager's prompt).
     if: >-
       github.event_name == 'schedule' ||
-      github.actor == 'hafidimohammedamine-dotcom' ||
+      github.actor_id == '238822878' ||
       (github.actor == 'github-actions[bot]' && github.event.inputs.focus == '')
     runs-on: ubuntu-latest
     timeout-minutes: 150
@@ -43,7 +43,7 @@ jobs:
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
       - name: Agents must run on their own GitHub token, never a founder's
-        run: bash scripts/check-agent-token.sh .github/founders.txt
+        run: bash scripts/check-agent-token.sh .github/founder-ids.txt
       - run: corepack enable
       - name: Git identity
         run: |

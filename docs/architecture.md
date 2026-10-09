@@ -35,7 +35,10 @@ Failure handling: `docs/runbooks/ci-guards.md`.
   with a claude step runs on `pull_request` or `workflow_run`; tag mode (no prompt) only on issues.
 - `scripts/check-scrub-probe.sh` (job `scrub` in `egress-lock-claude.yml`, from `main`): run by Claude as a tool, it counts the
   Claude tokens a tool can see and prints counts only; the job fails above 0.
-- `scripts/check-agent-token.sh` (manager, before Claude): the agents' GitHub token must not belong to a founder.
+- `scripts/check-agent-token.sh` (every job holding the agents' token, before Claude): the token must be a fine-grained token
+  of a non-founder account (founders matched by numeric ID from `.github/founder-ids.txt`).
+- `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny and scrub probes from the
+  claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard
   script's tests through `scripts/check-coverage.sh` (each guard script at least 90% line coverage).
 

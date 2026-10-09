@@ -156,8 +156,12 @@ Workflows with a claude step
   Claude token).
 - `expected exactly one claude step in agent-manager.yml (found N)`; `agent-manager.yml: missing deny <item>` - the manager keeps
   every deny in `manager_denies`.
-- `<job>: needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step` - the manager must stop when its
-  GitHub token is a founder's (see `docs/runbooks/agent-network-lock.md`).
+- `<job>: needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step` - the manager, and every job that
+  uses `AGENT_GH_TOKEN`, must stop when that token is not the agents' fine-grained token (see
+  `docs/runbooks/agent-network-lock.md`).
+- `<file> job <j>: compares a login in 'if' (logins can be re-registered); compare the numeric ID` / `user ID <n> is not in
+  .github/founder-ids.txt` - a workflow that only a founder may start compares `github.actor_id` or `...user.id` with an ID
+  listed in `.github/founder-ids.txt` (bot names like `github-actions[bot]` may still be compared by name).
 
 Jobs with a claude step
 - `a job with a claude step must start with actions/checkout, then ./.github/actions/agent-egress-lock`; `the
@@ -230,14 +234,16 @@ reports it can't see the skill, **do not remove the deny**: open an `area:securi
 
 ## Workflow "CI" (job `checks`), step "Guard script tests and coverage (every guard script at least 90%)"
 The step runs `bash scripts/check-workflows.sh` and `bash scripts/check-coverage.sh 90`. The coverage script runs every
-`scripts/*.test.sh` (it fails if a test file is missing from its `TESTS` list), then measures line coverage:
+`scripts/*.test.sh` (it fails if a test file is missing from its `TESTS` list; `scripts/check-coverage-sh.test.sh` tests the
+runner itself on a small tree), then measures line coverage:
 - bash guard scripts (every `scripts/check-*.sh` except tests and the runner itself, plus `lock.sh`): each test run traces
   through a `BASH_ENV` hook, and `scripts/check-coverage.py` scores each command (a command that spans several lines counts once);
 - Python guard scripts: coverage.py 7.6.1, installed with pinned hashes from `scripts/check-coverage-requirements.txt` into a
   private venv that is put in front of `PATH` as `python3` only for the tests.
 Messages: `ERROR: <test> tests failed` (the failing test's output is printed above it), `<script> ... <-- below minimum` with
-the commands that never ran, `ERROR: <script.py> line coverage N% is below 90%`, `ERROR: <file> is not in TESTS`, and
-`Coverage OK (every guard script at least 90%)`. Fix: add a test case for the commands listed as not run. To see one test's
+the commands that never ran, `ERROR: <script.py> line coverage N.NN% is below 90%` (two decimals, so 89.6% does not round
+up), `ERROR: <file> is not in TESTS`, `ERROR: missing test <file>`, `bad minimum percent`, and `Coverage OK (every guard script
+at least 90%)`. Fix: add a test case for the commands listed as not run. To see one test's
 cases, run it alone, for example `bash scripts/check-egress-lock.test.sh`; `GITLEAKS=/path/to/gitleaks` is needed for
 `scripts/gitleaks-config.test.sh` (it exits 2 if gitleaks can't run).
 "Secret scan of all history (pushes to main)" failing means a secret reached `main`: follow "Real key" above.

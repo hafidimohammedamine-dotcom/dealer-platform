@@ -17,7 +17,9 @@ enforces that). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
 4. Installs bubblewrap and socat for Claude Code's subprocess isolation (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`). Where AppArmor
    restricts unprivileged user namespaces, it keeps that restriction on (`kernel.apparmor_restrict_unprivileged_userns=1`).
    Only `/usr/bin/bwrap` may create user namespaces (AppArmor profile `agent-bwrap`). Everything bwrap starts runs stacked
-   under the child profile `agent-bwrap-child`, which has no capabilities and may not create user namespaces.
+   under the child profile `agent-bwrap-child`, which has no capabilities and may not create user namespaces. The image's
+   other profiles that grant user namespaces (browsers, podman, lxc, sbuild and more; measured on 2026-10-09) are unloaded;
+   Ubuntu's own `unprivileged_userns` profile stays.
 5. Stops Docker and removes sudo for the runner user, for `ALL`, and for every group the job's processes carry, so no later
    step can undo the lock.
 6. Self-tests and fails the job on any problem. Only after the self-test passes does it write the `claude-path` and `bun-path`
@@ -53,7 +55,8 @@ generated names.
   name (SNI)`, `raw IP without a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not
   resolve`, `DNS for a blocked name resolves`, `outside DNS server reachable`, `IPv6 reachable`, `bubblewrap cannot start
   (subprocess isolation would fail)`, `unprivileged user namespaces are not restricted`, `a program started by bubblewrap
-  can create user namespaces`, and `domain fronting through <name> answers for another host (HTTP <code> <location>)`.
+  can create user namespaces`, `AppArmor profiles that allow user namespaces are still loaded: <names>`, `a program outside
+  bubblewrap can create user namespaces`, `podman can still create user namespaces`, and `domain fronting through <name> answers for another host (HTTP <code> <location>)`.
   `self-test: deliberate break` appears only in the break-on-purpose test run.
 - A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR. First
   run the domain-fronting check for it (see "Measured limits").
@@ -80,9 +83,15 @@ agents' own account: a fine-grained token for this repository only, with Content
 Actions (read), and **no Workflows permission and no admin**. Without the Workflows permission it cannot push changes to
 `.github/workflows/`.
 
-The manager checks this before Claude starts. `scripts/check-agent-token.sh` fails the job if the token's login is in
-`.github/founders.txt`:
-- `the agents' GH_TOKEN belongs to founder '<login>' ...` - the token is a founder's.
+Every job that holds the agents' token checks this before Claude starts (`scripts/check-workflows.sh` enforces it).
+`scripts/check-agent-token.sh` reads `.github/founder-ids.txt` and fails the job:
+- `GH_TOKEN is not a fine-grained (github_pat_...) or classic (ghp_...) token` - wrong kind of token or none.
+- `GH_TOKEN carries classic OAuth scopes (...)` - a fine-grained token must have no classic scopes.
+- `the classic GH_TOKEN must have exactly the scope 'repo' (has: '...')` - a classic token may have only `repo`: no
+  `workflow`, admin, gist or other scopes. A classic token is allowed because fine-grained tokens cannot cover a personal
+  account's repository for a collaborator; the agents' account (`mohammedaminehafidi-ctrl`, collaborator on this repository
+  only) uses a classic `repo` token until the repository moves to an organization.
+- `the agents' GH_TOKEN belongs to founder '<login>' ...` - the token's user ID or login is a founder's.
 - `could not read the token's GitHub login` - the token is missing or invalid.
 
 So the manager does not run at all until the agents' account and token exist. The instant fix round after a failed review also
@@ -93,8 +102,8 @@ The command deny lists are a second layer. They block `npm`, `npx`, `yarn npm pu
 auth`, `gh secret`, `curl` and `wget` in the manager. They match command prefixes, so they are not a boundary on their own.
 
 ## Measured limits
-Measured from GitHub runners on 2026-10-09 by the author of this change, not yet re-checked by a founder. The test sent
-`curl -H 'Host: <other site>' https://<allowed name>/` through the lock.
+Measured from GitHub runners on 2026-10-09 by the author of this change, accepted by the founders without a re-check (see
+"Founder decisions"). The test sent `curl -H 'Host: <other site>' https://<allowed name>/` through the lock.
 
 **Not used for fronting.** These did not answer for another site, and the self-test repeats the check against every exact
 allowed name on every run:
@@ -128,7 +137,8 @@ them powerless instead:
 ## Evidence for the Skill deny and the pins
 - Versions: Claude Code 2.1.295 and Bun 1.3.14. Tag v1.0.247 of claude-code-action is commit 2dca132f; its
   `src/entrypoints/run.ts` pins Claude Code 2.1.295 and its `action.yml` installs Bun 1.3.14.
-- Gathered by the author of this change on 2026-10-09. A founder should repeat these checks before relying on them.
+- Gathered by the author of this change on 2026-10-09. Accepted by the founders as recorded (see "Founder decisions");
+  re-checked at the next pin bump.
 - **CI:** run https://github.com/hafidimohammedamine-dotcom/dealer-platform/actions/runs/37986311153 printed
   `permission_denials: [{"tool_name": "Skill", ... "skill": "payload"}]` with the real claude-code-action under the lock. It
   was an earlier version of the egress test that still ran the probe on the PR branch; the probe now runs only from `main`.
@@ -147,3 +157,18 @@ them powerless instead:
      `SUBSKILL: SUB-SKILL-DENIED` (the deny holds in a subagent).
 
 Re-check when a pin changes.
+
+## Founder decisions (accepted risks)
+Accepted by founder Mohammed (`hafidimohammedamine-dotcom`) on 2026-10-09, in the session that built PR #30; recorded at his
+request. Owner: Mohammed. Review by 2026-11-08, or earlier if any of them changes.
+1. **Open exit routes.** An agent misled by an injected instruction that also carries an attacker's own credentials could
+   still send data to GitHub (push, issue, gist), npm (publish) or the Anthropic API. Closing these needs a read-only package
+   mirror and a GitHub proxy that accepts only this job's own token; that is a later issue, not this PR. Until then the
+   limits are the agents' repo-only fine-grained token, the manager's command denies and the reviews.
+2. **Pins and measurements checked by the author, not re-checked by a founder.** The Claude Code and Bun sha256 pins, the
+   coverage.py hashes, the claude-code-action tag-to-commit match, and the domain-fronting measurements above are accepted as
+   recorded here. A founder re-checks them at the next pin bump.
+3. **Agent workflows run under the lock for the first time after merge.** Before merge they are checked statically
+   (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml`. The Claude jobs
+   (`egress-lock-claude.yml`, manager, review, reports) first run under the lock after merge; a failure there is fixed in a
+   follow-up founder PR.

@@ -17,15 +17,19 @@ die() { echo "::error::agent egress lock: $*"; exit 1; }
 [[ "${BUN_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad BUN_SHA256"
 
 # --- Allowed names (founder-owned list; no extras from workflows) ---------------------------------------------------------
-APPROVED_SUFFIXES=".actions.githubusercontent.com"
 mapfile -t NAMES < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$HERE/allow-domains.txt" | sed '/^$/d')
 [ "${#NAMES[@]}" -gt 0 ] || die "empty allow-list"
-for d in "${NAMES[@]}"; do
-  [[ "$d" =~ ^\.?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "not a plain host name: '$d'"
-  if [[ "$d" == .* ]]; then   # subdomain wildcards only where GitHub uses many generated names
-    case " $APPROVED_SUFFIXES " in *" $d "*) ;; *) die "suffix entry not approved: '$d' (approved: $APPROVED_SUFFIXES)";; esac
-  fi
+for d in "${NAMES[@]}"; do   # exact host names only, no wildcards
+  [[ "$d" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "not a plain host name: '$d'"
 done
+# The runner's own services need no new connection during the steps (measured 2026-10-09). The one exception is the OIDC
+# token service of a job with `id-token: write` (claude.yml): its generated host name is read from the runner's variable and
+# allowed exactly, for this run only.
+if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+  OIDC_HOST=$(sed -E 's#^https://([^/:]+)/.*$#\1#' <<<"$ACTIONS_ID_TOKEN_REQUEST_URL")
+  [[ "$OIDC_HOST" =~ ^[a-z0-9-]+\.actions\.githubusercontent\.com$ ]] || die "unexpected OIDC host: '$OIDC_HOST'"
+  NAMES+=("$OIDC_HOST")
+fi
 
 # --- 1. Install the pinned Claude Code binary, checked against its pinned sha256 (from Anthropic's release manifest) ------
 BIN="$HOME/.local/bin/claude"
@@ -57,6 +61,15 @@ if [ -f "$USERNS" ]; then
   sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=1
   sudo install -m 0644 "$HERE/agent-bwrap.apparmor" /etc/apparmor.d/agent-bwrap
   sudo apparmor_parser -r /etc/apparmor.d/agent-bwrap || die "could not load the AppArmor profile for bubblewrap"
+  # Other profiles on the image grant user namespaces too (browsers, podman, lxc, ...); unload them so only bwrap keeps it.
+  # unprivileged_userns stays: it is the profile the kernel uses to restrict user namespaces of unconfined programs.
+  AA_DIR="${AGENT_LOCK_TEST_APPARMOR_DIR:-/etc/apparmor.d}"
+  AA_LOADED="${AGENT_LOCK_TEST_APPARMOR_LOADED:-/sys/kernel/security/apparmor/profiles}"
+  mapfile -t UNS < <(grep -lE '^[[:space:]]*(audit[[:space:]]+)?(allow[[:space:]]+)?userns' "$AA_DIR"/* 2>/dev/null | grep -vE '/(agent-bwrap|unprivileged_userns)$' || true)
+  for f in "${UNS[@]}"; do sudo apparmor_parser -R "$f" >/dev/null 2>&1 || true; done
+  # Checked now, while sudo still works (the list of loaded profiles is root-only); reported by the self-test.
+  UNS_NAMES=$( { [ "${#UNS[@]}" = 0 ] || awk '$1 == "profile" {print $2}' "${UNS[@]}"; } | sort -u)
+  UNS_LEFT=$(sudo cat "$AA_LOADED" 2>/dev/null | awk '{print $1}' | grep -xF -f <(printf '%s\n' "$UNS_NAMES" | sed '/^$/d') || true)
 fi
 UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
 [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
@@ -161,6 +174,11 @@ if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolve
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
 bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
+[ -z "${UNS_LEFT:-}" ] || bad "AppArmor profiles that allow user namespaces are still loaded: $(echo $UNS_LEFT)"
+if [ -f "$USERNS" ] && unshare -U true 2>/dev/null; then bad "a program outside bubblewrap can create user namespaces"; fi
+if [ -f "$USERNS" ] && command -v podman >/dev/null && podman unshare true >/dev/null 2>&1; then
+  bad "podman can still create user namespaces"
+fi
 if [ -f "$USERNS" ] && bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
   bad "a program started by bubblewrap can create user namespaces"
 fi
@@ -168,9 +186,8 @@ if [ -f "$USERNS" ] && [ "$(cat "$USERNS")" != 1 ]; then
   bad "unprivileged user namespaces are not restricted"
 fi
 # Domain fronting: each exact allowed name, asked for another site in the HTTP Host header, must not answer with content
-# (2xx) or send us to another host (3xx). Suffix entries are measured in the runbook instead (generic health answers).
+# (2xx) or send us to another host (3xx).
 for d in "${NAMES[@]}"; do
-  [[ "$d" == .* ]] && continue
   read -r code loc < <(curl -sS -o /dev/null --max-time 10 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
   lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
   if [[ "${code:-000}" == 2* ]] || { [[ "${code:-000}" == 3* ]] && [ "$lh" != "$d" ]; }; then

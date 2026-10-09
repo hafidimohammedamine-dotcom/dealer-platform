@@ -66,7 +66,7 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 3. Answer anything `blocked` or `agent:founder`.
 4. Add new issues with the **Agent task** template. Small and specific = faster and cheaper.
 
-## Costs and limits (steady pace)
+## Costs and limits (max pace)
 - **Claude:** two Max plans ($400/month). If agents hit the limit they stop and the next shift continues.
   Seeing many stopped shifts? Turn on extra usage with a monthly cap, or slow the manager to every 4-6 hours (`cron` in `agent-manager.yml`).
 - **GitHub Actions minutes:** private repos get a free monthly allowance; non-stop agents will go past it.

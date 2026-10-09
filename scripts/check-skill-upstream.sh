@@ -84,9 +84,9 @@ fi
 PATCH="$ROOT/.claude/skills-patches/$NAME.diff"
 S=$(mktemp -d "${TMPDIR:-/tmp}/su-rec.XXXXXX"); trap 'rm -rf "$S"' EXIT
 cp -R "$UP" "$S/upstream"; cp -R "$OURS" "$S/ours"
-xargs_=(); for x in "${EXTRA[@]}"; do xargs_+=(-x "$x"); done
+diff_excludes=(); for x in "${EXTRA[@]}"; do diff_excludes+=(-x "$x"); done
 norm() { sed -E -e '/^diff /d' -e 's/^((---|\+\+\+) [^	]*)	.*$/\1/'; }
-rc=0; (cd "$S" && diff -ru -a "${xargs_[@]}" upstream ours) > "$S/now.diff" || rc=$?
+rc=0; (cd "$S" && diff -ru -a "${diff_excludes[@]}" upstream ours) > "$S/now.diff" || rc=$?
 [ "$rc" -le 1 ] || { echo "ERROR: diff of upstream and ours failed (exit $rc)"; exit 1; }
 if [ ! -s "$S/now.diff" ]; then
   [ ! -s "$PATCH" ] || { echo "ERROR: $NAME.diff records changes but our copy equals upstream"; exit 1; }

@@ -56,3 +56,11 @@
 - `claude.yml` (founder @claude mentions) answers on issues only: without a prompt the action checks out an open PR's code
   itself, and nested rule files from the PR would load.
 - Messages and fixes for every check: `docs/runbooks/ci-guards.md`.
+- Founders are matched by numeric GitHub user ID (`.github/founder-ids.txt`) in workflow conditions, and the checker rejects
+  login comparisons. The agents' token check also requires a fine-grained token with no classic scopes, and runs in every job
+  that holds `AGENT_GH_TOKEN`.
+- The lock unloads the image's other AppArmor profiles that grant user namespaces (browsers, podman, lxc, ...).
+- `scripts/check-claude-probe.py` decides the Claude probes (was inline Python); `scripts/check-coverage-sh.test.sh` tests
+  the coverage runner, and Python coverage is compared with two decimals.
+- Founder decisions on the remaining open routes, unverified pins and post-merge first runs are recorded in
+  `docs/runbooks/agent-network-lock.md` ("Founder decisions").

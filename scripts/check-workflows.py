@@ -165,6 +165,41 @@ def check_file(path, required):
     return count
 
 
+LOGIN_CMP = re.compile(r"(github\.(?:triggering_)?actor|\.login)\s*[!=]=\s*'(?![^']*\[bot\]')")  # bot names cannot be registered
+ID_CMP = re.compile(r"(?:actor_id|user\.id|sender\.id)\s*[!=]=\s*'?(\d+)")
+
+
+def ifs_of(doc):
+    """Every `if` text in a workflow (jobs and steps)."""
+    out = []
+    for jn, job in (doc.get("jobs") or {}).items() if isinstance(doc, dict) else []:
+        if isinstance(job, dict):
+            out.append((f"job {jn}", str(job.get("if", ""))))
+            for i, st in enumerate(job.get("steps") or [], 1):
+                if isinstance(st, dict):
+                    out.append((f"job {jn} step {i}", str(st.get("if", ""))))
+    return out
+
+
+def check_founder_ids(root, files):
+    """People are matched by numeric ID (a login can be renamed and re-registered); every ID compared in a workflow must be
+    a founder's ID in .github/founder-ids.txt."""
+    ids = set()
+    path = os.path.join(root, ".github", "founder-ids.txt")
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as fh:
+            ids = {ln.split()[0] for ln in (x.split("#", 1)[0] for x in fh) if ln.split()}
+    for f in files:
+        name = os.path.basename(f)
+        doc = load_yaml(f, name)
+        for where, text in ifs_of(doc):
+            if LOGIN_CMP.search(text):
+                err(f"{name} {where}: compares a login in 'if' (logins can be re-registered); compare the numeric ID")
+            for i in ID_CMP.findall(text):
+                if i not in ids:
+                    err(f"{name} {where}: user ID {i} is not in .github/founder-ids.txt")
+
+
 def parse_args(argv):
     root, manifests, rest = None, [], list(argv)
     while rest:
@@ -202,6 +237,7 @@ def main(argv):
     required = third_party(manifests + ([own] if os.path.isfile(own) else []))
     counts = {os.path.basename(f): check_file(f, required) for f in files}
     check_actions(root)
+    check_founder_ids(root, files)
     if counts.get(MANAGER, 0) != 1:
         err(f"expected exactly one claude step in {MANAGER} (found {counts.get(MANAGER, 0)})")
     for e in errors:

@@ -7,7 +7,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMPROOT="${TMPDIR:-/tmp}"
 W=.github/workflows
 pass=0; failed=0
-fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github"; cp -r "$REPO/$W" "$T/.github/"; }
+fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github"; cp -r "$REPO/$W" "$T/.github/"; cp "$REPO/.github/founder-ids.txt" "$T/.github/"; }
 expect() { # expect <ok|fail> <name> <message> [extra args]
   local want=$1 name=$2 msg=$3; shift 3
   out=$(bash "$SCRIPT" "$T" "$@" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
@@ -269,5 +269,12 @@ if [ $rc != 0 ] && grep -q "cannot read check-workflows-policy.json" <<<"$out"; 
 echo '{not json' > "$P2/check-workflows-policy.json"; out=$(python3 -I "$P2/check-workflows.py" "$REPO" 2>&1); rc=$?
 if [ $rc != 0 ] && grep -q "cannot read check-workflows-policy.json" <<<"$out"; then pass=$((pass+1)); echo "PASS  broken policy file fails closed"; else failed=$((failed+1)); echo "FAIL  broken policy file"; echo "$out"; fi
 rm -rf "$P0"
+# Founders by numeric ID; the agents' token always behind the token check
+fresh; sed -i "s/github.event.comment.user.id == 238822878/github.event.comment.user.login == 'someone'/" "$T/$W/claude.yml"; expect fail "founder matched by login" "compares a login in 'if' (logins can be re-registered)"
+fresh; sed -i "s/github.actor_id == '238822878'/github.actor == 'someone'/" "$T/$W/agent-manager.yml"; expect fail "manual run matched by github.actor" "compares a login in 'if'"
+fresh; sed -i "s/github.event.comment.user.id == 238822878/github.event.comment.user.id == 12345/" "$T/$W/claude.yml"; expect fail "unknown user ID" "user ID 12345 is not in .github/founder-ids.txt"
+fresh; rm "$T/.github/founder-ids.txt"; expect fail "no founder-ids file" "user ID 238822878 is not in .github/founder-ids.txt"
+fresh; grep -q "github-actions\[bot\]" "$T/$W/agent-manager.yml" && expect ok "a bot name may be compared" "Workflow denies OK"
+t; sed -i 's|^    runs-on: ubuntu-latest$|    runs-on: ubuntu-latest\n    if: github.event_name == '"'"'x'"'"'|' "$T/$W/t.yml"; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}|' "$T/$W/t.yml"; expect fail "agents' token without the token check" "needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]
