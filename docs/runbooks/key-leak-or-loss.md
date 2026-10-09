@@ -9,8 +9,16 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 1. Both founders, right away, in a private channel. Not in an issue, a PR comment or a chat with an agent.
 2. Devops, who owns environment variables and hosting.
 3. The security reviewer, for the fix and the review of how it leaked.
-4. Compliance and your lawyer, who decide whether any dealer or customer must be told. Do not contact dealers yourself
-   before the founders decide.
+4. Compliance and your lawyer, **the same day** the leak is found. Legal notice clocks may start on the day of discovery
+   (lawyer to confirm):
+   - **FTC Safeguards Rule**, 16 CFR 314.4(h) (written incident response plan) and 314.4(j) (notice to the FTC as soon as
+     possible and no later than 30 days after discovery, when the information of 500 or more consumers is involved).
+   - **Ohio Revised Code 1349.19**: notice to affected Ohio residents after a breach of personal information.
+   - **Each dealer's own deadlines.** Dealers are the financial institutions, with their own notice duties and contract
+     terms, so they may need to hear from us well before their own deadline.
+
+   Compliance and the lawyer decide whether any dealer or customer must be told. Do not contact dealers yourself before
+   the founders decide.
 
 ## What the two keys protect
 
@@ -39,31 +47,40 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 
 ## Leak: PAYLOAD_SECRET
 
-1. Tell both founders now. Do not wait for a reply before rotating: a leaked login key is fixed by rotating it.
-2. Make a new value with `openssl rand -base64 32`. Write it straight into the Railway variable and the founders' password
+1. Write down the date and time the leak was found, and the exposure window: from the first moment the key could have
+   been seen until the moment the rotation is live. Keep this in the private incident note. The legal notice deadlines
+   are counted from discovery (lawyer to confirm).
+2. Tell both founders now. Do not wait for a reply before rotating: a leaked login key is fixed by rotating it.
+3. Make a new value with `openssl rand -base64 32`. Write it straight into the Railway variable and the founders' password
    manager. Do not paste it anywhere else.
-3. Set the new value on **staging** first. Restart staging. Check that you can sign in with 2FA.
-4. Set the new value on **production**. Restart production. Everyone signs out. This is expected.
-5. Sessions made with the old value stop working when the new value is read. There is no tool to list or end sessions one
+4. Set the new value on **staging** first. Restart staging. Check that you can sign in with 2FA.
+5. Set the new value on **production**. Restart production. Everyone signs out. This is expected.
+6. Sessions made with the old value stop working when the new value is read. There is no tool to list or end sessions one
    by one (not built).
-6. Look at the admin log for logins from the time of the leak until the rotation. This is a manual check for now.
-7. Write a short note for the founders: what leaked, where, when, and who could see it. Do not include the key value.
+7. Look at the admin log for logins from the time of the leak until the rotation. This is a manual check for now.
+8. Count the customer records that were read during the exposure window, per dealer, from the admin and database logs.
+   Note how many consumers that is and in which states. Compliance and the lawyer need the count to decide on notice,
+   for example the FTC's 500-consumer line (lawyer to confirm). There is no tool for this yet (not built).
+9. Write a short note for the founders: what leaked, where, when, and who could see it. Do not include the key value.
    The security reviewer checks the note before the incident is closed.
 
 ## Leak: FIELD_ENCRYPTION_KEY
 
 This one is harder. Data encrypted under the old key stays readable to anyone who has both the old key and a database copy.
 
-1. Tell both founders now, the same day.
-2. Limit who can read the Railway variables and the password manager entry for the key.
-3. **Do not just replace the value.** Data encrypted under the old key will not decrypt with the new key.
-4. Re-encrypt every sensitive field from the old key to the new key, in batches, with a tool that can read both keys during
+1. Write down the date and time the leak was found, and the exposure window: from the first moment the key could have
+   been seen until access to it is cut and re-encryption is done. Keep this in the private incident note. The legal notice
+   deadlines are counted from discovery (lawyer to confirm).
+2. Tell both founders now, the same day.
+3. Limit who can read the Railway variables and the password manager entry for the key.
+4. **Do not just replace the value.** Data encrypted under the old key will not decrypt with the new key.
+5. Re-encrypt every sensitive field from the old key to the new key, in batches, with a tool that can read both keys during
    the change (**not built**). Until that tool exists, a leaked `FIELD_ENCRYPTION_KEY` needs a founder decision on whether
    to hold the change until re-encryption can be done.
-5. Old database backups still hold data encrypted under the old key. Treat them as just as sensitive as the key. Ask the
+6. Old database backups still hold data encrypted under the old key. Treat them as just as sensitive as the key. Ask the
    founders how long they are kept (retention is not set in this repo yet).
-6. Compliance and your lawyer decide on any notice to dealers or customers.
-7. The security reviewer checks the fix and the note before the incident is closed.
+7. Compliance and your lawyer decide on any notice to dealers or customers, on the same day (see "Who to tell", item 4).
+8. The security reviewer checks the fix and the note before the incident is closed.
 
 ## Loss: FIELD_ENCRYPTION_KEY
 
@@ -79,7 +96,7 @@ This one is harder. Data encrypted under the old key stays readable to anyone wh
 ## Loss: PAYLOAD_SECRET
 
 Less serious. A new value signs everyone out, but no data is lost. Follow the steps in "Leak: PAYLOAD_SECRET" without the
-note in step 7. Keep the backup in the same password manager entry as the rest of the secrets.
+note in step 9. Keep the backup in the same password manager entry as the rest of the secrets.
 
 ## What not to do
 

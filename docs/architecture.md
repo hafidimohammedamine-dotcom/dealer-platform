@@ -17,5 +17,7 @@ PR opened / pushed
 A founder reads the result and merges.
 ```
 
-Agents (manager and builders) open and push PRs with the agents' own GitHub account; founders use their own accounts.
+Agents (manager and builders) are moving to their own GitHub account (`AGENT_GH_TOKEN`); founders use their own accounts.
+The switch is in progress: until it is done, agents still push with a founder's token, and the founder-only check protects
+us fully only after it (see [Guards and review](runbooks/ci-guards.md)).
 Failure handling: `docs/runbooks/ci-guards.md`.

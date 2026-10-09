@@ -7,8 +7,9 @@ Placeholders on this page look like `<password>`. Never write a real-looking val
 
 ## Status today: all 26 are reserved
 
-Nothing in the repo reads `process.env` yet. This was checked with a search of `apps/`, `services/`, `packages/`,
-`infra/` and `scripts/`. So every variable below is **reserved**: named and documented, but no code uses it.
+No code reads any of the 26 listed variables yet. This was checked with a search of `apps/`, `services/`, `packages/`,
+`infra/` and `scripts/`. (A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads
+none of these names.) So every variable below is **reserved**: named and documented, but no code uses it.
 Setting one changes nothing yet.
 
 ## Rules for values

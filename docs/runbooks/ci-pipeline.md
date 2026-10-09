@@ -104,11 +104,19 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 ### Lint fails
 
 - **ESLint error.** Read the rule name in the log. The Payload rules in `eslint.payload-ban.mjs` are:
-  - `local/no-payload-instance-access`: outside `packages/data`, do not use the Payload instance (only `logger` is allowed).
-  - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file.
-  - `no-restricted-imports`: database drivers and Payload adapters are imported only in `packages/data`.
+  - `local/no-payload-instance-access`: outside `packages/data`, nothing may be named `payload`, `getPayload…`,
+    `Payload` or `BasePayload` (only `payload.logger` is allowed), and no `Reflect` or dynamic key that is then called.
+    If the name is unrelated (a webhook body), rename the value, or ask security to add the file to
+    `payloadNameAllowedPaths`.
+  - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients only in
+    `packages/data` and `services/desking/src/db/`; `import()` and `require()` with fixed names only.
+  - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file. In `packages/data`, Local API
+    calls need one object literal with `overrideAccess: false`, `depth` and `versions`, without spreads.
+  - `no-eval`, `no-implied-eval`, `no-new-func`, `no-with`: code built from strings.
+  - `@typescript-eslint/consistent-type-assertions`: no `as` casts. Narrow with a type guard.
 
-  Use `packages/data` instead. Inline `eslint-disable` comments do not work for these rules.
+  Use `packages/data` instead. Inline `eslint-disable` comments do not work for these rules. Details:
+  [Developer setup](../dev/setup.md).
 
 - **Prettier: "Code style issues found".** Run `yarn format` locally and commit the result. Prettier also checks Markdown
   in `docs/`.
@@ -122,8 +130,11 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 
 - Run `yarn test` locally. The log names the failing test file, or the coverage line that is under 90%.
 - Add tests for new code. Do not lower the threshold in `vitest.config.ts`. That is a founder decision.
-- Config tests in `infra/checks` also run here. They check `tsconfig.base.json`, every workspace's scripts, `.yarnrc.yml`
-  (including `enableScripts: false`) and the `.env.example` keys.
+- Config tests in `infra/checks` also run here. They check `tsconfig.base.json`, every workspace's scripts, the
+  `.env.example` keys, and `.yarnrc.yml`. The `.yarnrc.yml` check parses the file as YAML. It allows only `nodeLinker`,
+  `enableTelemetry: false` and `enableScripts: false`, so a registry, scope, proxy or SSL setting fails. It also fails
+  on a duplicate key, on a second `.yarnrc.yml` anywhere in the repo, and on `dependenciesMeta` with `built: true` in any
+  `package.json`.
 
 ### Build fails
 

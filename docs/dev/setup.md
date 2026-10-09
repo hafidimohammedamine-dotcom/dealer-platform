@@ -57,12 +57,28 @@ in `infra/checks` (`keeps dependency install scripts off`) fails if that line is
 Notes:
 
 - `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file, including Markdown in `docs/`.
-- ESLint also enforces the Payload data rules, in `eslint.payload-ban.mjs`. All data access goes through `packages/data`.
-  - Outside `packages/data`, code may not use the Payload instance, except for its `logger`. The check fails closed.
-  - `overrideAccess` must be the literal `false`, in every file, including `packages/data`. The allow-list is empty.
-  - Database drivers and Payload database adapters (`pg`, `drizzle-orm`, `@payloadcms/db-postgres`, `@payloadcms/drizzle`)
-    may be imported only in `packages/data`.
+- ESLint also enforces the Payload data rules. All data access goes through `packages/data`. `eslint.payload-ban.mjs`
+  wires them up; the rules are in `eslint-rules/`, and the reviewed allow-lists in `eslint-rules/payload-lists.mjs`.
+  The rules ban where the Payload instance comes from and every name it goes by, instead of listing bad uses. Expect
+  false positives; rename the value or ask security to review an allow-list entry.
+  - `local/no-payload-instance-access`, outside `packages/data`: no identifier, object key, string, JSX prop or type named
+    `payload`, `getPayload…`, `Payload` or `BasePayload`. The one exception is `payload.logger` / `req.payload.logger`.
+    `Reflect` is banned, and so is a dynamic key (`obj[key]`) whose result is called, read from again or destructured.
+    A webhook body with a field of that name (Telnyx sends `data.payload`) needs a reviewed entry in
+    `payloadNameAllowedPaths`.
+  - `local/no-restricted-modules`, outside `packages/data`: only type imports from `payload`. No database client at all
+    (`pg` and `pg-*`, `postgres`, `kysely`, `knex`, `drizzle-orm`, `drizzle-kit`, Prisma, Neon, `@vercel/postgres`,
+    `node:sqlite`, every `@payloadcms/db-*` adapter and more). The one reviewed exception is `services/desking/src/db/`,
+    for the encrypted credit schema. `import()` and `require()` take fixed names only.
+  - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`. In `packages/data`, every
+    Local API call passes one object literal with `overrideAccess: false`, `depth` and `versions`, with no spreads and no
+    computed keys. The system-job allow-list is empty.
+  - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on, so code cannot be built from strings.
   - Inline `eslint-disable` comments are off, so a file cannot switch these rules off.
+  - Limit: a lint rule without type information cannot follow a value read by a dynamic key into a variable, or a value
+    found with `Object.values(req)`. A type-aware rule is planned for when `payload` is installed. Until then, and after,
+    Postgres row-level security and the cross-dealer leak tests are the locks that hold (`CLAUDE.md`, Payload rules 2-3).
+- TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
 - `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
 
 ## What `nx run-many` does
@@ -73,7 +89,7 @@ Notes:
   before it type checks or tests that project.
 - Caches results. If the inputs did not change, Nx replays the saved result.
   The inputs include the workspace's own files and these root files: `tsconfig.base.json`, `eslint.config.mjs`,
-  `eslint.payload-ban.mjs` (the Payload ban rule file that `eslint.config.mjs` imports), `vitest.config.ts`,
+  `eslint.payload-ban.mjs` and `eslint-rules/` (the Payload ban rules that `eslint.config.mjs` imports), `vitest.config.ts`,
   `package.json`, `yarn.lock`, `.yarnrc.yml` and `.env.example`. Changing any of them invalidates the cache for every
   workspace.
 - Writes `dist/` (build) and `coverage/` (test). Both are git-ignored.
@@ -92,9 +108,9 @@ Notes:
 `package.json` has a `resolutions` entry that forces one package to a fixed version. Every entry needs a row in this
 table, with the reason and the condition for removing it. To see what a row pins, run `yarn why <package>`.
 
-| Package                                              | Pinned version | Reason or advisory   | Parent package                                | Remove when          |
-| ---------------------------------------------------- | -------------- | -------------------- | --------------------------------------------- | -------------------- |
-| `undici` (`resolutions` key `undici@npm:7.29.0`) | 7.29.1 | Fixes four advisories, see below | `nx@23.3.0`, which pins `undici` 7.29.0 | When nx ships a version that depends on `undici` 7.29.1 or newer |
+| Package  | `resolutions` key   | Pinned to | Reason                  | Pulled in by | Remove when                   |
+| -------- | ------------------- | --------- | ----------------------- | ------------ | ----------------------------- |
+| `undici` | `undici@npm:7.29.0` | 7.29.1    | Four advisories (below) | `nx@23.3.0`  | nx depends on 7.29.1 or newer |
 
 Advisories fixed in 7.29.1. Found with `yarn npm audit` with the pin removed:
 
