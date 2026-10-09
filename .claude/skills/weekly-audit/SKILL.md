@@ -6,6 +6,7 @@ description: Weekly whole-codebase audit by security, architect, compliance and 
 Run the weekly audit of the whole repository. Read `CLAUDE.md` first.
 
 ## Step 1 - Audit in parallel
+**Run every agent in the foreground** (never `run_in_background`). Start them together in one message so they run in parallel, but wait for every result before the next step. This job ends when you stop, so background agents would be lost.
 Launch at the same time, each told "Audit the whole repository, not a diff. Report only, don't edit":
 - `security` - full security audit (its weekly checklist)
 - `architect` - codebase health check

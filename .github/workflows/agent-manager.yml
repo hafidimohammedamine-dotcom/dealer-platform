@@ -25,6 +25,7 @@ jobs:
       id-token: write
       actions: read
     env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
       GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}   # pushes/PRs with this token trigger the review workflow
     steps:
       - uses: actions/checkout@v6

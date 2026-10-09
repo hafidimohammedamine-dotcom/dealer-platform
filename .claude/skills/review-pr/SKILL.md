@@ -12,6 +12,7 @@ and report. Policy: **block on everything** (see CLAUDE.md). Read `CLAUDE.md` fi
 - Run `yarn install --immutable`, `yarn lint`, `yarn typecheck`, `yarn test` (if `package.json` exists). Note any failure.
 
 ## Step 2 - Review in parallel
+**Run every agent in the foreground** (never `run_in_background`). Start them together in one message so they run in parallel, but wait for every result before the next step. This job ends when you stop, so background agents would be lost.
 Launch these agents **at the same time**, each with the PR number, the diff, and the CI results:
 - `security` - always
 - `tester` - always

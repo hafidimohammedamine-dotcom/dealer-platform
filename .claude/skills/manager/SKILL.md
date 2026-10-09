@@ -9,6 +9,8 @@ finding gets fixed, and report. Read `CLAUDE.md` first. Founders' focus for this
 
 Use `gh` for GitHub. Use git worktrees so builders never share a working folder.
 
+**Run every agent in the foreground** (never `run_in_background`). Start them together in one message so they run in parallel, but wait for every result before you push, open PRs or post the log. This job ends when you stop, so background agents would be lost.
+
 ## Limits for one shift (steady pace)
 - At most **2 builder jobs** this shift (fixes count too). Never two jobs in the same folder.
 - If you hit a usage or rate limit, stop cleanly, post the log, and leave the rest for the next shift.
