@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks .claude/skills against its manifest and checksums.
-#   .claude/skills/manifest.txt     one skill folder per line: "<name> <ours|third-party>"
+#   .claude/skills/manifest.txt     one skill folder per line: "<name> <ours|third-party> [requires=<skill>]"
 #   .claude/skills/checksums.sha256 sha256 of every file under the skill folders
 # Fails on: third-party skills without NOTICE.md, a license file, or a SKILLS-LOCK.md row with the same commit;
 # front matter names that don't match the folder; agents preloading unknown skills or a skill without its required override; folders not in the manifest, manifest entries with no folder, symlinks, special files, empty folders,
@@ -17,6 +17,10 @@ SUMS="$DIR/checksums.sha256"
 TOP_FILES=" manifest.txt checksums.sha256 SKILLS-LOCK.md "
 fail=0
 err() { echo "ERROR: $*"; fail=1; }
+# front_matter <file>: prints the YAML front matter lines (CR removed); returns 1 if there is none or it never closes.
+front_matter() {
+  awk '{sub(/\r$/,"")} NR==1{ if ($0!="---") exit 1; next } $0=="---"{closed=1; exit} {print} END{ if (!closed) exit 1 }' "$1"
+}
 
 [ -d "$DIR" ] || { echo "ERROR: missing $DIR"; exit 1; }
 [ -f "$MANIFEST" ] || { echo "ERROR: missing $MANIFEST"; exit 1; }
@@ -57,8 +61,13 @@ for name in "${!third[@]}"; do
   done
   [ "$lic" = 1 ] || err "third-party skill '$name' has no license file (LICENSE, LICENSE.md/.txt or UPSTREAM-LICENSE*, non-empty, at the top of the folder)"
   row=""
-  [ -f "$DIR/SKILLS-LOCK.md" ] && row=$(grep -E "^\| *([^|]*[ ,])?$name([ ,][^|]*)? *\|" "$DIR/SKILLS-LOCK.md" | head -n1 || true)
+  if [ -f "$DIR/SKILLS-LOCK.md" ]; then
+    rows=$(awk -F'|' -v n="$name" 'NF>2 { c=$2; gsub(/[[:space:]]/,"",c); k=split(c,a,","); for(i=1;i<=k;i++) if (a[i]==n) {print; break} }' "$DIR/SKILLS-LOCK.md")
+    [ "$(grep -c . <<<"$rows" || true)" -le 1 ] || err "skill '$name' has more than one row in SKILLS-LOCK.md"
+    row=$(head -n1 <<<"$rows")
+  fi
   if [ -z "$row" ]; then err "third-party skill '$name' has no row in SKILLS-LOCK.md"; continue; fi
+  [ "$(grep -oiE '\b[0-9a-f]{40}\b' <<<"$row" | wc -l)" -le 1 ] || err "SKILLS-LOCK.md row for '$name' has more than one 40-character commit"
   lock_sha=$(grep -oiE '\b[0-9a-f]{40}\b' <<<"$row" | head -n1 | tr 'A-F' 'a-f' || true)
   notice_sha=$( [ -f "$DIR/$name/NOTICE.md" ] && grep -oiE '\b[0-9a-f]{40}\b' "$DIR/$name/NOTICE.md" | head -n1 | tr 'A-F' 'a-f' || true)
   [ -n "$lock_sha" ] || err "SKILLS-LOCK.md row for '$name' has no full 40-character commit"
@@ -68,21 +77,27 @@ done
 # Each skill's front matter name matches its folder.
 for name in "${!listed[@]}"; do
   [ -f "$DIR/$name/SKILL.md" ] || { [ -d "$DIR/$name" ] && err "skill '$name' has no SKILL.md"; continue; }
-  fm=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1 && /^name:/{sub(/^name:[ ]*/,""); gsub(/["'\'' ]/,""); print; exit}' "$DIR/$name/SKILL.md")
+  if ! fmlines=$(front_matter "$DIR/$name/SKILL.md"); then err "skill '$name': SKILL.md has no front matter (--- ... ---)"; continue; fi
+  fm=$(grep -m1 '^name:' <<<"$fmlines" | sed 's/^name:[[:space:]]*//' | tr -d "\"' " || true)
   [ "$fm" = "$name" ] || err "skill '$name': SKILL.md front matter name is '$fm'"
 done
 # A skill with requires=<other> needs <other> in the manifest.
 for name in "${!requires[@]}"; do
+  [ "${requires[$name]}" != "$name" ] || err "skill '$name' requires itself"
   [ -n "${listed[${requires[$name]}]:-}" ] || err "skill '$name' requires '${requires[$name]}', which is not in the manifest"
 done
 # Agents may only preload skills from the manifest, and always together with what they require.
 if [ ! -d .claude/agents ]; then
   err "missing .claude/agents (the agent skill preloads can't be checked)"
 else
-  shopt -s nullglob
-  for agent in .claude/agents/*.md; do
-    [ -f "$agent" ] || continue
-    fmt=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$agent")
+  while IFS= read -r -d '' agent; do
+    if ! fmt=$(front_matter "$agent"); then
+      grep -qiE '^[[:space:]]*["'"'"']?skills["'"'"']?[[:space:]]*:' "$agent" && err "$(basename "$agent"): has 'skills' but no valid front matter"
+      continue
+    fi
+    if grep -iE '^[[:space:]]*["'"'"']?skills["'"'"']?[[:space:]]*:' <<<"$fmt" | grep -qv '^skills:'; then
+      err "$(basename "$agent"): write the key exactly as 'skills:' at the start of the line"; continue
+    fi
     n=$(grep -c '^skills:' <<<"$fmt" || true)
     [ "$n" -le 1 ] || { err "$(basename "$agent"): more than one 'skills:' line"; continue; }
     [ "$n" = 1 ] || continue
@@ -97,8 +112,7 @@ else
       r="${requires[$x]:-}"
       [ -z "$r" ] || [[ "$have" == *" $r "* ]] || err "$(basename "$agent"): '$x' must be loaded together with '$r'"
     done
-  done
-  shopt -u nullglob
+  done < <(find .claude/agents -type f -name '*.md' -print0)
 fi
 
 while IFS= read -r -d '' p; do err "symlink not allowed: $p"; done < <(find "$DIR" -mindepth 2 -type l -print0)

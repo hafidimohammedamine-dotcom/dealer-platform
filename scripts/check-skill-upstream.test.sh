@@ -6,25 +6,30 @@ TMPROOT="${TMPDIR:-/tmp}"
 pass=0; failed=0
 fresh() {
   W=$(mktemp -d "$TMPROOT/su.XXXXXX") || exit 2
-  mkdir -p "$W/up/ref" "$W/repo/.claude/skills/demo/ref" "$W/repo/.claude/skills-patches"
-  printf 'keep\nnpx bad\nkeep2\n' > "$W/up/SKILL.md"; echo plug > "$W/up/ref/PLUG.md"; echo r > "$W/up/ref/R.md"
-  printf 'keep\nkeep2\n' > "$W/repo/.claude/skills/demo/SKILL.md"; echo r > "$W/repo/.claude/skills/demo/ref/R.md"
-  echo notice > "$W/repo/.claude/skills/demo/NOTICE.md"; echo mit > "$W/repo/.claude/skills/demo/UPSTREAM-LICENSE"
-  ( cd "$W" && mkdir -p a && cp -r up a/upstream && mkdir -p a/ours && cp -r repo/.claude/skills/demo/. a/ours/ && cd a && \
-    diff -ru -x NOTICE.md -x 'UPSTREAM-LICENSE*' upstream ours > "$W/repo/.claude/skills-patches/demo.diff" ) || true
+  U="$W/up"; O="$W/repo/.claude/skills/demo"
+  mkdir -p "$U/ref" "$O/ref"
+  printf 'keep\nnpx bad\nkeep2\n' > "$U/SKILL.md"; echo plug > "$U/ref/PLUG.md"; printf 'r1\nr2\n' > "$U/ref/R.md"
+  printf 'keep\nkeep2\n' > "$O/SKILL.md"; printf 'r1\nr2\n' > "$O/ref/R.md"
+  echo notice > "$O/NOTICE.md"; echo mit > "$O/UPSTREAM-LICENSE"
 }
-expect() { out=$(bash "$SCRIPT" "$W/up" demo "$W/repo" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"; else failed=$((failed+1)); echo "FAIL  $2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
-fresh;                                                              expect ok   "upstream + patch matches" "deletion-only patch"
-fresh; echo extra >> "$W/repo/.claude/skills/demo/SKILL.md";        expect fail "extra line not in the patch" "differs"
-fresh; echo new > "$W/repo/.claude/skills/demo/ref/NEW.md";         expect fail "extra file not in the patch" "differs"
-fresh; rm "$W/repo/.claude/skills/demo/ref/R.md";                   expect fail "missing upstream file" "differs"
-fresh; rm "$W/repo/.claude/skills-patches/demo.diff";               expect fail "patch missing, copy changed" "differs"
-fresh; echo changed > "$W/repo/.claude/skills/demo/NOTICE.md";      expect ok   "top-level NOTICE.md may differ" "deletion-only patch"
-fresh; out=$(bash "$SCRIPT" "$W/up" "../x" "$W/repo" 2>&1); [ $? != 0 ] && { pass=$((pass+1)); echo "PASS  bad name rejected"; } || { failed=$((failed+1)); echo "FAIL bad name"; }; rm -rf "$W"
-fresh; echo "hidden" > "$W/repo/.claude/skills/demo/ref/NOTICE.md";  expect fail "nested NOTICE.md is not exempt" "below the top of the folder"
-fresh; printf '+npx evil\n' >> "$W/repo/.claude/skills-patches/demo.diff"; expect fail "patch that adds a line" "adds lines"
-fresh; printf 'Only in ours/ref: X.md\n' >> "$W/repo/.claude/skills-patches/demo.diff"; expect fail "patch that adds a file" "adds files"
-fresh; printf 'Only in upstream/../..: etc\n' >> "$W/repo/.claude/skills-patches/demo.diff"; expect fail "path with .. in the patch" "unsafe path"
+expect() { # expect <ok|fail> <name> <message>
+  out=$(bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
+  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"
+  else failed=$((failed+1)); echo "FAIL  $2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
+fresh;                                                   expect ok   "deleted lines and a deleted file" "deletions only (1 upstream file(s) removed)"
+fresh; cp "$U/SKILL.md" "$O/SKILL.md"; cp "$U/ref/PLUG.md" "$O/ref/"; expect ok "identical to upstream (no deletions)" "(0 upstream file(s) removed)"
+fresh; echo "npx evil" >> "$O/SKILL.md";                 expect fail "added line" "lines added or changed in SKILL.md"
+fresh; printf 'keep\n++ hidden\nkeep2\n' > "$O/SKILL.md"; expect fail "added line that starts with ++" "lines added or changed"
+fresh; printf 'keep2\nkeep\n' > "$O/SKILL.md";           expect fail "reordered lines" "lines added or changed"
+fresh; printf 'keep\nnpx BAD\nkeep2\n' > "$O/SKILL.md";  expect fail "changed line" "lines added or changed"
+fresh; echo new > "$O/ref/NEW.md";                       expect fail "added file" "file not in upstream: ref/NEW.md"
+fresh; echo hidden > "$O/ref/NOTICE.md";                 expect fail "nested NOTICE.md is not exempt" "file not in upstream: ref/NOTICE.md"
+fresh; echo changed > "$O/NOTICE.md";                    expect ok   "top-level NOTICE.md is ours" "deletions only"
+fresh; ln -s /etc/hostname "$O/ref/link.md";             expect fail "symlink in our copy" "not a regular file or folder"
+fresh; ln -s /etc/hostname "$U/ref/link.md";             expect fail "symlink in upstream" "not a regular file or folder"
+fresh; rm -rf "$U";                                      expect fail "missing upstream dir" "upstream dir not found"
+fresh; rm -rf "$O";                                      expect fail "missing skill folder" "no skill folder"
+W=$(mktemp -d "$TMPROOT/su.XXXXXX"); out=$(bash "$SCRIPT" 2>&1); [ $? != 0 ] && { pass=$((pass+1)); echo "PASS  missing arguments"; } || { failed=$((failed+1)); echo "FAIL  missing arguments"; }; rm -rf "$W"
+fresh; out=$(bash "$SCRIPT" "$U" "../x" "$W/repo" 2>&1); [ $? != 0 ] && grep -q "bad skill name" <<<"$out" && { pass=$((pass+1)); echo "PASS  bad name rejected"; } || { failed=$((failed+1)); echo "FAIL  bad name"; }; rm -rf "$W"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

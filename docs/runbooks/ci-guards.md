@@ -16,7 +16,7 @@ again, tell a founder.
 ### Step "Founder-only files (PR author and pusher must be founders)" fails
 Message: `Not all of '<author>,<pusher>' are founders, and the PR changes founder-only files:` plus the paths.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`. Renames count both ways.
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt`. Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
 `founders file not found` / `could not diff` - the base checkout is broken; re-run once, then tell a founder.
@@ -63,9 +63,19 @@ Also `pull_request_target`, also from `main`.
   the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
 
 ## Proving a third-party skill equals upstream (founder, manual)
-`bash scripts/check-skill-upstream.sh <upstream-skill-dir> <name>` must print `OK: ... = upstream + recorded patch`. Otherwise the
-folder or `.claude/skills-patches/<name>.diff` is wrong: re-copy from upstream and redo the deletions. It also fails if the patch
-adds lines or files, contains unsafe paths, or if NOTICE.md / UPSTREAM-LICENSE* appear below the top of the folder.
+`bash scripts/check-skill-upstream.sh <upstream-skill-dir> <name>` must print exactly
+`OK: .claude/skills/<name> = upstream with deletions only (<n> upstream file(s) removed) + top-level NOTICE.md/UPSTREAM-LICENSE*`.
+Errors: `lines added or changed in <file>`, `file not in upstream: <file>`, `not a regular file or folder` (symlinks),
+`upstream dir not found`, `no skill folder`. Fix by re-copying from upstream and deleting lines only.
+
+## "Workflow denies OK" (in `checks`)
+`scripts/check-workflows.sh` fails if an agent workflow that can use skills doesn't deny `Skill(payload)`, or if the manager job
+lost one of its command denies. Put the deny back.
+
+## After changing agent permissions (founder, manual)
+Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls" step: a `Skill(payload)` deny must not stop
+builders from preloading `payload` with `payload-dealer-overrides` (preloads don't use the Skill tool). If a builder reports it
+can't see the Payload skill, remove the deny and tell the founders.
 
 ## Workflow "CI" (job `checks`), step "Guard script tests"
 Run locally to see which case broke:

@@ -9,5 +9,5 @@
   - `reference/ENDPOINTS.md`: removed the "Resources" link list.
   - `reference/ADVANCED.md`: removed the "TypeScript Type References" section (links plus "fetch these URLs").
   - `reference/PLUGIN-DEVELOPMENT.md`: removed (we don't build Payload plugins; npm scripts and links).
-- The exact change is `.claude/skills-patches/payload.diff`. To verify: check out the upstream commit, copy the folder, apply
-  that patch, and `diff -r` against this folder - only this NOTICE.md and UPSTREAM-LICENSE.md differ.
+- A record of what was removed is `.claude/skills-patches/payload.diff`. To verify: check out the upstream commit and run
+  `scripts/check-skill-upstream.sh <upstream>/tools/claude-plugin/skills/payload payload` (deletions only, nothing added).

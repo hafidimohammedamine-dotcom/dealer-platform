@@ -37,6 +37,8 @@ setup; echo b > .gitleaks.toml; commit;                    expect fail $A ".gitl
 setup; git mv .gitleaks.toml docs/gl.toml; commit;         expect fail $A ".gitleaks.toml renamed away" ".gitleaks.toml"
 setup; echo x > .gitleaksignore; commit;                   expect fail $A ".gitleaksignore"
 setup; mkdir -p packages/data; echo x > packages/data/override-allowlist.txt; commit; expect fail $A "override allow-list is founder-only" "override-allowlist"
+setup; mkdir -p packages/data/sub; echo x > packages/data/sub/override-allowlist.txt; echo y > packages/data/override-allowlists.ts; echo z > packages/data/other.ts; commit; expect ok $A "near-miss allow-list paths are fine"
+setup; git checkout -q main; mkdir -p packages/data; echo x > packages/data/override-allowlist.txt; git add -A; git commit -qm base2; git checkout -q -B work main; git mv packages/data/override-allowlist.txt docs/x.txt; commit; expect fail $A "allow-list renamed away" "override-allowlist.txt"
 setup; mkdir -p packages/contracts; echo b > packages/contracts/a.ts; commit; expect ok   $A "contracts are agent-built (founder approves via CODEOWNERS)"
 setup; git mv .claude/agents/x.md src/moved.md; commit;    expect fail $A "rename out of .claude (old path listed)" ".claude/agents/x.md"
 setup; mkdir -p .claude/é; echo b > ".claude/é/a.md"; commit; expect fail $A "unicode path under .claude"

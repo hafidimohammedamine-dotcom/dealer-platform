@@ -21,7 +21,7 @@ jobs:
       contents: read
       pull-requests: write    # used only by the fixed "Post the result" step
       issues: write
-      actions: read
+      actions: write          # used only to start a manager shift right after a failed review of an agent PR
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -72,3 +72,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
         run: bash scripts/check-review-post.sh pr "$PR_NUMBER" "$EXEC_FILE"
+      - name: Start a fix round now (agent PRs that failed review)
+        # Instead of waiting for the next hourly shift, start the manager as soon as an agent's PR fails review.
+        if: always() && startsWith(github.event.pull_request.head.ref, 'agent/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')
+          case ",$labels," in
+            *,changes-requested,*) gh workflow run agent-manager.yml --repo "$REPO" --ref main && echo "Manager shift started for PR #$PR_NUMBER";;
+            *) echo "Review passed or no result; no fix round needed";;
+          esac

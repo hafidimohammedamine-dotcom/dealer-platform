@@ -27,6 +27,8 @@ jobs:
           bash scripts/check-founder-files.test.sh
           bash scripts/check-skills.test.sh
           bash scripts/check-skill-upstream.test.sh
+          bash scripts/check-workflows.sh
+          bash scripts/check-workflows.test.sh
           bash scripts/check-review-prepare.test.sh
           bash scripts/check-pr-ci-status.test.sh
           bash scripts/check-review-post.test.sh

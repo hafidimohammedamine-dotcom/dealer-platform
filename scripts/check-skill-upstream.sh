@@ -1,39 +1,36 @@
 #!/usr/bin/env bash
-# Proves a vendored third-party skill equals its upstream copy plus our recorded DELETION-ONLY patch.
+# Proves a vendored third-party skill is its pinned upstream copy with lines or files DELETED and nothing else changed.
 # Usage: scripts/check-skill-upstream.sh <upstream-skill-dir> <skill-name> [repo-root]
 #   <upstream-skill-dir>: the skill folder from a checkout of the pinned upstream commit (see SKILLS-LOCK.md).
-# Checks: the patch only removes lines or whole upstream files; upstream + patch + our top-level NOTICE.md and
-# UPSTREAM-LICENSE* equals .claude/skills/<skill-name> exactly (no exclusions at any depth).
+# It does not apply any patch. For every file it checks directly that ours adds no line to upstream's version
+# (deletions only). Files only in ours: just NOTICE.md and UPSTREAM-LICENSE* at the top. No symlinks anywhere.
+# The human-readable record of what was removed is .claude/skills-patches/<skill-name>.diff.
 set -euo pipefail
 UP="${1:?upstream skill dir}"; NAME="${2:?skill name}"; ROOT="${3:-$(cd "$(dirname "$0")/.." && pwd)}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "ERROR: bad skill name"; exit 1; }
 [ -d "$UP" ] || { echo "ERROR: upstream dir not found: $UP"; exit 1; }
-OURS="$ROOT/.claude/skills/$NAME"; PATCH="$ROOT/.claude/skills-patches/$NAME.diff"
+OURS="$ROOT/.claude/skills/$NAME"
 [ -d "$OURS" ] || { echo "ERROR: no skill folder $OURS"; exit 1; }
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
-cp -r "$UP" "$W/ours"
+fail=0; err() { echo "ERROR: $*"; fail=1; }
 
-# Our added files may only sit at the top of the skill folder.
-deep=$(find "$OURS" -mindepth 2 \( -name NOTICE.md -o -name 'UPSTREAM-LICENSE*' \) -print)
-[ -z "$deep" ] || { echo "ERROR: NOTICE.md / UPSTREAM-LICENSE* below the top of the folder:"; echo "$deep"; exit 1; }
+for d in "$UP" "$OURS"; do
+  while IFS= read -r -d '' p; do err "not a regular file or folder: $p"; done < <(find "$d" ! -type f ! -type d -print0)
+done
+[ "$fail" = 0 ] || exit 1
 
-if [ -f "$PATCH" ]; then
-  added=$(grep -nE '^\+' "$PATCH" | grep -vE '^[0-9]+:\+\+\+ ' || true)
-  [ -z "$added" ] || { echo "ERROR: the patch adds lines (it must only delete):"; echo "$added"; exit 1; }
-  grep -qE '^Only in ours' "$PATCH" && { echo "ERROR: the patch adds files (it must only delete)"; exit 1; }
-  (cd "$W" && patch -s -p1 -d ours < "$PATCH")
-  while IFS= read -r rel; do
-    case "/$rel/" in */../*|*/./*) echo "ERROR: unsafe path in patch: $rel"; exit 1;; esac
-    [[ "$rel" != /* && -n "$rel" ]] || { echo "ERROR: unsafe path in patch: $rel"; exit 1; }
-    target=$(realpath -m "$W/ours/$rel")
-    [[ "$target" == "$W/ours/"* ]] || { echo "ERROR: path escapes the skill folder: $rel"; exit 1; }
-    rm -f -- "$target"
-  done < <(sed -n 's#^Only in upstream/\{0,1\}\(.*\): \(.*\)$#\1/\2#p' "$PATCH" | sed 's#^/##')
-fi
-cp "$OURS/NOTICE.md" "$W/ours/NOTICE.md" 2>/dev/null || true
-for f in "$OURS"/UPSTREAM-LICENSE*; do [ -e "$f" ] && cp "$f" "$W/ours/"; done
-if out=$(diff -r "$W/ours" "$OURS"); then
-  echo "OK: .claude/skills/$NAME = upstream + $( [ -f "$PATCH" ] && echo "deletion-only patch" || echo "no patch") + top-level NOTICE/license"
-else
-  echo "ERROR: .claude/skills/$NAME differs from upstream + patch:"; echo "$out"; exit 1
-fi
+deleted=0
+while IFS= read -r -d '' f; do
+  rel=${f#"$OURS/"}
+  case "$rel" in
+    NOTICE.md|UPSTREAM-LICENSE*) [ -f "$UP/$rel" ] || continue;;   # our top-level additions
+  esac
+  if [ ! -f "$UP/$rel" ]; then err "file not in upstream: $rel"; continue; fi
+  # Lines that are in ours but not in upstream (diff prints only added lines). Must be empty.
+  added=$(diff --unchanged-line-format= --old-line-format= --new-line-format='%L' "$UP/$rel" "$f" || true)
+  [ -z "$added" ] || { err "lines added or changed in $rel:"; printf '%s\n' "$added" | head -5; }
+done < <(find "$OURS" -type f -print0)
+while IFS= read -r -d '' f; do
+  rel=${f#"$UP/"}; [ -f "$OURS/$rel" ] || deleted=$((deleted+1))
+done < <(find "$UP" -type f -print0)
+[ "$fail" = 0 ] || exit 1
+echo "OK: .claude/skills/$NAME = upstream with deletions only ($deleted upstream file(s) removed) + top-level NOTICE.md/UPSTREAM-LICENSE*"
