@@ -20,7 +20,7 @@ Flow: Issue -> manager -> builder -> pull request -> review team -> fixes (up to
 | Sonnet | builder-intake, builder-crm, builder-inventory, tester, designer, devops, review coordinator |
 | Haiku | docs, daily report |
 
-Pace (max): manager every hour, up to 4 builder jobs per shift, review on every pull request.
+Pace (max): manager every hour and right away on any problem (failed review, failed CI on main, a new task or a REQUEST/BLOCKED comment from a founder), up to 8 builder jobs per shift, review on every pull request.
 On Max, Fable can use up to half of the weekly limit and uses it faster than Opus.
 With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_TOKEN_REVIEW`.
 

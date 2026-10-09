@@ -56,3 +56,6 @@
 - `claude.yml` (founder @claude mentions) answers on issues only: without a prompt the action checks out an open PR's code
   itself, and nested rule files from the PR would load.
 - Messages and fixes for every check: `docs/runbooks/ci-guards.md`.
+- Pace (founders' choice): up to 8 builder jobs per manager shift (was 4). `agent-manager-wake.yml` (no Claude, only
+  `gh workflow run`) starts a shift right away when CI fails on main, a founder opens an issue or adds an `agent:*` label, or a
+  founder comments `REQUEST:` or `BLOCKED`; a failed review of an agent PR already starts one from `review.yml`.
