@@ -39,6 +39,7 @@ fresh; ln -s /etc/hostname "$S/alpha/link.md";               expect fail "symlin
 fresh; mkfifo "$S/alpha/pipe";                               expect fail "FIFO" "special file"
 fresh; echo x > "$S/stray.md";                               expect fail "stray top-level file" "unexpected file"
 fresh; echo x > "$S/alpha/we\\ird.md";                       expect fail "backslash in name" "backslash"
+fresh; echo x > "$S/alpha/$(printf 'a\tb').md";                 expect fail "control character in name" "control character"
 fresh; echo x > "$S/alpha/new
 line.md";                                                    expect fail "newline in name" "newline"
 fresh; rm "$S/checksums.sha256";                             expect fail "missing checksums" "missing"
@@ -104,5 +105,8 @@ fresh; printf -- '---\r\nname: other\r\n---\r\n' > "$S/beta/SKILL.md"; bash "$SC
 fresh; printf -- '---\ndescription: x\n---\nb\n' > "$S/beta/SKILL.md"; bash "$SCRIPT" --write "$T" >/dev/null 2>&1; expect fail "front matter without name:" "front matter name is ''"
 fresh; printf '# comment\n\nalpha third-party requires=beta\n   \nbeta ours\n' > "$S/manifest.txt"; expect ok "manifest comments and blank lines are ignored" "Skills OK"
 fresh; rm -rf "$S/beta"; bash "$SCRIPT" --write "$T" >/dev/null 2>&1; expect fail "requires= a listed skill whose folder is missing" "manifest lists 'beta' but the folder is missing"
+# The PR's own agents are read from the root argument, whatever the current directory (guards runs from the base checkout)
+fresh; printf -- '---\nname: builder\nskills: alpha, beta, gama\n---\n' > "$A/builder.md"; out=$(cd / && bash "$SCRIPT" "$T" 2>&1); rc=$?
+if [ $rc != 0 ] && grep -q "skill 'gama' is not in the manifest" <<<"$out"; then pass=$((pass+1)); echo "PASS  agents checked from another directory"; else failed=$((failed+1)); echo "FAIL  agents from another directory"; echo "$out"; fi; rm -rf "$T"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

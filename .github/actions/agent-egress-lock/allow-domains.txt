@@ -1,10 +1,17 @@
-# Outbound network allow-list for agent jobs (founder-owned). One domain per line; subdomains are included.
-# GitHub: git, API, release downloads (actions, setup-node, bun, gitleaks), and the Actions runner's own services.
+# Outbound HTTPS allow-list for agent jobs (founder-owned). One host name per line, matched against the TLS server name
+# (SNI) by a local proxy. A name is matched exactly; a name starting with "." also matches its subdomains.
+# Keep it to exact hosts: github.com itself stays open (git push, API), so gist.github.com, uploads.github.com and others do not.
+# GitHub: git, API, tarballs, release downloads (setup-node, bun, gitleaks)
 github.com
-githubusercontent.com
+api.github.com
+codeload.github.com
+objects.githubusercontent.com
+release-assets.githubusercontent.com
+# The Actions runner's own services (job messages, OIDC tokens, logs)
+.actions.githubusercontent.com
 # Claude
 api.anthropic.com
-# Package registries (yarn install, the claude-code-action's own `bun install`)
+# Package registries (yarn install, the claude-code-action's own `bun install`, corepack's Yarn download)
 registry.npmjs.org
 registry.yarnpkg.com
 repo.yarnpkg.com

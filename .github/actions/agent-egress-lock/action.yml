@@ -1,16 +1,14 @@
 # Founder-owned. Every agent job runs this right after checkout, before anything else:
-#  1. installs the pinned Claude Code release (the claude-code-action step then uses it instead of downloading),
-#  2. allows outbound network only to the domains in allow-domains.txt (local DNS allow-list + firewall),
+#  1. installs the pinned Claude Code binary, checked against its pinned sha256 (the claude-code-action step then uses it),
+#  2. allows outbound HTTPS only to the host names in allow-domains.txt (DNS allow-list + SNI-checking proxy + firewall),
 #  3. removes sudo and Docker for the rest of the job, so nothing later can undo 2,
-#  4. proves it: an allowed host works, a blocked host, a raw IP, other DNS servers, IPv6 and sudo all fail.
-# How it works and what it does not cover: docs/runbooks/ci-guards.md, "Agent network lock".
+#  4. proves it (self-test).
+# Bumping CLAUDE_CODE_VERSION: take the linux-x64 "checksum" from
+# https://downloads.claude.ai/claude-code-releases/<version>/manifest.json, in the same founder PR that bumps the
+# claude-code-action SHA (whose src/entrypoints/run.ts names the version it expects).
+# How it works, its messages and its limits: docs/runbooks/ci-guards.md, "Agent network lock".
 name: Agent egress lock
-description: Pre-install Claude Code, then block outbound network except an allow-list, and drop sudo/Docker.
-inputs:
-  extra-domains:
-    description: Space-separated extra domains for this job (founder-reviewed; plain domain names only).
-    required: false
-    default: ""
+description: Install pinned Claude Code, then allow outbound HTTPS only to an allow-list of host names, and drop sudo/Docker.
 outputs:
   claude-path:
     description: Absolute path of the pre-installed Claude Code executable.
@@ -22,5 +20,5 @@ runs:
       shell: bash
       env:
         CLAUDE_CODE_VERSION: "2.1.295"
-        EXTRA_DOMAINS: ${{ inputs.extra-domains }}
+        CLAUDE_CODE_SHA256: "4503bfe11a6c7fcc1e0b39b5e0d347c04248f750b03b0977b3ad6b531fe6f358"
       run: bash "$GITHUB_ACTION_PATH/lock.sh"

@@ -43,8 +43,11 @@ the founder pushes once more after checking the agent's commits.
 - `skill 'X' has no SKILL.md` / `front matter name is '...'` - each skill folder needs `SKILL.md` starting with `---`, `name: <folder>`.
 - `third-party skill 'X' has no license file` - add the upstream license as `UPSTREAM-LICENSE` (plain, .md or .txt; exact
   upper-case name) at the top of the folder, non-empty. Upstream's own `LICENSE`/`LICENSE.md`/`LICENSE.txt` also counts.
-- `no full 40-character commit` (SKILLS-LOCK.md or NOTICE.md) / `commit ... differs` / `write the commit in lower case` - write the
-  same full commit SHA, in lower case, in both.
+- `NOTICE.md for 'X' has no full 40-character commit` / `commit for 'X' differs between SKILLS-LOCK.md and NOTICE.md` - write
+  the same full lower-case commit SHA in NOTICE.md and the lock row.
+- `SKILLS-LOCK.md row for 'X' must read '| X | owner/repo `path`, ... | <40-hex commit, lower case> | ...'` - fix the row's
+  shape (the commit is the third cell). `has no row in SKILLS-LOCK.md` / `has more than one row` - one row per skill, first
+  cell exactly the skill name.
 - `listed more than once in the manifest` / `empty requires=` / `more than one requires=` / `needs requires=<our override skill>` /
   `must require one of our own (override) skills` / `CRLF` - fix `manifest.txt` (one LF line per skill; every third-party skill has
   exactly one `requires=` naming an `ours` skill).
@@ -92,6 +95,11 @@ Messages and fixes:
   WRONG, never, must, not, always, only, important, critical, required, access, overrideAccess, secret, token, ...). Partial prose,
   part of a code block (including indented code) or a heading without its body fails. Blank lines can go anywhere. To drop a whole
   file's text, delete the file rather than emptying it.
+- `a section or code block with a warning or rule word (...) that is not in the reviewed list (add '<file>:<line>' ...)` - a
+  whole section or code block removed from upstream contains a warning word. A founder reads it and, if removing it is safe
+  (for example a list of links), adds `<file>:<upstream line of the heading or opening fence>` with a reason after `#` to
+  `.claude/skills-patches/<name>.reviewed`. The guards log prints every such deletion as `REVIEWED <file>:<line> ...`.
+  `stale entry in <name>.reviewed` - an entry no longer matches a deletion; remove it.
 - `missing or empty record`, `<name>.diff does not match diff -ru of upstream and our copy`, `<name>.diff has added lines`,
   `records changes but our copy equals upstream` - regenerate the record from a folder holding the upstream copy as `upstream` and
   ours as `ours`:
@@ -116,6 +124,14 @@ Messages and fixes:
 - `claude action must be one of [...]` - use the pinned `anthropics/claude-code-action@<sha>`.
 - `a job with a claude step must start with actions/checkout, then ./.github/actions/agent-egress-lock` (with an `id`, no `if` or
   `continue-on-error`), and `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}`.
+- `the checkout needs an explicit ref of the default branch (...)` / `needs persist-credentials: false` - a claude job checks
+  out `main` (or `${{ github.event.repository.default_branch }}`; `${{ github.base_ref }}` only in a pull_request_target
+  workflow), never the PR's code, and keeps no credentials in `.git/config`.
+- `the ./.github/actions/agent-egress-lock step may only have id/uses/name` - no `with`, `env`, `if` or `continue-on-error`.
+- `a workflow with a claude step must not run on pull_request` - PR code may never run in a job that holds a Claude token.
+- `AGENT_LOCK_* variables (lock test hooks) are not allowed` - those exist only for the lock's own tests.
+- `secrets used other than as secrets.<NAME>` - no `secrets[...]`, `toJSON(secrets)`, `join(secrets)` or the whole object.
+- `manifest not found` / `--manifest needs a file` - guards passes both manifests; an explicit one must exist.
 - `agent-manager.yml: missing deny <item>` / `expected exactly one claude step in agent-manager.yml (found N)`.
 - `runs Claude outside the pinned claude-code-action` - no `claude` CLI (any path), `@anthropic-ai/...` or other claude-code action
   in `run:` or `uses:`.
@@ -126,21 +142,60 @@ Messages and fixes:
 - `python3 PyYAML is required` - GitHub's Ubuntu runners include it; locally `python3 -m pip install pyyaml==6.0.2`.
 
 ## Agent network lock (`.github/actions/agent-egress-lock`)
-Every agent job runs it right after checkout. It installs the pinned Claude Code release (the claude-code-action then uses that
-binary), then: a local DNS server (dnsmasq) answers only the domains in `allow-domains.txt` (GitHub, Anthropic API, npm/Yarn
-registries, the runner's log storage) and adds their addresses to a firewall set; the firewall (iptables) rejects every other
-outbound connection, other DNS servers and all IPv6; Docker is stopped and the runner user's sudo is removed, so no later step can
-undo it. A self-test then fails the job if an allowed host is unreachable or if a blocked host, a raw IP, outside DNS, IPv6, sudo or
-Docker still works. `.github/workflows/egress-lock-test.yml` runs it, plus the real claude-code-action and a `Skill(payload)` deny
-probe, whenever the lock changes.
-- A job fails with `allowed host ... not reachable` or a tool cannot download something: add the domain to `allow-domains.txt` in a
-  founder PR (plain domain names; subdomains are included), or pass `extra-domains:` for one job.
-- What it does not stop: a prompt injection that also carries an attacker's own GitHub or npm credentials could still push data to
-  GitHub or npm, which are allowed. The agents' token reaches this repo only. The command deny lists stay as a second layer
-  (hygiene, not a boundary).
-- Verified on the pinned Claude Code (2.1.295, the version this claude-code-action installs): `Skill(<name>)` in
-  `--disallowedTools` denies the Skill tool for that skill, also under `bypassPermissions` and inside subagents, while a subagent's
-  `skills:` preload is injected at start and still works.
+Every agent job runs it right after checking out `main`. It:
+1. installs the pinned Claude Code binary from `downloads.claude.ai` and checks it against the sha256 pinned in `action.yml`
+   (the claude-code-action then uses that binary instead of downloading one);
+2. starts a local DNS server (dnsmasq) that answers only the names in `allow-domains.txt`;
+3. starts a local proxy (nginx `stream` with `ssl_preread`) that reads the TLS server name (SNI) of each connection and connects
+   only to allow-listed names. The firewall (iptables) sends every outbound port-443 connection, except the proxy's own, to
+   that proxy and rejects everything else: plain HTTP, raw IPs without a name, other DNS servers, all IPv6. An allowed IP
+   cannot be reused under another name;
+4. stops Docker and removes the runner user's sudo, so no later step can undo it;
+5. self-tests and fails the job on any problem.
+
+Allowed names are exact hosts (GitHub API/git/downloads, `api.anthropic.com`, the npm/Yarn registries, the runner's own
+services and log storage). Only `.actions.githubusercontent.com` is a wildcard (approved in `lock.sh`), because the runner uses
+many generated names there.
+
+Tests: `scripts/check-egress-lock.test.sh` (every failure branch, stubbed); `.github/workflows/egress-lock-test.yml` (the PR's
+lock on a real runner, no secrets, plus a break-on-purpose run); `.github/workflows/egress-lock-claude.yml` (from `main` only:
+the real claude-code-action under the lock and a `Skill(payload)` deny probe; on pushes to main, weekly and on demand).
+
+Messages and fixes:
+- `Linux x64 runners only` / `must run inside GitHub Actions` - only for GitHub-hosted Ubuntu x64 runners.
+- `bad CLAUDE_CODE_VERSION` / `bad CLAUDE_CODE_SHA256` / `Claude Code download does not match its pinned sha256` /
+  `Claude Code <v> not installed` - fix the pin in `action.yml` (see "Bumping the Claude Code pin").
+- `empty allow-list` / `not a plain host name` / `suffix entry not approved` - fix `allow-domains.txt`.
+- `no www-data user for nginx` / `nginx stream module missing` / `nginx config invalid` - the runner image changed; re-run once,
+  then a founder checks the packages (`dnsmasq-base`, `nginx`, `libnginx-mod-stream`).
+- `self-test: allowed host api.github.com not reachable` - the proxy or DNS is not working; the log shows the proxy log and a
+  verbose curl. `self-test: sudo still works`, `Docker still reachable`, `blocked host example.com reachable`,
+  `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another name (SNI)`, `raw IP without
+  a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not resolve`, `DNS for a blocked name
+  resolves`, `outside DNS server reachable`, `IPv6 reachable` - the lock is not doing its job on this runner; do not bypass it,
+  open an `area:security` issue for the founders.
+- A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR.
+- `Claude answered under the lock, and Skill(payload) was denied` fails (egress-lock-claude.yml) - either Claude could not reach
+  `api.anthropic.com` through the lock, or the Skill deny did not hold; read the printed result and denials.
+
+Bumping the Claude Code pin (founder PR, together with the claude-code-action SHA): the action's `src/entrypoints/run.ts` names
+the Claude Code version it expects; take that version's `linux-x64` `checksum` from
+`https://downloads.claude.ai/claude-code-releases/<version>/manifest.json` into `action.yml`. The reviewers check both pins, and
+`egress-lock-test.yml` / `egress-lock-claude.yml` prove the result.
+
+What the lock does not stop (it narrows the routes out, it is not a complete data boundary):
+- an injected instruction that also carries an attacker's own credentials could still send data to an allowed service: GitHub
+  (a push or issue in the attacker's repo), npm (a publish) or the Anthropic API (the attacker's key);
+- domain fronting on the CDNs behind allowed names (an allowed server name with another site's `Host` header inside TLS), where
+  the CDN allows it.
+The agents' own token reaches this repo only, the command deny lists stay as a second layer, and reviews plus founder merges
+stay the control for what lands in the repo.
+
+Evidence for the Skill deny (Claude Code 2.1.295, the version this claude-code-action installs and the lock pins):
+`egress-lock-claude.yml` asserts in CI that `Skill(payload)` in `--disallowedTools` denies the Skill tool for a skill named
+`payload` (its run on PR #30 printed `permission_denials: [{"tool_name": "Skill", ... "skill": "payload"}]`). A founder also
+checked locally on 2.1.295 that the deny holds under `--permission-mode bypassPermissions` and inside a subagent, and that a
+subagent's `skills:` preload still loads (commands and output in the PR #30 conversation). Re-check both when the pin changes.
 
 ## How the guards wiring is proven
 The scripts have unit tests (below). The workflow wiring (`git archive` of the PR head, base scripts on PR data, the upstream fetch)

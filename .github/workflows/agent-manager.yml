@@ -35,8 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: main   # always the default branch
           fetch-depth: 0
-          token: ${{ secrets.AGENT_GH_TOKEN }}
+          persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
@@ -48,6 +49,7 @@ jobs:
         run: |
           git config user.name "agent-manager"
           git config user.email "agents@users.noreply.github.com"
+          gh auth setup-git
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -64,9 +66,10 @@ jobs:
             --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
           # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
-          # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The boundary is the
-          # agent egress lock (step `lock`): outbound network only to GitHub, Anthropic and the package registries, no sudo,
-          # no Docker. `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
+          # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The main control is
+          # the agent egress lock (step `lock`): outbound HTTPS only to allow-listed host names, no sudo, no Docker. It narrows
+          # the routes out but is not a complete data boundary (docs/runbooks/ci-guards.md, "Agent network lock").
+          # `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
           # together with its override.
       - name: Show blocked tool calls (names and commands only)
         if: always() && steps.claude.outputs.execution_file != ''

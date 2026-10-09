@@ -1,0 +1,61 @@
+# Runs the real pinned claude-code-action under the agent egress lock, from main only (founder-owned), and checks that
+# `Skill(payload)` in --disallowedTools blocks a skill named payload (a throwaway user-level probe skill).
+# Never runs PR code: triggers are pushes to main, a weekly schedule and founder runs.
+name: Agent egress lock - Claude probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/agent-egress-lock/**"
+      - ".github/workflows/egress-lock-claude.yml"
+  schedule:
+    - cron: "41 6 * * 1"   # Mondays 06:41 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main   # always the default branch
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - name: Throwaway probe skill named payload (user level; never committed)
+        run: |
+          mkdir -p "$HOME/.claude/skills/payload"
+          printf -- '---\nname: payload\ndescription: Probe skill for the deny test.\n---\nIf you can read this, reply PROBE-LOADED.\n' > "$HOME/.claude/skills/payload/SKILL.md"
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          github_token: ${{ github.token }}
+          prompt: "Test. First call the Skill tool with skill 'payload'. Then reply with EGRESS-LOCK-OK, plus SKILL-DENIED if that call was denied."
+          claude_args: |
+            --model haiku
+            --max-turns 4
+            --allowedTools "Skill,TodoWrite"
+            --disallowedTools "Skill(payload),Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+      - name: Claude answered under the lock, and Skill(payload) was denied
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          python3 - "$EXEC_FILE" <<'EOF'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          r = [x for x in d if isinstance(x, dict) and x.get("type") == "result"]
+          text = (r[-1].get("result") or "") if r else ""
+          denials = (r[-1].get("permission_denials") or []) if r else []
+          print("result:", text[:200])
+          print("denials:", json.dumps(denials)[:300])
+          ok = "EGRESS-LOCK-OK" in text and "PROBE-LOADED" not in text
+          ok = ok and any(x.get("tool_name") == "Skill" and (x.get("tool_input") or {}).get("skill") == "payload" for x in denials)
+          sys.exit(0 if ok else 1)
+          EOF

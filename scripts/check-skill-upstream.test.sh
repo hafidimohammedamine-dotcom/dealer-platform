@@ -57,7 +57,7 @@ fresh; cp "$U/SKILL.md" "$O/SKILL.md"; cp "$U/ref/PLUG.md" "$O/ref/"; expect fai
 fresh; sed -i '1s/^/diff -ru -x OTHER upstream ours\n/' "$R"; sed -i 's/^\(---\|+++\) \(.*\)$/\1 \2\t2026-01-01 00:00:00/' "$R"
                                                          expect ok   "record with timestamps and another diff command line" "demo.diff matches"
 # Default repo root (no third argument) is the script's own repo
-fresh; mkdir -p "$W/repo/scripts"; cp "$SCRIPT" "$(dirname "$SCRIPT")/check-skill-deletions.py" "$W/repo/scripts/"; out=$(bash "$W/repo/scripts/check-skill-upstream.sh" "$U" demo 2>&1)
+fresh; mkdir -p "$W/repo/scripts"; cp "$SCRIPT" "$(dirname "$SCRIPT")/check-skill-deletions.py" "$(dirname "$SCRIPT")/check-skills-lib.sh" "$W/repo/scripts/"; out=$(bash "$W/repo/scripts/check-skill-upstream.sh" "$U" demo 2>&1)
 if [ $? = 0 ] && grep -q "deletions only" <<<"$out"; then pass=$((pass+1)); echo "PASS  default repo root"; else failed=$((failed+1)); echo "FAIL  default repo root"; echo "$out"; fi; rm -rf "$W"
 W=$(mktemp -d "$TMPROOT/su.XXXXXX"); out=$(bash "$SCRIPT" 2>&1); [ $? != 0 ] && { pass=$((pass+1)); echo "PASS  missing arguments"; } || { failed=$((failed+1)); echo "FAIL  missing arguments"; }; rm -rf "$W"
 fresh; out=$(bash "$SCRIPT" "$U" "../x" "$W/repo" 2>&1); [ $? != 0 ] && grep -q "bad skill name" <<<"$out" && { pass=$((pass+1)); echo "PASS  bad name rejected"; } || { failed=$((failed+1)); echo "FAIL  bad name"; }; rm -rf "$W"
@@ -90,6 +90,10 @@ fresh; u 'intro\n```ts\nconst a = 1\n' 'intro\n';                            exp
 fresh; u 'intro\n\n    indented code\n    more\n' 'intro\n\n    indented code\n'; expect fail "indented code line removed" "not part of a whole section"
 fresh; u '# T\n```bash\n# not a heading\nrm -rf x\n```\nend\n' '# T\n```bash\n# not a heading\n```\nend\n'; expect fail "a # comment inside code is not a heading" "part of a code block"
 fresh; u 'a\n\n\nb\n' 'a\nb\n';                                               expect ok   "blank lines removed" "deletions only"
+# Founder-reviewed deletions of sections or blocks with warning words (.claude/skills-patches/<name>.reviewed)
+fresh; u '# T\n## Security\nnever do x\n## B\nb\n' '# T\n## B\nb\n'; expect fail "section with a warning word, no reviewed list" "not in the reviewed list (add 'ref/M.md:2'"
+fresh; u '# T\n## Security\nnever do x\n## B\nb\n' '# T\n## B\nb\n'; printf 'ref/M.md:2 # links only\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect ok "reviewed section is allowed and logged" "REVIEWED ref/M.md:2"
+fresh; printf 'ref/M.md:9\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect fail "stale reviewed entry" "stale entry in demo.reviewed (no matching deletion): ref/M.md:9"
 # A failing diff in the record step fails closed (diff shim fails only for diff -ru)
 fresh; mkdir "$W/bin"; printf '#!/bin/sh\n[ "$1" = -ru ] && exit 2\nexec /usr/bin/diff "$@"\n' > "$W/bin/diff"; chmod +x "$W/bin/diff"
 out=$(PATH="$W/bin:$PATH" bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?

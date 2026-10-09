@@ -18,6 +18,20 @@ manifest_entries() {
   done < "$1"
 }
 
+# valid_skill_name <name>: true for a lower-case kebab name (the only names allowed for skill folders).
+valid_skill_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
+
+# lock_row_one <SKILLS-LOCK.md> <name>: finds exactly one row for <name> and parses it (sets LOCK_REPO, LOCK_PATH,
+# LOCK_SHA). Returns 1 = missing file, 2 = no row, 3 = more than one row, 4 = row with the wrong shape.
+lock_row_one() {
+  local rows n
+  [ -f "$1" ] || return 1
+  rows=$(lock_rows "$1" "$2"); n=$(grep -c . <<<"$rows" || true)
+  [ "$n" -ge 1 ] || return 2
+  [ "$n" -eq 1 ] || return 3
+  lock_parse "$rows" || return 4
+}
+
 # lock_rows <SKILLS-LOCK.md> <name>: prints every row whose first cell is exactly <name>.
 lock_rows() {
   awk -F'|' -v n="$2" 'NF>2 { c=$2; gsub(/[[:space:]]/,"",c); if (c==n) print }' "$1"

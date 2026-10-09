@@ -27,5 +27,16 @@ fresh; sed -i '/^payload/d' "$P/.claude/skills/manifest.txt";  expect fail "remo
 fresh; printf 'other third-party requires=ovr\n' >> "$P/.claude/skills/manifest.txt"; printf "| other | a/b \`x\` | $SHA2 |\n" >> "$P/.claude/skills/SKILLS-LOCK.md"; expect ok "new third-party skill is logged" "NEW third-party skill 'other': a/b x $SHA2"
 fresh; rm "$P/.claude/skills/SKILLS-LOCK.md";                   expect ok   "missing PR lock is logged (check-skills fails it)" "CHANGED third-party skill 'payload': payloadcms/payload skills/payload $SHA -> ?"
 fresh; rm -rf "$B/.claude";                                     expect ok   "no skills on the base" "NEW third-party skill 'payload'"
+fresh; printf "| payload | payloadcms/payload \`skills/payload\` | $SHA |\n" >> "$B/.claude/skills/SKILLS-LOCK.md"; expect ok "duplicated base row reads as '?' and the change is logged" "CHANGED third-party skill 'payload': ? -> payloadcms/payload skills/payload $SHA"
+fresh; sed -i 's/| payload | payloadcms\/payload `skills\/payload`, tag v1 |/| payload | bad-source |/' "$B/.claude/skills/SKILLS-LOCK.md"; expect ok "malformed base row reads as '?' (only logged: main passed check-skills, so this means a hand-edited base)" "CHANGED third-party skill 'payload': ? ->"
+fresh; rm "$B/.claude/skills/SKILLS-LOCK.md";                   expect ok   "missing base lock file is logged" "CHANGED third-party skill 'payload': ? ->"
+fresh; rm "$P/.claude/skills/manifest.txt"; rm -rf "$P/.claude/skills/payload"; expect ok "missing PR manifest: base third-party skills are reported removed" "REMOVED third-party skill 'payload'"
+fresh; printf 'other third-party requires=ovr\n' >> "$B/.claude/skills/manifest.txt"; printf "| other | a/b \`x\` | $SHA2 |\n" >> "$B/.claude/skills/SKILLS-LOCK.md"
+cp "$B/.claude/skills/manifest.txt" "$P/.claude/skills/manifest.txt"; cp "$B/.claude/skills/SKILLS-LOCK.md" "$P/.claude/skills/SKILLS-LOCK.md"; mkdir -p "$P/.claude/skills/other"
+sed -i 's/^payload third-party requires=ovr$/payload ours/; s/^other third-party requires=ovr$/other ours/' "$P/.claude/skills/manifest.txt"
+out=$(bash "$SCRIPT" "$B" "$P" 2>&1); rc=$?
+if [ $rc != 0 ] && grep -q "'payload' is now listed as 'ours'" <<<"$out" && grep -q "'other' is now listed as 'ours'" <<<"$out"; then pass=$((pass+1)); echo "PASS  every base third-party skill is checked after the first error"; else failed=$((failed+1)); echo "FAIL  loop continues"; echo "$out"; fi; rm -rf "$W"
+fresh; sed -i 's/^payload third-party requires=ovr$/payload/' "$P/.claude/skills/manifest.txt"; expect fail "third-party changed to an empty kind" "is now listed as ''"
+fresh; sed -i '/^payload/d' "$P/.claude/skills/manifest.txt"; sed -i "s/$SHA/$SHA2/" "$P/.claude/skills/SKILLS-LOCK.md"; expect fail "removed from the manifest with its folder kept, plus a commit change" "removed from the manifest but its folder is still there"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]
