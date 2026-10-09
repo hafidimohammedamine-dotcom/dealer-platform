@@ -16,8 +16,12 @@ concurrency:
 
 jobs:
   shift:
-    # Manual runs only by a founder (the focus text goes into the manager's prompt).
-    if: github.event_name == 'schedule' || github.actor == 'hafidimohammedamine-dotcom'
+    # Runs: the hourly schedule; a founder's manual run; or the review job starting a fix round (no focus text allowed then,
+    # since the focus text goes into the manager's prompt).
+    if: >-
+      github.event_name == 'schedule' ||
+      github.actor == 'hafidimohammedamine-dotcom' ||
+      (github.actor == 'github-actions[bot]' && github.event.inputs.focus == '')
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
