@@ -6,3 +6,5 @@ yarn.lock
 CLAUDE.md
 .claude
 .github/workflows/agent-*
+SETUP.md
+.github/ISSUE_TEMPLATE

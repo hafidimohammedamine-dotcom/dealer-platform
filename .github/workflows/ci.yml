@@ -37,3 +37,6 @@ jobs:
       - name: Dependency audit
         if: hashFiles('package.json') != ''
         run: yarn npm audit --severity moderate --all --recursive
+      - name: Build
+        if: hashFiles('package.json') != ''
+        run: yarn build
