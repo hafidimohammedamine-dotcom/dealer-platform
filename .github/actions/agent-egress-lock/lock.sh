@@ -96,6 +96,11 @@ sudo ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 sudo ip6tables -A OUTPUT -j REJECT
 sudo ip6tables -P OUTPUT DROP
 
+if [ "${AGENT_LOCK_DEBUG:-}" = 1 ]; then
+  curl -s -o /dev/null --max-time 10 https://api.github.com/zen; echo "debug curl rc=$?"
+  sudo iptables -t nat -L OUTPUT -v -n; sudo iptables -L OUTPUT -v -n; sudo ss -ltnp | grep 8443 || true
+  sudo update-alternatives --display iptables | head -3 || true
+fi
 # --- 4. Nothing later in the job may undo this: stop Docker, remove sudo ---------------------------------------------------
 sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
 sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock
