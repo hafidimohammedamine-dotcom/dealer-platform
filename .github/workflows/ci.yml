@@ -38,7 +38,7 @@ jobs:
           mkdir -p /tmp/guards
           for s in check-founder-files.sh check-skills.sh; do
             if [ "$EVENT" = pull_request ]; then
-              git fetch -q origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+              git rev-parse --verify -q "origin/$BASE_REF" >/dev/null || { echo "ERROR: origin/$BASE_REF not in checkout (needs fetch-depth: 0)"; exit 1; }
               if git cat-file -e "origin/$BASE_REF:scripts/$s" 2>/dev/null; then
                 git show "origin/$BASE_REF:scripts/$s" > "/tmp/guards/$s"; echo "$s: base branch copy"
               else

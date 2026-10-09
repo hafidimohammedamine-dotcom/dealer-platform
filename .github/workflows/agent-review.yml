@@ -34,7 +34,7 @@ jobs:
         # brings (at any depth), then restore the base branch's copies. Fails if the base has no rules.
         run: |
           set -euo pipefail
-          git fetch -q origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          git rev-parse --verify -q "origin/$BASE_REF" >/dev/null || { echo "ERROR: origin/$BASE_REF not in checkout (needs fetch-depth: 0)"; exit 1; }
           git cat-file -e "origin/$BASE_REF:CLAUDE.md"
           git cat-file -e "origin/$BASE_REF:.claude"
           find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json \) -print0 | xargs -0 rm -f
