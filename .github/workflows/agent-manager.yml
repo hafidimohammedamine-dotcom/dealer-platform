@@ -43,8 +43,10 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
           github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          show_full_output: true   # temporary: shows every step in the log while we tune permissions
           prompt: "/manager ${{ github.event.inputs.focus }}"
           claude_args: |
             --model opus
             --max-turns 200
-            --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(npx:*),Bash(node:*),Bash(npm:*),Bash(corepack:*),Bash(mkdir:*),Bash(ls:*),Bash(cat:*),Bash(rm -rf ../wt-*)"
+            --allowedTools "Skill,TodoWrite,Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(pwd),Agent,Task,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(npx:*),Bash(node:*),Bash(npm:*),Bash(corepack:*),Bash(mkdir:*),Bash(ls:*),Bash(cat:*),Bash(cd:*),Bash(rm -rf ../wt-*)"
+            --add-dir ${{ github.workspace }}/..

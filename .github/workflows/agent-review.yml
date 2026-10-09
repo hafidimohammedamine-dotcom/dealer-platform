@@ -38,4 +38,4 @@ jobs:
           claude_args: |
             --model sonnet
             --max-turns 120
-            --allowedTools "Agent,Task,Read,Glob,Grep,Write,WebFetch,WebSearch,Bash(git diff:*),Bash(git log:*),Bash(git fetch:*),Bash(gh pr:*),Bash(gh issue:*),Bash(yarn:*),Bash(npm audit:*),Bash(corepack:*),Bash(ls:*),Bash(cat:*)"
+            --allowedTools "Skill,TodoWrite,Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(pwd),Agent,Task,Read,Glob,Grep,Write,WebFetch,WebSearch,Bash(git diff:*),Bash(git log:*),Bash(git fetch:*),Bash(gh pr:*),Bash(gh issue:*),Bash(yarn:*),Bash(npm audit:*),Bash(corepack:*),Bash(ls:*),Bash(cat:*)"
