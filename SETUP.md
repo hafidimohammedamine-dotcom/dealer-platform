@@ -3,7 +3,7 @@
 ## The company
 | Team | Agents | What they do |
 |---|---|---|
-| Leadership | **chief-engineer** (Claude Fable 5.1) | Called only when the team is stuck: 3 failed review rounds, a builder can't do it, or main is broken. Finds the root cause and fixes it itself |
+| Leadership | **chief-engineer** (Claude Fable 5.1; Opus while Fable usage is unavailable) | Called only when the team is stuck: 3 failed review rounds, a builder can't do it, or main is broken. Finds the root cause and fixes it itself |
 | Management | **manager** (every 3 hours) | Picks issues, assigns builders, sends every review finding back until fixed, escalates to the Chief Engineer, logs each shift |
 | Builders (5) | builder-intake, builder-ai, builder-crm, builder-inventory, builder-finance | Write the product, one folder each |
 | Review team (6) | security, tester, architect, compliance, designer, docs | Check every pull request. **Any finding blocks the merge** |
@@ -15,7 +15,7 @@ Flow: Issue -> manager -> builder -> pull request -> review team -> fixes (up to
 ## Models
 | Model | Agents |
 |---|---|
-| Claude Fable 5.1 | chief-engineer (only when stuck, max one job per shift) |
+| Claude Fable 5.1 | chief-engineer (only when stuck, max one job per shift; temporarily on Opus while Fable usage is unavailable) |
 | Opus | manager, security, compliance, architect, builder-finance, builder-ai, weekly audit |
 | Sonnet | builder-intake, builder-crm, builder-inventory, tester, designer, devops, review coordinator |
 | Haiku | docs, daily report |

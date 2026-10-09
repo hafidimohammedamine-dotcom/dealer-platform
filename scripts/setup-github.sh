@@ -16,7 +16,7 @@ label "ready-to-merge"      "0e8a16" "Founder: review and merge"
 label "round-1"             "fbca04" "Review round 1"
 label "round-2"             "fbca04" "Review round 2"
 label "round-3"             "e99695" "Review round 3 (next: Chief Engineer)"
-label "escalated"           "7057ff" "Chief Engineer (Fable 5.1) took over"
+label "escalated"           "7057ff" "Chief Engineer took over"
 # Priority
 label "priority:1"          "b60205" "Do first"
 label "priority:2"          "d93f0b" "Next"
