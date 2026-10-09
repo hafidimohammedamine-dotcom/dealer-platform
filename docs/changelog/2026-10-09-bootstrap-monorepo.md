@@ -9,7 +9,8 @@
 - **CI runbook** (`docs/runbooks/ci-pipeline.md`): the step order in `ci.yml` (guard script tests, the full-history secret
   scan on pushes to `main`, build before the dependency audit), the local secret scan command, and what to do when a
   step fails. The pull request's own secret scan is in `guards.yml`.
-- **Lint and test commands:** the Payload lint rule is stronger, and it bans more Payload data methods outside
-  `packages/data`. A duplicate test script alias is removed; `yarn test` is the only test command.
+- **Lint and test commands:** the Payload lint rules are stronger. Outside `packages/data`, the Payload instance and
+  database drivers are off limits, `overrideAccess` must be `false` everywhere, and inline lint disable comments are
+  turned off. A duplicate test script alias is removed; `yarn test` is the only test command.
 - **Key runbook** (`docs/runbooks/key-leak-or-loss.md`): detect, rotate, re-encrypt, sign out and tell people, for a
   leaked or lost `PAYLOAD_SECRET` or `FIELD_ENCRYPTION_KEY`. Re-encryption and key backup checks are not built yet.

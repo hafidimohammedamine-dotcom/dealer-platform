@@ -57,8 +57,12 @@ in `infra/checks` (`keeps dependency install scripts off`) fails if that line is
 Notes:
 
 - `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file, including Markdown in `docs/`.
-- ESLint also fails on direct Payload data calls (`payload.find`, `payload.create`, and so on) outside `packages/data`.
-  All data access goes through `packages/data`.
+- ESLint also enforces the Payload data rules, in `eslint.payload-ban.mjs`. All data access goes through `packages/data`.
+  - Outside `packages/data`, code may not use the Payload instance, except for its `logger`. The check fails closed.
+  - `overrideAccess` must be the literal `false`, in every file, including `packages/data`. The allow-list is empty.
+  - Database drivers and Payload database adapters (`pg`, `drizzle-orm`, `@payloadcms/db-postgres`, `@payloadcms/drizzle`)
+    may be imported only in `packages/data`.
+  - Inline `eslint-disable` comments are off, so a file cannot switch these rules off.
 - `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
 
 ## What `nx run-many` does
@@ -90,11 +94,17 @@ table, with the reason and the condition for removing it. To see what a row pins
 
 | Package                                              | Pinned version | Reason or advisory   | Parent package                                | Remove when          |
 | ---------------------------------------------------- | -------------- | -------------------- | --------------------------------------------- | -------------------- |
-| `undici` (`resolutions` key `undici@npm:7.29.0`)     | 7.29.1         | TBD - see PR #19     | `nx@23.3.0` (its `undici` 7.29.0 dependency)  | TBD - see PR #19     |
+| `undici` (`resolutions` key `undici@npm:7.29.0`) | 7.29.1 | Fixes four advisories, see below | `nx@23.3.0`, which pins `undici` 7.29.0 | When nx ships a version that depends on `undici` 7.29.1 or newer |
 
-`yarn why undici` confirms that `nx@23.3.0` pulls in `undici` 7.29.0, which the resolution turns into 7.29.1.
-`yarn npm audit --severity moderate --all --recursive` reported no suggestions on this branch. The advisory this pin
-addresses is not written down in the repo yet.
+Advisories fixed in 7.29.1. Found with `yarn npm audit` with the pin removed:
+
+- GHSA-3wwx-pv8p-q78v (moderate): denial of service in WebSocket `permessage-deflate` handling.
+- GHSA-pmjh-fq2x-6v4x (moderate): denial of service through an orphaned response body in `RetryHandler`.
+- GHSA-r53p-7pc4-xj5r (low): response splitting through the retry interceptor.
+- npm advisory 1240041: denial of service through an unrequested WebSocket subprotocol.
+
+The resolution raises the `undici` that `nx@23.3.0` pins from 7.29.0 to 7.29.1. `node-gyp` pulls in `undici` 8.11.2,
+which is not affected. Re-check this row at each monthly upgrade, and remove the resolution when the condition above is met.
 
 ## Adding a new workspace
 

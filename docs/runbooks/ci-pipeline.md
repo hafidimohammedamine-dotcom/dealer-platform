@@ -103,9 +103,13 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 
 ### Lint fails
 
-- **ESLint error.** Read the rule name in the log. The Payload rule bans direct calls such as `payload.find`,
-  `payload.create`, `payload.update` and `payload.delete`, and the other Payload data methods, outside `packages/data`.
-  Use `packages/data` instead.
+- **ESLint error.** Read the rule name in the log. The Payload rules in `eslint.payload-ban.mjs` are:
+  - `local/no-payload-instance-access`: outside `packages/data`, do not use the Payload instance (only `logger` is allowed).
+  - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file.
+  - `no-restricted-imports`: database drivers and Payload adapters are imported only in `packages/data`.
+
+  Use `packages/data` instead. Inline `eslint-disable` comments do not work for these rules.
+
 - **Prettier: "Code style issues found".** Run `yarn format` locally and commit the result. Prettier also checks Markdown
   in `docs/`.
 
