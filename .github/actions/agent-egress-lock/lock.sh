@@ -83,6 +83,7 @@ sudo iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --
 # Filter: loopback, replies, DNS only from dnsmasq to the upstream, 443 only from the proxy, Azure host services for root.
 sudo iptables -F OUTPUT
 sudo iptables -A OUTPUT -o lo -j ACCEPT
+sudo iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT   # connections redirected to the local proxy keep their outer interface
 sudo iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 for p in udp tcp; do sudo iptables -A OUTPUT -p "$p" --dport 53 -d "$UPSTREAM" -m owner --uid-owner "$DNS_UID" -j ACCEPT; done
 sudo iptables -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$PROXY_UID" -j ACCEPT
