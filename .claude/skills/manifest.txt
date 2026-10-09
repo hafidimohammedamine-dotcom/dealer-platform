@@ -4,3 +4,5 @@ manager ours
 review-pr ours
 daily-report ours
 weekly-audit ours
+payload third-party
+payload-dealer-overrides ours
