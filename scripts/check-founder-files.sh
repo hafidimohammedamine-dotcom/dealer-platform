@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
 # Fails if a pull request from someone who is not a founder changes founder-only files.
-# Usage: scripts/check-founder-files.sh <base-ref> <head-ref> <pr-author-login> <founders-file>
+# Usage: scripts/check-founder-files.sh <base-ref> <head-ref> <logins> <founders-file>
 #   base-ref / head-ref: git refs to compare (merge-base of base and head .. head).
-#   pr-author-login: GitHub login of the PR author, taken from the pull_request event (not from anything the PR controls).
+#   logins: comma-separated GitHub logins taken from the pull_request event, not from anything the PR controls:
+#           the PR author and the account that triggered this run (opened it or pushed the latest commits).
+#           Founder-only files may change only if EVERY one of them is a founder.
 #   founders-file: list of founder GitHub logins, one per line (read from the base branch).
 set -euo pipefail
-BASE="${1:?base ref}"; HEAD="${2:?head ref}"; AUTHOR="${3:?pr author}"; FOUNDERS="${4:?founders file}"
+BASE="${1:?base ref}"; HEAD="${2:?head ref}"; LOGINS="${3:?logins}"; FOUNDERS="${4:?founders file}"
 
 [ -f "$FOUNDERS" ] || { echo "ERROR: founders file not found: $FOUNDERS"; exit 1; }
-if grep -qxF -- "$AUTHOR" <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$FOUNDERS" | sed '/^$/d'); then
-  echo "PR author '$AUTHOR' is a founder: founder-only files may change; founders review them."
+founders=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$FOUNDERS" | sed '/^$/d')
+all_founders=1; AUTHOR="$LOGINS"
+IFS=',' read -r -a who <<< "$LOGINS"
+[ "${#who[@]}" -gt 0 ] || all_founders=0
+[[ "$LOGINS" =~ (^|,)(,|$) ]] && all_founders=0   # an empty login never counts as a founder
+for l in "${who[@]}"; do
+  [ -n "$l" ] && grep -qxF -- "$l" <<<"$founders" || all_founders=0
+done
+if [ "$all_founders" = 1 ]; then
+  echo "All of '$LOGINS' are founders: founder-only files may change; founders review them."
   exit 0
 fi
 
@@ -22,7 +32,7 @@ if ! changed=$(git -c core.quotepath=off diff -z --no-renames --name-only "$BASE
 fi
 bad=$(printf '%s\n' "$changed" | grep -E "$PATTERN" || true)
 if [ -n "$bad" ]; then
-  echo "PR author '$AUTHOR' is not a founder and changes founder-only files:"
+  echo "Not all of '$AUTHOR' are founders, and the PR changes founder-only files:"
   echo "$bad"
   echo "Undo these changes and ask on the issue: REQUEST: <path> - <change> - <why>"
   exit 1

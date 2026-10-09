@@ -16,6 +16,8 @@ concurrency:
 
 jobs:
   shift:
+    # Manual runs only by a founder (the focus text goes into the manager's prompt).
+    if: github.event_name == 'schedule' || github.actor == 'hafidimohammedamine-dotcom'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
@@ -47,7 +49,7 @@ jobs:
           claude_args: |
             --model opus
             --max-turns 200
-            --permission-mode bypassPermissions
-            --add-dir ${{ github.workspace }}/..
-          # Builders run on a throwaway GitHub runner with a token limited to this repo; inputs are only
-          # founders' issues. Rules in CLAUDE.md and the review team are the guardrails, not a command list.
+            --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,TodoWrite,Skill,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(node:*),Bash(corepack:*),Bash(cd:*),Bash(pwd),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(mkdir:*),Bash(test:*),Bash(true),Bash(rm -rf .worktrees/:*)"
+            --disallowedTools "Bash(npx:*),Bash(npm:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env),Bash(printenv:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+          # Builders work only inside the repo (worktrees in .worktrees/, git-ignored). Allow-list: git, gh, yarn and basic
+          # shell; no npx/npm/curl, no reading the runner's environment or credentials. Agents ask with REQUEST: when blocked.

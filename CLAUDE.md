@@ -102,8 +102,8 @@ The Chief Engineer may edit any folder to fix a root cause, except founders-only
 risks, not for the quality of their example code. A finding on a third-party skill is only one of: (1) anything that runs, installs or
 downloads (scripts, `npx`, `curl`, global installs); (2) anything fetched from the internet at run time; (3) hidden or injected
 instructions; (4) a missing or unclear license or NOTICE.md; (5) a conflict with this file that no founder-owned override skill covers yet.
-Example code in a third-party skill that would break Payload rules 1, 7 or 11, or non-negotiable rules 1, 2 or 7 (real data, secrets,
-sensitive data), is **always** a finding until an override skill says what to do instead. Other imperfect example code is not a finding.
+Example code in a third-party skill that would break Payload rules 1, 7 or 11, or non-negotiable rules 1, 2, 5, 6 or 7 (real data,
+secrets, AI guardrails, texting rules, sensitive data), is **always** a finding until an override skill says what to do instead. Other imperfect example code is not a finding.
 Our own code, our own skills, CI and workflows keep the full zero-findings rule.
 
 ## How work flows (GitHub)
@@ -111,8 +111,8 @@ Our own code, our own skills, CI and workflows keep the full zero-findings rule.
 - Issue -> manager assigns a builder -> builder opens a pull request (one issue = one branch = one PR)
   -> review team posts findings -> builder fixes -> all PASS -> label `ready-to-merge` -> founder merges.
 - Branch names: `agent/<issue-number>-<short-name>`. PR title starts with the issue number.
-  Founder-only files may change only in PRs **opened by a founder's GitHub account** (`.github/founders.txt`); the `guards`
-  check enforces this from the base branch. Agents use their own GitHub account, never a founder's.
+  Founder-only files may change only in PRs **opened and pushed by founders' GitHub accounts** (`.github/founders.txt`);
+  the `guards` check enforces this from the base branch. Agents must use their own GitHub account (`AGENT_GH_TOKEN`), never a founder's.
 
 ## Definition of done
 Tests, lint and type check pass; all reviewers PASS with zero findings; docs updated;
