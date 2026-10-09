@@ -4,6 +4,7 @@
     "rootConfig": [
       "{workspaceRoot}/tsconfig.base.json",
       "{workspaceRoot}/eslint.config.mjs",
+      "{workspaceRoot}/eslint.payload-ban.mjs",
       "{workspaceRoot}/vitest.config.ts",
       "{workspaceRoot}/package.json",
       "{workspaceRoot}/yarn.lock",

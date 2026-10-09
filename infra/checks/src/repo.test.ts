@@ -2,7 +2,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { findRepoRoot, listWorkspaces, packageName, parseEnvTemplate, readJson } from './repo.js';
+import {
+  findRepoRoot,
+  isRecord,
+  listWorkspaces,
+  packageName,
+  parseEnvTemplate,
+  readJson,
+} from './repo.js';
+
+const hasName = (value: unknown): value is { name: string } =>
+  isRecord(value) && typeof value['name'] === 'string';
 
 const temps: string[] = [];
 const makeTemp = (): string => {
@@ -21,7 +31,7 @@ describe('repo helpers', () => {
   });
 
   it('finds the repo root from this folder', () => {
-    expect(readJson<{ name: string }>(findRepoRoot(), 'package.json').name).toBe('dealer-platform');
+    expect(readJson(findRepoRoot(), 'package.json', hasName).name).toBe('dealer-platform');
   });
 
   it('throws when no repo root exists above the start folder', () => {
@@ -58,5 +68,34 @@ describe('repo helpers', () => {
 
   it('rejects malformed env lines', () => {
     expect(() => parseEnvTemplate('not a variable')).toThrow('Bad env line');
+  });
+
+  it('rejects env files with duplicate keys', () => {
+    expect(() => parseEnvTemplate('A=1\nA=2\n')).toThrow('Duplicate env key: A');
+  });
+
+  it('reads env files with Windows line endings', () => {
+    expect([...parseEnvTemplate('# note\r\nA=1\r\n\r\nB=\r\n')]).toEqual([
+      ['A', '1'],
+      ['B', ''],
+    ]);
+  });
+
+  it('throws when a JSON file has the wrong shape', () => {
+    const root = makeTemp();
+    writeFileSync(join(root, 'a.json'), JSON.stringify({ name: 5 }));
+    expect(() => readJson(root, 'a.json', hasName)).toThrow('Unexpected shape in a.json');
+  });
+
+  it('throws when workspaces is not a list of strings', () => {
+    const root = makeTemp();
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ workspaces: [1] }));
+    expect(() => listWorkspaces(root)).toThrow('Unexpected shape in package.json');
+  });
+
+  it('isRecord rejects null and arrays', () => {
+    expect(isRecord(null)).toBe(false);
+    expect(isRecord([])).toBe(false);
+    expect(isRecord({})).toBe(true);
   });
 });
