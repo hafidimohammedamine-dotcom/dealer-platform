@@ -63,7 +63,7 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 | `services/ai/`, `services/voice/`, `services/messaging/` | AI replies, ElevenLabs voice, Telnyx texting, consent rules engine | builder-ai |
 | `services/inventory/` | VIN/recalls (NHTSA), listing feeds, AI inventory tools | builder-inventory |
 | `services/desking/`, `services/lenders/`, `services/callbacks/`, `services/documents/`, `services/accounting/` | Deals, encrypted credit data, lender adapters, bank callbacks, contracts/title, accounting | builder-finance |
-| `packages/contracts/` | Shared data shapes: Lead, Customer, Vehicle, Deal, CreditApp, LenderDecision | **founders only** |
+| `packages/contracts/` | Shared data shapes: Lead, Customer, Vehicle, Deal, CreditApp, LenderDecision | devops builds; a founder approves every change (CODEOWNERS); other agents ask with `REQUEST:` |
 | `packages/platform/` | Encryption, audit log, queues, config | devops builds, security must approve |
 | `packages/ui/` | Design system and Payload admin theme | designer |
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |
@@ -94,7 +94,7 @@ issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes i
 A pull request merges only when **all** of these say PASS with **zero findings at any level**:
 security, tester, architect, compliance, designer (if screens changed). Plus CI is green and a founder approves.
 There is no "fix it later". Every finding is fixed in the same pull request.
-Escalation: builder fixes for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1) finds the root cause and fixes it
+Escalation: builder fixes for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1; Opus while Fable usage is unavailable) finds the root cause and fixes it
 itself -> if that still fails review, the PR is `blocked` for the founders.
 The Chief Engineer may edit any folder to fix a root cause, except founders-only files.
 

@@ -3,8 +3,8 @@
 ## The company
 | Team | Agents | What they do |
 |---|---|---|
-| Leadership | **chief-engineer** (Claude Fable 5.1) | Called only when the team is stuck: 3 failed review rounds, a builder can't do it, or main is broken. Finds the root cause and fixes it itself |
-| Management | **manager** (every 3 hours) | Picks issues, assigns builders, sends every review finding back until fixed, escalates to the Chief Engineer, logs each shift |
+| Leadership | **chief-engineer** (Claude Fable 5.1; Opus while Fable usage is unavailable) | Called only when the team is stuck: 3 failed review rounds, a builder can't do it, or main is broken. Finds the root cause and fixes it itself |
+| Management | **manager** (every hour) | Picks issues, assigns builders, sends every review finding back until fixed, escalates to the Chief Engineer, logs each shift |
 | Builders (5) | builder-intake, builder-ai, builder-crm, builder-inventory, builder-finance | Write the product, one folder each |
 | Review team (6) | security, tester, architect, compliance, designer, docs | Check every pull request. **Any finding blocks the merge** |
 | Support | devops | Infra, CI, Payload config and hosting, tenant-safe data helper, backups |
@@ -15,12 +15,12 @@ Flow: Issue -> manager -> builder -> pull request -> review team -> fixes (up to
 ## Models
 | Model | Agents |
 |---|---|
-| Claude Fable 5.1 | chief-engineer (only when stuck, max one job per shift) |
-| Opus | manager, security, compliance, architect, builder-finance, builder-ai, weekly audit |
+| Claude Fable 5.1 | chief-engineer by default (only when stuck, max one job per shift). Not in use right now: a founder sets it back to claude-fable-5-1 when Fable usage is available again |
+| Opus | manager, security, compliance, architect, builder-finance, builder-ai, weekly audit, chief-engineer (temporarily, while Fable usage is unavailable) |
 | Sonnet | builder-intake, builder-crm, builder-inventory, tester, designer, devops, review coordinator |
 | Haiku | docs, daily report |
 
-Pace: manager every 3 hours, up to 2 builder jobs per shift, review on every pull request.
+Pace (max): manager every hour, up to 4 builder jobs per shift, review on every pull request.
 On Max, Fable can use up to half of the weekly limit and uses it faster than Opus.
 With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_TOKEN_REVIEW`.
 
@@ -57,7 +57,7 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 
 ## 5. Do your founder task, then switch it on
 1. Write `packages/contracts` (the first issue, labeled `agent:founder`). Most agents wait for it. Ask Claude to help you draft it.
-2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every 3 hours by itself.
+2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
 
 ## 6. Your daily routine (about 30 minutes)
 1. Read the morning **Daily report**. Founders' actions are listed first.
