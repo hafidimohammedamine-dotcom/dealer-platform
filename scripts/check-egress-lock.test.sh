@@ -9,7 +9,7 @@ pass=0; failed=0
 GOOD_VER=2.1.295
 stub() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$S/$1"; chmod +x "$S/$1"; }
 fresh() {
-  T=$(mktemp -d "$TMPROOT/el.XXXXXX") || exit 2; S="$T/stubs"; mkdir -p "$S" "$T/home" "$T/action"
+  T=$(mktemp -d "$TMPROOT/el.XXXXXX") || exit 2; S="$T/stubs"; mkdir -p "$S" "$T/home" "$T/action" "$T/run"
   cp "$LOCK_DIR/lock.sh" "$LOCK_DIR/allow-domains.txt" "$T/action/"
   : > "$T/out"; : > "$T/env"
   # A fake Claude binary and its sha256.
@@ -39,16 +39,15 @@ run() { # run <ok|fail> <name> <message> [VAR=value ...]
   local want=$1 name=$2 msg=$3; shift 3
   out=$(cd "$T" && env -i PATH="$S:/usr/bin:/bin" HOME="$T/home" USER=runner GITHUB_OUTPUT="$T/out" GITHUB_ENV="$T/env" \
         CLAUDE_CODE_VERSION="$GOOD_VER" CLAUDE_CODE_SHA256="$SHA" STUB_BINARY="$T/fake-claude" TMPDIR="$T" \
-        AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" "$@" \
+        AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" AGENT_LOCK_TEST_RUN_DIRS="$T/run" "$@" \
         bash "$T/action/lock.sh" 2>&1); rc=$?
   got=$([ $rc = 0 ] && echo ok || echo fail)
   if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"
   else failed=$((failed+1)); echo "FAIL  $name ($got)"; echo "$out" | tail -n 8; fi
-  rm -rf "$T"; rm -f /tmp/claude.bin 2>/dev/null || true; }
+  rm -rf "$T"; }
 
 fresh; run ok   "all stubs healthy: lock on" "Agent egress lock on:"
-fresh; run ok   "claude-path output written" "Agent egress lock on:"; # output file checked below
-fresh; out=$(cd "$T" && env -i PATH="$S:/usr/bin:/bin" HOME="$T/home" USER=runner GITHUB_OUTPUT="$T/out" GITHUB_ENV="$T/env" CLAUDE_CODE_VERSION="$GOOD_VER" CLAUDE_CODE_SHA256="$SHA" STUB_BINARY="$T/fake-claude" TMPDIR="$T" AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" bash "$T/action/lock.sh" 2>&1)
+fresh; out=$(cd "$T" && env -i PATH="$S:/usr/bin:/bin" HOME="$T/home" USER=runner GITHUB_OUTPUT="$T/out" GITHUB_ENV="$T/env" CLAUDE_CODE_VERSION="$GOOD_VER" CLAUDE_CODE_SHA256="$SHA" STUB_BINARY="$T/fake-claude" TMPDIR="$T" AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" AGENT_LOCK_TEST_RUN_DIRS="$T/run" bash "$T/action/lock.sh" 2>&1)
 if grep -qx "claude-path=$T/home/.local/bin/claude" "$T/out" && grep -qx "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" "$T/env"; then pass=$((pass+1)); echo "PASS  outputs and env"; else failed=$((failed+1)); echo "FAIL  outputs and env"; cat "$T/out" "$T/env"; fi; rm -rf "$T"
 # die branches
 fresh; run fail "non-Linux runner"          "Linux x64 runners only" STUB_OS=Darwin
@@ -66,6 +65,7 @@ fresh; run fail "download does not match the pinned sha256" "does not match its 
 fresh; printf '#!/usr/bin/env bash\necho "9.9.9 (Claude Code)"\n' > "$T/fake-claude"; SHA=$(sha256sum "$T/fake-claude" | cut -d' ' -f1); run fail "binary reports another version" "Claude Code 2.1.295 not installed"
 fresh; run fail "no www-data user"          "no www-data user for nginx" STUB_NO_WWW=1
 fresh; run fail "nginx stream module missing" "nginx stream module missing" STUB_NO_MODULE=1
+fresh; stub sudo '[ "$*" = "-n true" ] && exit 1; [ "$1" = -k ] && exit 0; case "$*" in *"nginx -t"*) exit 1;; esac; exit 0'; run fail "nginx config invalid" "nginx config invalid"
 # self-test checks
 fresh; run fail "sudo still works"          "self-test: sudo still works" STUB_SUDO_RC=0
 fresh; run fail "Docker still reachable"    "self-test: Docker still reachable" STUB_DOCKER_RC=0
@@ -80,6 +80,8 @@ fresh; run fail "plain HTTP reachable"      "self-test: plain HTTP (port 80) rea
 fresh; run fail "allowed name does not resolve" "self-test: DNS for an allowed name does not resolve" STUB_NO_NPM_DNS=1
 fresh; run fail "blocked name resolves"     "self-test: DNS for a blocked name resolves" STUB_DNS_LEAK_RC=0
 fresh; run fail "outside DNS reachable"     "self-test: outside DNS server reachable" STUB_TCP_RC=0
+fresh; G=$(id -gn); python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$T/run/admin.sock"; chmod 660 "$T/run/admin.sock"; run fail "group-writable admin socket still there" "group-writable admin socket still there" AGENT_LOCK_ADMIN_GROUPS="$G"
+fresh; run ok "known open routes are printed" "Known open routes"
 fresh; run fail "IPv6 reachable"            "self-test: IPv6 reachable" "STUB_REACHABLE=-6"
 fresh; run fail "deliberate break"          "self-test: deliberate break" AGENT_LOCK_SELFTEST_BREAK=1
 fresh; run fail "a failed self-test stops the job" "self-test failed; see errors above" STUB_SUDO_RC=0

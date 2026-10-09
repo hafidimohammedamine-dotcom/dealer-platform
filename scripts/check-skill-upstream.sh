@@ -6,7 +6,8 @@
 #  1. No symlinks or special files on either side.
 #  2. Every file in ours exists upstream and adds no line to it (deletions only). The only files ours may add are the
 #     top-level names in EXTRA below (at most one UPSTREAM-LICENSE*).
-#  3. Deletions are whole units only (scripts/check-skill-deletions.py): a whole file, a heading's whole body, a whole fenced
+#  3. Deletions are whole units only (scripts/check-skill-deletions.py, Markdown files only; other files can only be deleted
+#     whole): a whole file, a heading's whole body, a whole fenced
 #     code block, or a single table row / list item without a warning or rule word. Partial prose or code fails. A removed
 #     section or block that contains a warning or rule word must be listed in .claude/skills-patches/<name>.reviewed
 #     ("<file>:<upstream line>", after a founder review); every listed entry must match a deletion.
@@ -48,6 +49,10 @@ while IFS= read -r -d '' f; do
 ' "$UP/$rel" "$f") || rc=$?
   if [ "$rc" -gt 1 ]; then err "diff failed on $rel (exit $rc)"; continue; fi
   [ -n "$nums" ] || continue
+  case "$rel" in
+    *.md) ;;
+    *) err "lines removed from $rel: only whole-file deletions are allowed outside Markdown files"; continue;;
+  esac
   rv=(); [ -f "$REVIEWED" ] && rv=(--reviewed "$REVIEWED")
   rc=0; out=$(python3 -I "$HERE/check-skill-deletions.py" "$UP/$rel" --label "$rel" "${rv[@]}" <<<"$nums" 2>&1) || rc=$?
   grep '^REVIEWED ' <<<"$out" || true

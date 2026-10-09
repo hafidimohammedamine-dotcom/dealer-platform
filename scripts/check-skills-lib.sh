@@ -6,16 +6,26 @@
 #   - found by an exact match on the first cell;
 #   - the commit is the third cell and nothing else.
 
-# manifest_entries <manifest.txt>: prints "<name> <kind> <requires-or-empty>" per entry; skips blank and # lines.
-manifest_entries() {
-  local name kind rest opt req
+# manifest_lines <manifest.txt>: prints "<name>\t<kind>\t<rest of the line>" for every entry; skips blank and # lines.
+# The one place that splits manifest lines; check-skills.sh validates <rest>, manifest_entries reads requires= from it.
+manifest_lines() {
+  local name kind rest
   while read -r name kind rest; do
     [ -z "${name:-}" ] && continue
     case "$name" in \#*) continue;; esac
-    req=""
-    for opt in $rest; do case "$opt" in requires=*) req="${opt#requires=}";; esac; done
-    printf '%s %s %s\n' "$name" "${kind:-}" "$req"
+    printf '%s\t%s\t%s\n' "$name" "${kind:-}" "${rest:-}"
   done < "$1"
+}
+
+# manifest_entries <manifest.txt>: prints "<name> <kind> <requires-or-empty>" per entry (the first requires= wins;
+# check-skills.sh rejects a second one).
+manifest_entries() {
+  local name kind rest opt req
+  while IFS=$'\t' read -r name kind rest; do
+    req=""
+    for opt in $rest; do case "$opt" in requires=*) [ -n "$req" ] || req="${opt#requires=}";; esac; done
+    printf '%s %s %s\n' "$name" "$kind" "$req"
+  done < <(manifest_lines "$1")
 }
 
 # valid_skill_name <name>: true for a lower-case kebab name (the only names allowed for skill folders).

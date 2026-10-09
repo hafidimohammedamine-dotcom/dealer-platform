@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Checks the agent workflows (founder-owned). Parses every workflow as YAML and fails closed.
-
-Rules:
-  1. Claude runs only through the pinned claude-code-action (CLAUDE_ACTIONS). No other step may run the claude CLI, the
-     pre-installed binary (outputs.claude-path, .local/bin/claude) or @anthropic-ai/..., and no reusable workflow,
-     container or service job, Docker action or local action outside LOCAL_ACTIONS is used.
-  2. `secrets` is only ever used as `secrets.<NAME>` (no secrets[...], toJSON(secrets) or the whole object), and a
-     Claude/Anthropic credential (a secret named *CLAUDE*/*ANTHROPIC*, ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN) appears
-     only in a claude step's `claude_code_oauth_token`.
-  3. A claude step uses only the inputs in CLAUDE_INPUTS (allowed_bots only as in ALLOWED_BOTS), and `claude_args` only the
-     flags in CLAUDE_FLAGS, with exactly one --disallowedTools holding Skill(<name>) for `payload` and every third-party
-     skill in the manifests.
-  4. A workflow with a claude step is never triggered by pull_request (PR code must not run next to a Claude token). Its
-     claude jobs start with actions/checkout of the default branch (`ref:` main or the default-branch expression; the base
-     branch for pull_request_target) with persist-credentials: false, then the agent egress lock (LOCK_ACTION, with an id
-     and nothing else), and the claude step runs `${{ steps.<lock id>.outputs.claude-path }}`.
-  5. agent-manager.yml has exactly one claude step, and it keeps every deny in MANAGER_DENIES.
-Usage: scripts/check-workflows.py [repo-root] [--manifest FILE ...]   (an explicit --manifest must exist)
-"""
+"""Checks the agent workflows; fails closed. Rules and messages: docs/runbooks/ci-guards.md, "Workflow denies OK"."""
 import glob
 import json
 import os
@@ -31,22 +13,17 @@ except ImportError:  # fail closed
     print("ERROR: python3 PyYAML is required (python3 -m pip install pyyaml==6.0.2)")
     sys.exit(1)
 
-CLAUDE_ACTIONS = {"anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b"}
-LOCK_ACTION = "./.github/actions/agent-egress-lock"
-LOCAL_ACTIONS = {"./.github/actions/install-gitleaks", LOCK_ACTION}
-CLAUDE_INPUTS = {"claude_code_oauth_token", "github_token", "prompt", "claude_args", "path_to_claude_code_executable",
-                 "allowed_bots"}
-ALLOWED_BOTS = {"agent-manager.yml": "github-actions"}  # instant fix rounds from review.yml; GitHub's own bot only
-CLAUDE_FLAGS = {"--model", "--max-turns", "--permission-mode", "--allowedTools", "--disallowedTools", "--add-dir"}
-CLAUDE_STEP_KEYS = {"id", "name", "uses", "with", "if", "env", "timeout-minutes", "continue-on-error"}
-DEFAULT_REFS = {"main", "${{ github.event.repository.default_branch }}"}
-BASE_REF = "${{ github.base_ref }}"
-MANAGER_DENIES = (
-    "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),"
-    "Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),"
-    "Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),"
-    "Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
-).split(",")
+try:  # founder-owned policy data next to this file
+    P = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-workflows-policy.json"), encoding="utf-8"))
+except (OSError, ValueError) as e:
+    print(f"ERROR: cannot read check-workflows-policy.json ({e})")
+    sys.exit(1)
+CLAUDE_ACTIONS, LOCK_ACTION, LOCAL_ACTIONS = set(P["claude_actions"]), P["lock_action"], set(P["local_actions"])
+CLAUDE_INPUTS, ALLOWED_BOTS, CLAUDE_FLAGS = set(P["claude_inputs"]), P["allowed_bots"], set(P["claude_flags"])
+CLAUDE_STEP_KEYS, DEFAULT_REFS, BASE_REF, MANAGER = set(P["claude_step_keys"]), set(P["default_refs"]), P["base_ref"], P["manager"]
+READ_ONLY_TOOLS, READ_ONLY_BASH, ADD_DIRS = set(P["read_only_tools"]), set(P["read_only_bash"]), P["add_dirs"]
+JOB_ENV, MANAGER_DENIES = set(P["job_env"]), P["manager_denies"]
+PR_CODE = re.compile(r"github\.event\.pull_request\.head|github\.head_ref|(cd|--cwd|-C)\s+/tmp/pr\b|/tmp/pr/\S+\.(sh|js|mjs|cjs|ts|py)\b")
 SECRETS_TOKEN = re.compile(r"\bsecrets\b(\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?")
 CLAUDE_NAME = re.compile(r"claude|anthropic", re.I)
 CRED_ENV = re.compile(r"ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN")
@@ -122,7 +99,19 @@ def check_other(where, obj):
             err(f"{where}: not allowed: {u}")
 
 
-def parse_claude_args(where, text):
+def check_flag_value(fname, where, flag, value):
+    """Per-workflow limits on what claude_args may grant."""
+    if flag == "--permission-mode" and not (value == "bypassPermissions" and fname == MANAGER):
+        err(f"{where}: --permission-mode {value} not allowed (only bypassPermissions, only in {MANAGER})")
+    if flag == "--add-dir" and ADD_DIRS.get(fname) != value:
+        err(f"{where}: --add-dir {value} not allowed (allowed: {ADD_DIRS})")
+    if flag == "--allowedTools" and fname != MANAGER:
+        for t in (x.strip() for x in value.split(",")):
+            if t not in READ_ONLY_TOOLS and t not in READ_ONLY_BASH:
+                err(f"{where}: --allowedTools item {t!r} not allowed outside {MANAGER} (read-only tools only)")
+
+
+def parse_claude_args(fname, where, text):
     """Returns the --disallowedTools items, or None after reporting an error."""
     try:
         args = shlex.split(text)
@@ -139,6 +128,7 @@ def parse_claude_args(where, text):
             err(f"{where}: claude_args flag {a} needs a value")
             i += 1
         else:
+            check_flag_value(fname, where, a, args[i + 1])
             if a == "--disallowedTools":
                 denies.append([x.strip() for x in args[i + 1].split(",")])
             i += 2
@@ -154,8 +144,8 @@ def check_claude_step(fname, where, step, required, lock_id):
     for key in step:
         if key not in CLAUDE_STEP_KEYS:
             err(f"{where}: key {key!r} not allowed on a claude step")
-    for p in sorted(set(secrets_problems(json.dumps(step.get("env", {}))))):
-        err(f"{where}: {p} in the claude step's env (use claude_code_oauth_token)")
+    if step.get("env"):
+        err(f"{where}: env not allowed on a claude step (job env names: {', '.join(sorted(JOB_ENV))})")
     w = step.get("with") or {}
     if not isinstance(w, dict):
         err(f"{where}: 'with' must be a mapping")
@@ -170,13 +160,13 @@ def check_claude_step(fname, where, step, required, lock_id):
     m = LOCK_OUT_RE.match(str(w.get("path_to_claude_code_executable", "")))
     if not m or (lock_id and m.group(1) != lock_id):
         err(f"{where}: path_to_claude_code_executable must be ${{{{ steps.{lock_id or '<lock id>'}.outputs.claude-path }}}}")
-    have = parse_claude_args(where, str(w.get("claude_args", "")))
+    have = parse_claude_args(fname, where, str(w.get("claude_args", "")))
     if have is None:
         return
     for n in sorted(required):
         if f"Skill({n})" not in have:
             err(f"{where}: --disallowedTools does not deny Skill({n})")
-    if fname == "agent-manager.yml":
+    if fname == MANAGER:
         for d in MANAGER_DENIES:
             if d not in have:
                 err(f"agent-manager.yml: missing deny {d}")
@@ -203,6 +193,25 @@ def check_claude_job_start(jw, steps, triggers):
     return second.get("id")
 
 
+def check_claude_job_rules(jw, job, steps):
+    """Env allow-list, subprocess scrub on, no PR code, extra checkouts only of the default branch."""
+    env = job.get("env") if isinstance(job.get("env"), dict) else {}
+    for k in env:
+        if k not in JOB_ENV:
+            err(f"{jw}: env {k!r} not allowed in a job with a claude step (allowed: {', '.join(sorted(JOB_ENV))})")
+    if str(env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "")) != "1":
+        err(f'{jw}: needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" (tool subprocesses must not see the Claude token)')
+    for i, step in enumerate(steps[2:], 3):
+        if not isinstance(step, dict) or is_claude(step):
+            continue
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            ref = str((step.get("with") or {}).get("ref", "")) if isinstance(step.get("with"), dict) else ""
+            if ref not in DEFAULT_REFS:
+                err(f"{jw} step {i}: a later checkout in a claude job must also use the default branch")
+        if PR_CODE.search(json.dumps([step.get("run"), step.get("with")])):
+            err(f"{jw} step {i}: runs or checks out PR code in a job with a claude step")
+
+
 def check_job(fname, jname, job, required, triggers):
     """Checks one job; returns its number of claude steps."""
     jw = f"{fname} job {jname}"
@@ -223,8 +232,8 @@ def check_job(fname, jname, job, required, triggers):
         return 0
     has_claude = any(isinstance(s, dict) and is_claude(s) for s in steps)
     lock_id = check_claude_job_start(jw, steps, triggers) if has_claude else None
-    if has_claude and any(str(k).startswith("AGENT_LOCK_") for k in (job.get("env") or {}) if isinstance(job.get("env"), dict)):
-        err(f"{jw}: AGENT_LOCK_* variables (lock test hooks) are not allowed in a job with a claude step")
+    if has_claude:
+        check_claude_job_rules(jw, job, steps)
     count = 0
     for i, step in enumerate(steps, 1):
         sw = f"{jw} step {i}"
@@ -263,10 +272,9 @@ def check_file(path, required):
         if key != "jobs":
             check_other(f"{name} {key}", val)
     triggers = triggers_of(doc)
-    wenv = doc.get("env") if isinstance(doc.get("env"), dict) else {}
-    if any(str(k).startswith("AGENT_LOCK_") for k in wenv):
-        err(f"{name}: AGENT_LOCK_* variables (lock test hooks) are not allowed at workflow level")
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
+    if count and doc.get("env"):
+        err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
     if count and triggers & {"pull_request"}:
         err(f"{name}: a workflow with a claude step must not run on pull_request (PR code next to a Claude token)")
     return count
@@ -308,8 +316,8 @@ def main(argv):
     own = os.path.join(root, ".claude", "skills", "manifest.txt")
     required = third_party(manifests + ([own] if os.path.isfile(own) else []))
     counts = {os.path.basename(f): check_file(f, required) for f in files}
-    if counts.get("agent-manager.yml", 0) != 1:
-        err(f"expected exactly one claude step in agent-manager.yml (found {counts.get('agent-manager.yml', 0)})")
+    if counts.get(MANAGER, 0) != 1:
+        err(f"expected exactly one claude step in {MANAGER} (found {counts.get(MANAGER, 0)})")
     for e in errors:
         print(f"ERROR: {e}")
     if errors:

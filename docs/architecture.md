@@ -33,5 +33,6 @@ Failure handling: `docs/runbooks/ci-guards.md`.
 ### Agent network lock
 Agent jobs (manager, review, daily report, weekly audit, founder mentions) check out `main` and then run
 `.github/actions/agent-egress-lock`: pinned, checksum-verified Claude Code; outbound HTTPS only to allow-listed host names
-through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. It narrows the routes out
-but is not a complete data boundary. Details and limits: `docs/runbooks/ci-guards.md`, "Agent network lock".
+through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. Claude Code's subprocess
+isolation keeps the Claude token out of the tools agents run. Together with a repo-scoped agents' token without the Workflows
+permission, this narrows what an injected instruction could do; it is not a complete data boundary. Details and limits: `docs/runbooks/ci-guards.md`, "Agent network lock".

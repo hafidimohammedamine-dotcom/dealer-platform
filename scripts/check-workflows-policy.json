@@ -1,0 +1,121 @@
+{
+ "_comment": "Founder-owned policy for scripts/check-workflows.py. Rules and messages: docs/runbooks/ci-guards.md, 'Workflow denies OK'.",
+ "claude_actions": [
+  "anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b"
+ ],
+ "lock_action": "./.github/actions/agent-egress-lock",
+ "local_actions": [
+  "./.github/actions/agent-egress-lock",
+  "./.github/actions/install-gitleaks"
+ ],
+ "claude_inputs": [
+  "allowed_bots",
+  "claude_args",
+  "claude_code_oauth_token",
+  "github_token",
+  "path_to_claude_code_executable",
+  "prompt"
+ ],
+ "allowed_bots": {
+  "agent-manager.yml": "github-actions"
+ },
+ "claude_flags": [
+  "--add-dir",
+  "--allowedTools",
+  "--disallowedTools",
+  "--max-turns",
+  "--model",
+  "--permission-mode"
+ ],
+ "claude_step_keys": [
+  "continue-on-error",
+  "env",
+  "id",
+  "if",
+  "name",
+  "timeout-minutes",
+  "uses",
+  "with"
+ ],
+ "default_refs": [
+  "${{ github.event.repository.default_branch }}",
+  "main"
+ ],
+ "base_ref": "${{ github.base_ref }}",
+ "manager": "agent-manager.yml",
+ "read_only_tools": [
+  "Agent",
+  "Glob",
+  "Grep",
+  "Read",
+  "Skill",
+  "Task",
+  "TodoWrite"
+ ],
+ "read_only_bash": [
+  "Bash(cat:*)",
+  "Bash(date:*)",
+  "Bash(gh issue list:*)",
+  "Bash(gh issue view:*)",
+  "Bash(gh pr diff:*)",
+  "Bash(gh pr list:*)",
+  "Bash(gh pr view:*)",
+  "Bash(gh run list:*)",
+  "Bash(git -C /tmp/pr diff:*)",
+  "Bash(git -C /tmp/pr log:*)",
+  "Bash(git -C /tmp/pr ls-files:*)",
+  "Bash(git -C /tmp/pr ls-tree:*)",
+  "Bash(git -C /tmp/pr show:*)",
+  "Bash(git -C /tmp/pr status:*)",
+  "Bash(git diff:*)",
+  "Bash(git log:*)",
+  "Bash(git ls-files:*)",
+  "Bash(git show:*)",
+  "Bash(grep:*)",
+  "Bash(head:*)",
+  "Bash(ls:*)",
+  "Bash(sort:*)",
+  "Bash(tail:*)",
+  "Bash(wc:*)",
+  "Bash(yarn npm audit:*)",
+  "Bash(yarn npm info:*)",
+  "Bash(yarn why:*)"
+ ],
+ "add_dirs": {
+  "review.yml": "/tmp/pr"
+ },
+ "job_env": [
+  "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+  "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+  "GH_TOKEN",
+  "HEAD_SHA",
+  "PR_NUMBER"
+ ],
+ "manager_denies": [
+  "Skill(payload)",
+  "Bash(npx:*)",
+  "Bash(npm:*)",
+  "Bash(yarn dlx:*)",
+  "Bash(yarn create:*)",
+  "Bash(node -e:*)",
+  "Bash(node --eval:*)",
+  "Bash(node -p:*)",
+  "Bash(node --print:*)",
+  "Bash(curl:*)",
+  "Bash(wget:*)",
+  "Bash(sudo:*)",
+  "Bash(env:*)",
+  "Bash(printenv:*)",
+  "Bash(git push --force:*)",
+  "Bash(git push -f:*)",
+  "Bash(gh pr merge:*)",
+  "Bash(gh api -X DELETE:*)",
+  "Bash(gh secret:*)",
+  "Bash(gh auth:*)",
+  "Read(//proc/**)",
+  "Read(//sys/**)",
+  "Read(//home/runner/work/_temp/**)",
+  "Read(//home/runner/.*/**)",
+  "Read(//etc/**)"
+ ]
+}

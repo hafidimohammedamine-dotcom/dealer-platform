@@ -32,6 +32,8 @@ on: workflow_dispatch
 jobs:
   a:
     runs-on: ubuntu-latest
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -116,7 +118,7 @@ done
 t; printf '      - uses: actions/github-script@v7\n        with:\n          script: x\n          github-token: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n' >> "$T/$W/t.yml"; expect fail "credential passed to another action" "secrets.CLAUDE_TOKEN_BUILD outside"
 t; sed -i 's|^jobs:|env:\n  CLAUDE_CODE_OAUTH_TOKEN: x\njobs:|' "$T/$W/t.yml"; expect fail "workflow-level credential env" "t.yml env: Claude/Anthropic credential"
 t; printf '  b:\n    runs-on: ubuntu-latest\n    env:\n      K: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n    steps:\n      - run: echo hi\n' >> "$T/$W/t.yml"; expect fail "credential in a later job's env" "t.yml job b env: Claude/Anthropic credential"
-t; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTHROPIC_API_KEY: x|' "$T/$W/t.yml"; expect fail "credential in the claude step's env" "in the claude step's env"
+t; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTHROPIC_API_KEY: x|' "$T/$W/t.yml"; expect fail "any env on the claude step" "env not allowed on a claude step"
 t; sed -i 's|prompt: "Do the task."|prompt: "${{ toJSON(secrets) }}"|' "$T/$W/t.yml"; expect fail "credential in the prompt" "in input 'prompt'"
 # Actions and jobs
 t; printf '      - uses: "./.github/actions/evil"\n' >> "$T/$W/t.yml"; expect fail "quoted local action not on the allow-list" "local action not on the allow-list: ./.github/actions/evil"
@@ -163,8 +165,36 @@ t; sed -i '/          persist-credentials: false/d' "$T/$W/t.yml"; expect fail "
 t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        with:\n          extra-domains: blob.core.windows.net|' "$T/$W/t.yml"; expect fail "lock step with inputs" "may only have id/uses/name (found with)"
 t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        env:\n          AGENT_LOCK_SELFTEST_BREAK: "0"|' "$T/$W/t.yml"; expect fail "lock step with env" "(found env)"
 t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        if: false|' "$T/$W/t.yml"; expect fail "lock step with if" "(found if)"
-t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    env:\n      AGENT_LOCK_TEST_DOCKER_SOCK: /x|' "$T/$W/t.yml"; expect fail "lock test hook in a claude job" "AGENT_LOCK_* variables (lock test hooks) are not allowed in a job"
-t; sed -i 's|^jobs:|env:\n  AGENT_LOCK_SELFTEST_BREAK: "1"\njobs:|' "$T/$W/t.yml"; expect fail "lock test hook at workflow level" "not allowed at workflow level"
+t; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      AGENT_LOCK_TEST_DOCKER_SOCK: /x|' "$T/$W/t.yml"; expect fail "lock test hook in a claude job" "env 'AGENT_LOCK_TEST_DOCKER_SOCK' not allowed"
+t; sed -i 's|^jobs:|env:\n  AGENT_LOCK_SELFTEST_BREAK: "1"\njobs:|' "$T/$W/t.yml"; expect fail "workflow-level env in a claude workflow" "no workflow-level env in a workflow with a claude step"
+# Job env: allow-list, and the subprocess scrub must be on
+t; sed -i '/      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/d; /    env:$/d' "$T/$W/t.yml"; expect fail "subprocess scrub missing" 'needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"'
+t; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"|' "$T/$W/t.yml"; expect fail "subprocess scrub turned off" 'needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"'
+for v in NODE_OPTIONS BASH_ENV ANTHROPIC_BASE_URL LD_PRELOAD; do
+  t; sed -i "s|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: \"1\"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: \"1\"\n      $v: x|" "$T/$W/t.yml"; expect fail "job env $v" "env '$v' not allowed in a job with a claude step"
+done
+# claude_args values are limited per workflow
+t; sed -i 's|            --model haiku|            --model haiku\n            --permission-mode bypassPermissions|' "$T/$W/t.yml"; expect fail "bypassPermissions outside the manager" "--permission-mode bypassPermissions not allowed"
+t; sed -i 's|            --model haiku|            --model haiku\n            --permission-mode acceptEdits|' "$T/$W/t.yml"; expect fail "another permission mode" "--permission-mode acceptEdits not allowed"
+t; sed -i 's|            --model haiku|            --model haiku\n            --add-dir /tmp/pr|' "$T/$W/t.yml"; expect fail "--add-dir outside review.yml" "--add-dir /tmp/pr not allowed"
+fresh; sed -i 's|--add-dir /tmp/pr|--add-dir /etc|' "$T/$W/review.yml"; expect fail "--add-dir elsewhere in review.yml" "--add-dir /etc not allowed"
+for tool in 'Bash' 'Bash(*)' 'Write' 'Edit' 'WebFetch' 'Bash(find /tmp/pr:*)' 'Bash(git -C /tmp/pr grep:*)' 'Bash(yarn install:*)'; do
+  t; sed -i "s|            --model haiku|            --model haiku\n            --allowedTools \"Read,$tool\"|" "$T/$W/t.yml"; expect fail "allowedTools $tool outside the manager" "--allowedTools item '$tool' not allowed"
+done
+t; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read,Grep,Bash(gh pr view:*),Bash(git -C /tmp/pr log:*)"|' "$T/$W/t.yml"; expect ok "read-only allowedTools" "Workflow denies OK"
+fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
+import sys; p=sys.argv[1]; s=open(p).read()
+s=s.replace("--permission-mode bypassPermissions", "--permission-mode bypassPermissions\n            --allowedTools \"Bash(*),Write\"", 1)
+open(p,"w").write(s)
+PYEOF
+                                                        expect ok "the manager may allow write tools" "Workflow denies OK"
+# No PR code in a claude job after the lock
+t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n' >> "$T/$W/t.yml"; expect fail "later checkout of the PR head" "a later checkout in a claude job must also use the default branch"
+t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: main\n          path: other\n' >> "$T/$W/t.yml"; expect ok "later checkout of main" "Workflow denies OK"
+for cmd in 'cd /tmp/pr && yarn install' 'yarn --cwd /tmp/pr install' 'bash /tmp/pr/scripts/x.sh' 'git -C /tmp/pr checkout main && make' 'git fetch origin ${{ github.event.pull_request.head.sha }}' 'echo ${{ github.head_ref }}'; do
+  t; printf '      - run: %s\n' "$cmd" >> "$T/$W/t.yml"; expect fail "PR code in a run step: $cmd" "runs or checks out PR code in a job with a claude step"
+done
+t; printf '      - if: startsWith(github.event.pull_request.head.ref, %s)\n        run: echo ok\n' "'agent/'" >> "$T/$W/t.yml"; expect ok "reading the PR branch name in an if is fine" "Workflow denies OK"
 # Claude never runs in a pull_request workflow
 t; sed -i 's|^on: workflow_dispatch|on:\n  pull_request:\n  workflow_dispatch:|' "$T/$W/t.yml"; expect fail "claude step in a pull_request workflow" "must not run on pull_request"
 t; sed -i 's|^on: workflow_dispatch|on: [push, pull_request]|' "$T/$W/t.yml"; expect fail "pull_request in a trigger list" "must not run on pull_request"

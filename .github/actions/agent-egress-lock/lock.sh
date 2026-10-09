@@ -28,16 +28,20 @@ done
 # --- 1. Install the pinned Claude Code binary, checked against its pinned sha256 (from Anthropic's release manifest) ------
 BIN="$HOME/.local/bin/claude"
 mkdir -p "$HOME/.local/bin"
-curl -fsSL --retry 3 -o /tmp/claude.bin "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude"
-echo "$CLAUDE_CODE_SHA256  /tmp/claude.bin" | sha256sum --check --quiet || die "Claude Code download does not match its pinned sha256"
-install -m 0755 /tmp/claude.bin "$BIN" && rm -f /tmp/claude.bin
+DL=$(mktemp)
+curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude"
+echo "$CLAUDE_CODE_SHA256  $DL" | sha256sum --check --quiet || die "Claude Code download does not match its pinned sha256"
+install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 "$BIN" --version | grep -q "^$CLAUDE_CODE_VERSION " || die "Claude Code $CLAUDE_CODE_VERSION not installed"
 echo "claude-path=$BIN" >> "$GITHUB_OUTPUT"
 { echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"; echo "DISABLE_AUTOUPDATER=1"; } >> "$GITHUB_ENV"
 
 # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream >/dev/null 2>&1 || {
-  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream >/dev/null; }
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream bubblewrap socat >/dev/null 2>&1 || {
+  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream bubblewrap socat >/dev/null; }
+# Claude Code's subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) needs bubblewrap; Ubuntu 24.04 restricts the
+# unprivileged user namespaces it uses unless this is off.
+[ ! -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] || sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
 UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' /run/systemd/resolve/resolv.conf 2>/dev/null || true)
 [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
 id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
@@ -76,7 +80,7 @@ NG=$(mktemp)
 sudo install -m 0644 "$NG" /etc/nginx/agent-egress.conf
 sudo install -m 0644 /dev/null /var/log/agent-nginx.log
 sudo systemctl stop nginx.service 2>/dev/null || true
-sudo nginx -t -c /etc/nginx/agent-egress.conf >/dev/null 2>&1 || { sudo nginx -t -c /etc/nginx/agent-egress.conf; die "nginx config invalid"; }
+sudo nginx -t -c /etc/nginx/agent-egress.conf >/dev/null 2>&1 || { sudo nginx -t -c /etc/nginx/agent-egress.conf || true; die "nginx config invalid"; }
 sudo nginx -c /etc/nginx/agent-egress.conf
 
 # --- 3. Firewall -----------------------------------------------------------------------------------------------------------
@@ -114,8 +118,17 @@ sudo -k || true
 fail=0; bad() { echo "::error::agent egress lock self-test: $*"; fail=1; }
 blocked() { ! curl -sS -o /dev/null --max-time 8 "$@" 2>/dev/null; }
 if sudo -n true 2>/dev/null; then bad "sudo still works"; fi
-DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point this at a temp path
+DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point these AGENT_LOCK_* hooks at temp paths
 if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
+# The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
+RUN_DIRS="${AGENT_LOCK_TEST_RUN_DIRS:-/run /var/run}"
+GROUP_SOCKS=""
+for g in ${AGENT_LOCK_ADMIN_GROUPS:-docker lxd containerd}; do
+  grep -q "^$g:" /etc/group || continue
+  # shellcheck disable=SC2086
+  GROUP_SOCKS+=$(find $RUN_DIRS -maxdepth 3 -type s -group "$g" -writable 2>/dev/null | head -3 || true)
+done
+[ -z "$GROUP_SOCKS" ] || bad "group-writable admin socket still there: $GROUP_SOCKS"
 curl -fsS -o /dev/null --max-time 20 https://api.github.com/zen || bad "allowed host api.github.com not reachable"
 blocked https://example.com || bad "blocked host example.com reachable"
 blocked https://gist.github.com || bad "gist.github.com reachable"
@@ -134,4 +147,5 @@ if [ "$fail" != 0 ]; then
   curl -sv -o /dev/null --max-time 15 https://api.github.com/zen 2>&1 | tail -n 15 || true
   die "self-test failed; see errors above"
 fi
+echo "::notice::Known open routes (an attacker with their own credentials could use them): github.com / api.github.com (pushes, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/ci-guards.md."
 echo "Agent egress lock on: ${#NAMES[@]} allowed names, SNI proxy, sudo and Docker removed."

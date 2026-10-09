@@ -29,9 +29,7 @@ front_matter() {
 
 ! grep -q $'\r' "$MANIFEST" || err "manifest.txt has CRLF (Windows) line endings; use LF only"
 declare -A listed=() third=() requires=() kinds=()
-while read -r name kind rest; do
-  [ -z "${name:-}" ] && continue
-  case "$name" in \#*) continue;; esac
+while IFS=$'\t' read -r name kind rest; do
   case "$kind" in ours|third-party) ;; *) err "manifest line for '$name' needs kind 'ours' or 'third-party'";; esac
   valid_skill_name "$name" || err "bad skill name in manifest: '$name'"
   [ -z "${listed[$name]:-}" ] || err "skill '$name' is listed more than once in the manifest"
@@ -45,7 +43,7 @@ while read -r name kind rest; do
     esac
   done
   [ "$kind" = third-party ] && third["$name"]=1
-done < "$MANIFEST"
+done < <(manifest_lines "$MANIFEST")
 
 # Every entry directly under .claude/skills (including dot-entries)
 while IFS= read -r -d '' entry; do

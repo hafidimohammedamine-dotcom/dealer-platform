@@ -46,6 +46,11 @@ run ok   "numbered list item"                'x\n1. one\n2. two\n' '2' ''
 run fail "list item with a rule word"        'x\n- always set access\n' '2' "table row or list item with a warning or rule word"
 run ok   "plain table row"                   '| a |\n|---|\n| b |\n' '3' ''
 run fail "table row with a warning mark"     '| a |\n|---|\n| ❌ b |\n' '3' "warning or rule word"
+run ok   "list item with its continuation lines" 'x\n- one\n  more of one\n- two\n' '2 3' ''
+run fail "only the continuation line of a list item" 'x\n- one\n  more of one\n- two\n' '3' "part of a list item (lines 2-3; remove it whole)"
+run fail "only the marker line of a list item" 'x\n- one\n  more of one\n- two\n' '2' "part of a list item"
+run fail "rule word in a continuation line" 'x\n- one\n  you must not\n- two\n' '2 3' "warning or rule word"
+run fail "bad argument next to --reviewed" 'a\n' '' "usage:" --reviewed /dev/null --bogus
 # Whole units with warning words need a founder-reviewed entry
 RV=$(mktemp -d "$TMPROOT/sd.XXXXXX"); printf 'ref/X.md:2  # reviewed: links only\n' > "$RV/rev"
 run fail "section with a warning word, not reviewed" '# T\n## Security\nnever do x\n' '2 3' "not in the reviewed list (add 'ref/X.md:2'" --label ref/X.md

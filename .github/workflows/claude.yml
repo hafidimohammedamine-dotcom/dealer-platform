@@ -12,6 +12,8 @@ jobs:
   claude:
     # Only comments written by a founder (see .github/founders.txt) start a run.
     if: contains(github.event.comment.body, '@claude') && github.event.comment.user.login == 'hafidimohammedamine-dotcom'
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

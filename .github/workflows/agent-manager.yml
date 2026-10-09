@@ -31,6 +31,7 @@ jobs:
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
       GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}   # pushes/PRs with this token trigger the review workflow
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -66,9 +67,11 @@ jobs:
             --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
           # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
-          # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The main control is
-          # the agent egress lock (step `lock`): outbound HTTPS only to allow-listed host names, no sudo, no Docker. It narrows
-          # the routes out but is not a complete data boundary (docs/runbooks/ci-guards.md, "Agent network lock").
+          # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The other layers: the
+          # agent egress lock (step `lock`: outbound HTTPS only to allow-listed host names, no sudo, no Docker), Claude Code's
+          # subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: tools never see the Claude token), and the scope of
+          # GH_TOKEN, which holds only once it is the agents' own fine-grained token without the Workflows permission.
+          # None of these alone is a complete boundary (docs/runbooks/ci-guards.md, "Agent network lock").
           # `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
           # together with its override.
       - name: Show blocked tool calls (names and commands only)

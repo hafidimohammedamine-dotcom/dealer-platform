@@ -14,7 +14,7 @@ on:
       - ".github/workflows/agent-*.yml"
       - ".github/workflows/claude.yml"
       - ".github/workflows/review.yml"
-      - "scripts/check-workflows.*"
+      - "scripts/check-workflows*"
 permissions:
   contents: read
 concurrency:

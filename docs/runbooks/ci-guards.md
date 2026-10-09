@@ -89,9 +89,10 @@ Messages and fixes:
 - `lines added or changed in <file>`, `file not in upstream: <file>`, `more than one UPSTREAM-LICENSE file`, `not a regular file or
   folder` - re-copy from upstream and only delete. The only files we may add are top-level `NOTICE.md` and one `UPSTREAM-LICENSE`
   (plain, .md or .txt).
+- `lines removed from <file>: only whole-file deletions are allowed outside Markdown files` - delete the whole file or nothing.
 - `deletions in <file> are not whole units` - deletions must be whole units (`scripts/check-skill-deletions.py`): a whole file;
   a heading's whole own body (the heading line up to the next heading of any level); a whole fenced code block (``` or ~~~, any
-  length, an unclosed one runs to the end of the file); or a single table row or list item with no warning or rule word (❌, ✅,
+  length, an unclosed one runs to the end of the file); or a single table row, or a whole list item (marker line plus its deeper-indented continuation lines), with no warning or rule word (❌, ✅,
   WRONG, never, must, not, always, only, important, critical, required, access, overrideAccess, secret, token, ...). Partial prose,
   part of a code block (including indented code) or a heading without its body fails. Blank lines can go anywhere. To drop a whole
   file's text, delete the file rather than emptying it.
@@ -116,6 +117,20 @@ Messages and fixes:
 - `--disallowedTools does not deny Skill(<name>)` - add `Skill(<name>)` for `payload` and every third-party skill in the base or PR
   manifest to that step's `--disallowedTools "..."` in `claude_args`.
 - `needs exactly one --disallowedTools (found N)` - one `--disallowedTools "a,b,..."` in `claude_args` (nothing in `prompt` counts).
+- `claude_args cannot be parsed (...)` - fix the quoting in `claude_args`.
+- `key '<x>' not allowed on a claude step` - a claude step has only id, name, uses, with, if, timeout-minutes,
+  continue-on-error. `env not allowed on a claude step` - put allowed names in the job's env.
+- `env '<x>' not allowed in a job with a claude step` - job env names are limited to the list in
+  `scripts/check-workflows-policy.json` (`job_env`); `needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"` - every claude job turns
+  on Claude Code's subprocess isolation, so tools it runs never see the Claude token (the lock installs bubblewrap for it).
+- `--permission-mode <x> not allowed` (only `bypassPermissions`, only in `agent-manager.yml`), `--add-dir <x> not allowed`
+  (only `/tmp/pr` in `review.yml`), `--allowedTools item '<x>' not allowed outside agent-manager.yml` (answer-only jobs may
+  allow only the read-only tools and Bash commands listed in `check-workflows-policy.json`: no `find`, no `git grep`, no
+  writes).
+- `a later checkout in a claude job must also use the default branch` / `runs or checks out PR code in a job with a claude
+  step` - no PR head refs and no running anything inside `/tmp/pr` in a job that holds a Claude token.
+- `'with' must be a mapping`, `steps must be a list`, `not a mapping`, `no jobs mapping` - malformed workflow; fix the YAML.
+- `cannot read check-workflows-policy.json` - restore the founder-owned policy file next to the script.
 - `claude_args flag '<x>' not allowed` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`,
   `--add-dir`, each with a value. `input '<x>' not allowed` - a claude step takes only `claude_code_oauth_token`, `github_token`,
   `prompt`, `claude_args`, `path_to_claude_code_executable`, and - only in `agent-manager.yml` - `allowed_bots: github-actions`
@@ -130,13 +145,14 @@ Messages and fixes:
 - `the ./.github/actions/agent-egress-lock step may only have id/uses/name` - no `with`, `env`, `if` or `continue-on-error`.
 - `a workflow with a claude step must not run on pull_request` - PR code may never run in a job that holds a Claude token.
 - `AGENT_LOCK_* variables (lock test hooks) are not allowed` - those exist only for the lock's own tests.
-- `secrets used other than as secrets.<NAME>` - no `secrets[...]`, `toJSON(secrets)`, `join(secrets)` or the whole object.
+- `secrets used other than as secrets.<NAME> outside a claude step's claude_code_oauth_token` - no `secrets['x']`,
+  `secrets[format(...)]`, `toJSON(secrets)`, `join(secrets)` or the whole object anywhere.
+- `Claude/Anthropic credential secrets.<NAME> outside a claude step's claude_code_oauth_token` / `Claude/Anthropic credential
+  variable ...` - a secret named *CLAUDE*/*ANTHROPIC*, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` appears elsewhere.
 - `manifest not found` / `--manifest needs a file` - guards passes both manifests; an explicit one must exist.
 - `agent-manager.yml: missing deny <item>` / `expected exactly one claude step in agent-manager.yml (found N)`.
 - `runs Claude outside the pinned claude-code-action` - no `claude` CLI (any path), `@anthropic-ai/...` or other claude-code action
   in `run:` or `uses:`.
-- `Claude/Anthropic credential outside a claude step's claude_code_oauth_token` - `secrets.*CLAUDE*`, `secrets['...']`,
-  `toJSON(secrets)`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` appear nowhere else (not in env at any level, not in `prompt`).
 - `local action not on the allow-list` (only `install-gitleaks` and `agent-egress-lock`), `not allowed: docker://...`,
   `reusable workflow not allowed`, `'container'/'services' not allowed`, `not valid YAML or has duplicate keys`.
 - `python3 PyYAML is required` - GitHub's Ubuntu runners include it; locally `python3 -m pip install pyyaml==6.0.2`.
@@ -172,7 +188,7 @@ Messages and fixes:
   verbose curl. `self-test: sudo still works`, `Docker still reachable`, `blocked host example.com reachable`,
   `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another name (SNI)`, `raw IP without
   a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not resolve`, `DNS for a blocked name
-  resolves`, `outside DNS server reachable`, `IPv6 reachable` - the lock is not doing its job on this runner; do not bypass it,
+  resolves`, `outside DNS server reachable`, `IPv6 reachable`, `group-writable admin socket still there` - the lock is not doing its job on this runner; do not bypass it,
   open an `area:security` issue for the founders.
 - A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR.
 - `Claude answered under the lock, and Skill(payload) was denied` fails (egress-lock-claude.yml) - either Claude could not reach
@@ -183,19 +199,36 @@ the Claude Code version it expects; take that version's `linux-x64` `checksum` f
 `https://downloads.claude.ai/claude-code-releases/<version>/manifest.json` into `action.yml`. The reviewers check both pins, and
 `egress-lock-test.yml` / `egress-lock-claude.yml` prove the result.
 
+The job's processes keep the groups they started with (sudo, docker, adm): Linux cannot take them away mid-job. The lock makes
+them powerless instead (no sudoers entry, Docker stopped and its socket gone) and the self-test fails if any socket writable by
+docker/lxd/containerd remains. Each run also prints a `Known open routes` notice so the gaps below stay visible.
+
 What the lock does not stop (it narrows the routes out, it is not a complete data boundary):
 - an injected instruction that also carries an attacker's own credentials could still send data to an allowed service: GitHub
   (a push or issue in the attacker's repo), npm (a publish) or the Anthropic API (the attacker's key);
 - domain fronting on the CDNs behind allowed names (an allowed server name with another site's `Host` header inside TLS), where
   the CDN allows it.
-The agents' own token reaches this repo only, the command deny lists stay as a second layer, and reviews plus founder merges
-stay the control for what lands in the repo.
+Claude Code's subprocess isolation keeps the Claude token out of every tool the agents run, but `GH_TOKEN` stays visible to them
+(they need it to push and comment). So the GitHub token's scope is the real limit, and it must come from the agents' own account:
+a fine-grained token for this repository only, with Contents, Pull requests and Issues (read/write), Actions (read), and **no
+Workflows permission and no admin**. Without the Workflows permission it cannot push changes to `.github/workflows/`, so an
+agent cannot add a workflow that would receive the Claude tokens. Until that account exists the agents use a founder's token
+and none of this holds; the founders read every agent PR (Known limits). The command deny lists stay as a second layer, and
+reviews plus founder merges stay the control for what lands in the repo.
 
-Evidence for the Skill deny (Claude Code 2.1.295, the version this claude-code-action installs and the lock pins):
-`egress-lock-claude.yml` asserts in CI that `Skill(payload)` in `--disallowedTools` denies the Skill tool for a skill named
-`payload` (its run on PR #30 printed `permission_denials: [{"tool_name": "Skill", ... "skill": "payload"}]`). A founder also
-checked locally on 2.1.295 that the deny holds under `--permission-mode bypassPermissions` and inside a subagent, and that a
-subagent's `skills:` preload still loads (commands and output in the PR #30 conversation). Re-check both when the pin changes.
+Evidence for the Skill deny (Claude Code 2.1.295; tag v1.0.247 of claude-code-action is commit 2dca132f, whose
+`src/entrypoints/run.ts` pins 2.1.295; the lock's sha256 is the `linux-x64` checksum in
+`https://downloads.claude.ai/claude-code-releases/2.1.295/manifest.json`, all checked by a founder on 2026-10-09):
+- CI: run https://github.com/hafidimohammedamine-dotcom/dealer-platform/actions/runs/37986311153 (an earlier version of the
+  egress test that still ran the probe on the PR branch; the probe now runs only from `main` in `egress-lock-claude.yml`) printed
+  `permission_denials: [{"tool_name": "Skill", ... "skill": "payload"}]` with the real claude-code-action under the lock.
+- Local re-check a founder can repeat in an empty folder with `.claude/skills/probe/SKILL.md` (a skill telling Claude to reply
+  `PROBE-LOADED-7731`) and two agents in `.claude/agents/`: `subprobe` (`skills: probe`) and `subskill` (`tools: Skill`, told to load
+  `probe`):
+  `claude -p "Use the Skill tool to load the skill named probe ..." --permission-mode bypassPermissions --disallowedTools "Skill(probe)" --output-format json`
+  gives `permission_denials: [{'tool_name': 'Skill', ... 'skill': 'probe'}]`; asking it to run both subagents with the same flags
+  gives `SUBPROBE: PROBE-LOADED-7731` (the preload still works) and `SUBSKILL: SUB-SKILL-DENIED` (the deny holds in a subagent).
+Re-check when the pin changes.
 
 ## How the guards wiring is proven
 The scripts have unit tests (below). The workflow wiring (`git archive` of the PR head, base scripts on PR data, the upstream fetch)
@@ -210,13 +243,17 @@ reports it can't see the skill, **do not remove the deny**: open an `area:securi
 ## Workflow "CI" (job `checks`), step "Guard script tests"
 Run locally to see which case broke:
 - `bash scripts/check-founder-files.test.sh`, `bash scripts/check-skills.test.sh`, `bash scripts/check-skill-upstream.test.sh`,
-  `bash scripts/check-skills-upstream-all.test.sh`, `bash scripts/check-skills-vs-base.test.sh`, `bash scripts/check-workflows.sh`,
-  `bash scripts/check-workflows.test.sh`,
+  `bash scripts/check-skill-deletions.test.sh`, `bash scripts/check-skills-upstream-all.test.sh`,
+  `bash scripts/check-skills-vs-base.test.sh`, `bash scripts/check-workflows.sh`, `bash scripts/check-workflows.test.sh`,
+  `bash scripts/check-egress-lock.test.sh`,
   `bash scripts/check-review-prepare.test.sh`, `bash scripts/check-pr-ci-status.test.sh`, `bash scripts/check-review-post.test.sh`
 - `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh` (exits 2 if gitleaks can't run)
 "Secret scan of all history (pushes to main)" failing means a secret reached `main`: follow "Real key" above.
 
 ## Known limits
+- Agent pushes to `.github/**` cannot be blocked by a ruleset on the current plan (push rulesets need a paid plan for a
+  private repo). The protection is the token: the agents' own fine-grained token without the Workflows permission (see
+  "Agent network lock"). Until it exists, agents run on a founder's token and the founders read every agent PR.
 - The founder check trusts GitHub accounts. It protects us only once the agents use their own account (`AGENT_GH_TOKEN` from
   the agents' account, not a founder's). Until that switch, founders read every PR that touches founder-only files.
 - `CODEOWNERS` and required checks enforce nothing until branch protection is on (paid GitHub plan for a private repo).

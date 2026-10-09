@@ -94,6 +94,8 @@ fresh; u 'a\n\n\nb\n' 'a\nb\n';                                               ex
 fresh; u '# T\n## Security\nnever do x\n## B\nb\n' '# T\n## B\nb\n'; expect fail "section with a warning word, no reviewed list" "not in the reviewed list (add 'ref/M.md:2'"
 fresh; u '# T\n## Security\nnever do x\n## B\nb\n' '# T\n## B\nb\n'; printf 'ref/M.md:2 # links only\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect ok "reviewed section is allowed and logged" "REVIEWED ref/M.md:2"
 fresh; printf 'ref/M.md:9\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect fail "stale reviewed entry" "stale entry in demo.reviewed (no matching deletion): ref/M.md:9"
+fresh; printf '# comment\ncode1\n# other\ncode2\n' > "$U/ref/s.sh"; printf '# comment\n# other\ncode2\n' > "$O/ref/s.sh"; rec; expect fail "lines removed from a non-Markdown file" "only whole-file deletions are allowed outside Markdown files"
+fresh; printf 'code\n' > "$U/ref/s.sh"; rec; expect ok "whole non-Markdown file removed" "deletions only"
 # A failing diff in the record step fails closed (diff shim fails only for diff -ru)
 fresh; mkdir "$W/bin"; printf '#!/bin/sh\n[ "$1" = -ru ] && exit 2\nexec /usr/bin/diff "$@"\n' > "$W/bin/diff"; chmod +x "$W/bin/diff"
 out=$(PATH="$W/bin:$PATH" bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?
