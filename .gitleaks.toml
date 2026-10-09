@@ -1,7 +1,8 @@
-# Secret scan settings (founder-owned). Default rules, plus documented fake example values only.
+# Secret scan settings (founder-owned). Default rules, plus AWS's documented fake example key only.
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Official fake example keys that appear in vendor docs"
-regexes = ['''AKIAIOSFODNN7EXAMPLE''']
+description = "AWS's documented fake example key (appears in vendor docs). Matched against the detected secret only, exact."
+regexTarget = "secret"
+regexes = ['''^AKIAIOSFODNN7EXAMPLE$''']

@@ -33,5 +33,6 @@ jobs:
           claude_args: |
             --model opus
             --max-turns 150
-            --permission-mode bypassPermissions
-          # Throwaway runner; checkout is read-only. Reviewers never edit code (rule in their instructions).
+            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git log:*),Bash(git ls-files:*),Bash(git show:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*),Bash(yarn constraints:*)"
+            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit"
+          # Allow-list: the audit reads the code on main and opens issues. One command per Bash call.

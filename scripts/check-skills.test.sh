@@ -8,6 +8,7 @@ fresh() {
   T=$(mktemp -d "$TMPROOT/cs.XXXXXX") || { echo "mktemp failed"; exit 2; }
   S="$T/.claude/skills"; mkdir -p "$S/alpha/reference" "$S/beta"
   printf 'alpha third-party\nbeta ours\n' > "$S/manifest.txt"
+  printf '| Skill | Source |\n|---|---|\n| alpha | example/repo |\n' > "$S/SKILLS-LOCK.md"
   echo a > "$S/alpha/SKILL.md"; echo r > "$S/alpha/reference/R.md"; echo n > "$S/alpha/NOTICE.md"; echo b > "$S/beta/SKILL.md"
   bash "$SCRIPT" --write "$T" >/dev/null || { echo "fixture --write failed"; exit 2; }
 }
@@ -40,5 +41,9 @@ fresh; rm "$S/manifest.txt";                                 expect fail "missin
 fresh; echo "gamma maybe" >> "$S/manifest.txt"; mkdir "$S/gamma"; echo x > "$S/gamma/SKILL.md"; expect fail "bad kind" "needs kind"
 fresh; echo x > "$S/alpha/with space.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "space in name after --write" "Skills OK (5 files)"
 fresh; echo x >> "$S/alpha/SKILL.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "--write then check" "Skills OK"
+fresh; rm "$S/alpha/NOTICE.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "third-party without NOTICE.md" "has no NOTICE.md"
+fresh; printf '| Skill | Source |\n|---|---|\n| alphabet | x |\n' > "$S/SKILLS-LOCK.md"; expect fail "third-party without lock row (no prefix match)" "no row in SKILLS-LOCK.md"
+fresh; rm "$S/SKILLS-LOCK.md"; expect fail "third-party with no SKILLS-LOCK.md" "no row in SKILLS-LOCK.md"
+fresh; printf '| Skill | Source |\n|---|---|\n| gamma, alpha | x |\n' > "$S/SKILLS-LOCK.md"; expect ok "lock row listing several skills" "Skills OK"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

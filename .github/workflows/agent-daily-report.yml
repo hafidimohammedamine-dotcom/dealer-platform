@@ -27,5 +27,6 @@ jobs:
           claude_args: |
             --model haiku
             --max-turns 40
-            --permission-mode bypassPermissions
-          # Throwaway runner; checkout is read-only. Reviewers never edit code (rule in their instructions).
+            --allowedTools "Read,Grep,Glob,TodoWrite,Skill,Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue create:*),Bash(gh run list:*),Bash(date:*)"
+            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit"
+          # Allow-list: the report only reads issues/PRs/runs and posts one comment. One command per Bash call.

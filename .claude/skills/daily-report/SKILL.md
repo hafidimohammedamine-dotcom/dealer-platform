@@ -3,6 +3,8 @@ name: daily-report
 description: Write the founders' daily report - what merged, what's ready to merge, what's blocked, what the agents are working on, failures and risks - and post it to the Daily reports issue. Runs every morning from GitHub Actions.
 ---
 
+**This job runs with a short command allow-list:** one command per Bash call (no pipes, `&&`, `;` or redirection), no web access, no file edits.
+
 Write the daily report for the two founders. Plain English, short, no jargon. Read `CLAUDE.md` first.
 
 ## Gather (last 24 hours)

@@ -2,7 +2,7 @@
 # Checks .claude/skills against its manifest and checksums.
 #   .claude/skills/manifest.txt     one skill folder per line: "<name> <ours|third-party>"
 #   .claude/skills/checksums.sha256 sha256 of every file under the skill folders
-# Fails on: folders not in the manifest, manifest entries with no folder, symlinks, special files, empty folders,
+# Fails on: third-party skills without NOTICE.md or a SKILLS-LOCK.md row, folders not in the manifest, manifest entries with no folder, symlinks, special files, empty folders,
 # file names with newline/backslash/control characters, added / removed / renamed / changed files.
 # Usage: scripts/check-skills.sh [--write] [repo-root]     (--write: founders only, in a skills PR)
 set -euo pipefail
@@ -20,13 +20,14 @@ err() { echo "ERROR: $*"; fail=1; }
 [ -d "$DIR" ] || { echo "ERROR: missing $DIR"; exit 1; }
 [ -f "$MANIFEST" ] || { echo "ERROR: missing $MANIFEST"; exit 1; }
 
-declare -A listed=()
+declare -A listed=() third=()
 while read -r name kind rest; do
   [ -z "${name:-}" ] && continue
   case "$name" in \#*) continue;; esac
   case "$kind" in ours|third-party) ;; *) err "manifest line for '$name' needs kind 'ours' or 'third-party'";; esac
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || err "bad skill name in manifest: '$name'"
   listed["$name"]=1
+  [ "$kind" = third-party ] && third["$name"]=1
 done < "$MANIFEST"
 
 # Every entry directly under .claude/skills (including dot-entries)
@@ -41,6 +42,12 @@ while IFS= read -r -d '' entry; do
 done < <(find "$DIR" -mindepth 1 -maxdepth 1 -print0)
 
 for name in "${!listed[@]}"; do [ -d "$DIR/$name" ] || err "manifest lists '$name' but the folder is missing"; done
+# Third-party skills need a NOTICE.md and a row in SKILLS-LOCK.md.
+for name in "${!third[@]}"; do
+  [ -d "$DIR/$name" ] || continue
+  [ -f "$DIR/$name/NOTICE.md" ] || err "third-party skill '$name' has no NOTICE.md"
+  { [ -f "$DIR/SKILLS-LOCK.md" ] && grep -qE "^\| *([^|]*[ ,])?$name([ ,][^|]*)? *\|" "$DIR/SKILLS-LOCK.md"; } || err "third-party skill '$name' has no row in SKILLS-LOCK.md"
+done
 
 while IFS= read -r -d '' p; do err "symlink not allowed: $p"; done < <(find "$DIR" -mindepth 2 -type l -print0)
 while IFS= read -r -d '' p; do err "special file not allowed: $p"; done < <(find "$DIR" -mindepth 2 ! -type f ! -type d ! -type l -print0)

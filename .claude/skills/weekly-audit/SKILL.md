@@ -3,6 +3,8 @@ name: weekly-audit
 description: Weekly whole-codebase audit by security, architect, compliance and devops. Opens one GitHub issue per new finding so the manager schedules the fixes. Runs every Sunday from GitHub Actions.
 ---
 
+**This job runs with a short command allow-list:** one command per Bash call (no pipes, `&&`, `;` or redirection), no web access, no file edits.
+
 Run the weekly audit of the whole repository. Read `CLAUDE.md` first.
 
 ## Step 1 - Audit in parallel

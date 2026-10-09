@@ -1,3 +1,4 @@
+# TEMPORARY: replaced by review.yml (base-defined). Kept only so PR #21 itself gets a review run; the next founder PR deletes it.
 # Review team on every pull request push. Uses Founder 2's Claude subscription. Founder-owned file.
 name: Agent - Review team
 on:
