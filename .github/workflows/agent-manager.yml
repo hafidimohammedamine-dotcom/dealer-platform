@@ -48,5 +48,7 @@ jobs:
           claude_args: |
             --model opus
             --max-turns 200
-            --allowedTools "Skill,TodoWrite,Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(pwd),Agent,Task,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(npx:*),Bash(node:*),Bash(npm:*),Bash(corepack:*),Bash(mkdir:*),Bash(ls:*),Bash(cat:*),Bash(cd:*),Bash(rm -rf ../wt-*)"
+            --permission-mode bypassPermissions
             --add-dir ${{ github.workspace }}/..
+          # Builders run on a throwaway GitHub runner with a token limited to this repo; inputs are only
+          # founders' issues. Rules in CLAUDE.md and the review team are the guardrails, not a command list.
