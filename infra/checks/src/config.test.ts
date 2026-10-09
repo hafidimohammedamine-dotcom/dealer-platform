@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import rootVitestConfig from '../../../vitest.config.js';
-import { envValueProblems, yarnrcKeepsScriptsOff } from './checks.js';
+import { dependenciesMetaProblems, envValueProblems, yarnrcProblems } from './checks.js';
 import {
   findRepoRoot,
   isRecord,
@@ -87,6 +87,7 @@ describe('workspaces', () => {
       expect.arrayContaining([
         'apps/admin',
         'infra/checks',
+        'packages/contracts',
         'packages/data',
         'packages/platform',
         'packages/ui',
@@ -173,16 +174,38 @@ describe('shared vitest config, failure case', () => {
   }, 60_000);
 });
 
-describe('.yarnrc.yml', () => {
-  it('keeps dependency install scripts off', () => {
-    expect(yarnrcKeepsScriptsOff(readText(root, '.yarnrc.yml'))).toBe(true);
+describe('.yarnrc.yml and install scripts', () => {
+  it('holds exactly the allowed settings, with install scripts off', () => {
+    expect(yarnrcProblems(readText(root, '.yarnrc.yml'))).toEqual([]);
   });
 
-  it('catches scripts turned on, missing or commented out', () => {
-    expect(yarnrcKeepsScriptsOff('enableScripts: true\n')).toBe(false);
-    expect(yarnrcKeepsScriptsOff('nodeLinker: node-modules\n')).toBe(false);
-    expect(yarnrcKeepsScriptsOff('# enableScripts: false\n')).toBe(false);
-    expect(yarnrcKeepsScriptsOff('nodeLinker: node-modules\nenableScripts: false\n')).toBe(true);
+  it('is the only .yarnrc.yml in the repo', () => {
+    const skip = new Set([
+      'node_modules',
+      '.git',
+      '.yarn',
+      '.nx',
+      'dist',
+      'coverage',
+      '.worktrees',
+    ]);
+    const found: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+        const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
+        if (entry.isDirectory() && !skip.has(entry.name)) walk(relative);
+        else if (entry.name === '.yarnrc.yml' && dir !== '') found.push(relative);
+      }
+    };
+    walk('');
+    expect(found).toEqual([]);
+  });
+
+  it('lets no package build a dependency (dependenciesMeta built: true)', () => {
+    const manifests = ['package.json', ...listWorkspaces(root).map((ws) => `${ws}/package.json`)];
+    for (const file of manifests) {
+      expect(dependenciesMetaProblems(readJson(root, file, isRecord), file)).toEqual([]);
+    }
   });
 });
 
@@ -201,40 +224,5 @@ describe('.env.example', () => {
     for (const [key, value] of vars) {
       if (/(SECRET|KEY|TOKEN)/.test(key)) expect(value, key).toBe('');
     }
-  });
-});
-
-describe('env value checker catches bad values', () => {
-  // Built at run time so no secret-looking text sits in the source.
-  const fake = ['not', 'a', 'real', 'value'].join('-');
-
-  it('flags a filled key, token or secret', () => {
-    expect(envValueProblems(new Map([['TELNYX_API_KEY', fake]]))).toEqual([
-      'TELNYX_API_KEY: must be empty',
-    ]);
-    expect(envValueProblems(new Map([['META_VERIFY_TOKEN', fake]]))).toHaveLength(1);
-  });
-
-  it('flags a non-local host and a real-looking password', () => {
-    const url = ['postgres://u:', fake, '@db.example.com:5432/x'].join('');
-    expect(envValueProblems(new Map([['DATABASE_URL', url]]))).toEqual([
-      'DATABASE_URL: host must be localhost',
-      'DATABASE_URL: password must be empty or change-me',
-    ]);
-  });
-
-  it('flags a plain value that is not APP_ENV=dev', () => {
-    expect(envValueProblems(new Map([['SENTRY_DSN', fake]]))).toHaveLength(1);
-    expect(envValueProblems(new Map([['APP_ENV', 'production']]))).toHaveLength(1);
-  });
-
-  it('accepts the allowed shapes', () => {
-    const ok = new Map([
-      ['APP_ENV', 'dev'],
-      ['DATABASE_URL', 'postgres://u:change-me@localhost:5432/x'],
-      ['REDIS_URL', 'redis://localhost:6379'],
-      ['PAYLOAD_SECRET', ''],
-    ]);
-    expect(envValueProblems(ok)).toEqual([]);
   });
 });

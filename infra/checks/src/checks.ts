@@ -1,6 +1,68 @@
-/** `.yarnrc.yml` must keep dependency install scripts off. */
-export function yarnrcKeepsScriptsOff(text: string): boolean {
-  return /^enableScripts:\s*false\s*$/m.test(text);
+import { parse } from 'yaml';
+import { isRecord } from './repo.js';
+
+/**
+ * The only settings `.yarnrc.yml` may hold, with their required values. Anything else (a registry,
+ * scope, proxy, SSL or auth setting, or scripts turned back on) fails the check.
+ */
+export const requiredYarnrc: Readonly<Record<string, unknown>> = {
+  nodeLinker: 'node-modules',
+  enableTelemetry: false,
+  enableScripts: false,
+};
+
+/** Problems with the text of `.yarnrc.yml`. Empty when it matches `requiredYarnrc` exactly. */
+export function yarnrcProblems(text: string): string[] {
+  let doc: unknown;
+  try {
+    // Duplicate keys are an error, so a later `enableScripts: true` cannot hide behind an earlier line.
+    doc = parse(text, { uniqueKeys: true });
+  } catch {
+    return ['.yarnrc.yml: not valid YAML (or a key appears twice)'];
+  }
+  if (!isRecord(doc)) return ['.yarnrc.yml: must be a mapping of settings'];
+  const problems: string[] = [];
+  for (const key of Object.keys(doc)) {
+    if (!(key in requiredYarnrc)) problems.push(`.yarnrc.yml: setting not allowed: ${key}`);
+  }
+  for (const [key, value] of Object.entries(requiredYarnrc)) {
+    if (doc[key] !== value) problems.push(`.yarnrc.yml: ${key} must be ${String(value)}`);
+  }
+  return problems;
+}
+
+/**
+ * Problems with `dependenciesMeta` in one package.json: no dependency may be marked `built: true`
+ * (that would let its install scripts run).
+ */
+export function dependenciesMetaProblems(manifest: unknown, where: string): string[] {
+  if (!isRecord(manifest)) return [`${where}: not a JSON object`];
+  const meta = manifest['dependenciesMeta'];
+  if (meta === undefined) return [];
+  if (!isRecord(meta)) return [`${where}: dependenciesMeta must be an object`];
+  const problems: string[] = [];
+  for (const [name, settings] of Object.entries(meta)) {
+    if (isRecord(settings) && settings['built'] === true) {
+      problems.push(`${where}: dependenciesMeta.${name}.built must not be true`);
+    }
+  }
+  return problems;
+}
+
+/** Problems with one URL value of an env template. Never repeats the value itself. */
+function urlProblems(key: string, value: string): string[] {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return [`${key}: invalid URL`];
+  }
+  const problems: string[] = [];
+  if (url.hostname !== 'localhost') problems.push(`${key}: host must be localhost`);
+  if (url.password !== '' && url.password !== 'change-me') {
+    problems.push(`${key}: password must be empty or change-me`);
+  }
+  return problems;
 }
 
 /**
@@ -14,11 +76,7 @@ export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
     if (/(SECRET|KEY|TOKEN)/.test(key)) {
       problems.push(`${key}: must be empty`);
     } else if (/^[a-z]+:\/\//.test(value)) {
-      const url = new URL(value);
-      if (url.hostname !== 'localhost') problems.push(`${key}: host must be localhost`);
-      if (url.password !== '' && url.password !== 'change-me') {
-        problems.push(`${key}: password must be empty or change-me`);
-      }
+      problems.push(...urlProblems(key, value));
     } else if (key !== 'APP_ENV' || value !== 'dev') {
       problems.push(`${key}: unexpected plain value`);
     }

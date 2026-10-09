@@ -1,2 +1,7 @@
 export { findRepoRoot, listWorkspaces, parseEnvTemplate, packageName } from './repo.js';
-export { envValueProblems, yarnrcKeepsScriptsOff } from './checks.js';
+export {
+  dependenciesMetaProblems,
+  envValueProblems,
+  requiredYarnrc,
+  yarnrcProblems,
+} from './checks.js';
