@@ -1,4 +1,4 @@
-# Payload Field Types Reference
+# Payload CMS Field Types Reference
 
 Complete reference for all Payload field types with examples.
 
@@ -26,19 +26,9 @@ const textField: TextField = {
 }
 ```
 
-> **When to use `position: 'sidebar'`:** Reserve the sidebar for short fields that
-> give quick insight into the content — status, category, author, publish date,
-> slug. Avoid it for fields that need horizontal space to be useful, like a
-> description, rich text content, or long text — those belong in the main document
-> area. (`title` above is shown in the sidebar only to demonstrate the option.)
-
 ### Slug Field Helper
 
-Built-in helper for auto-generating slugs. **Use this for all slugs** instead of
-hand-rolling a `{ name: 'slug', type: 'text', unique: true }` field — it
-auto-generates the slug from the title, adds a regenerate toggle, and handles
-uniqueness and indexing. Call it with no args when the collection has a `title`
-field — the slug is generated from `title` by default:
+Built-in helper for auto-generating slugs:
 
 ```ts
 import { slugField } from 'payload'
@@ -48,35 +38,19 @@ export const Pages: CollectionConfig = {
   slug: 'pages',
   fields: [
     { name: 'title', type: 'text', required: true },
-    slugField(), // name: 'slug', useAsSlug: 'title', required, unique, position: 'sidebar'
+    slugField({
+      name: 'slug', // defaults to 'slug'
+      useAsSlug: 'title', // defaults to 'title'
+      checkboxName: 'generateSlug', // defaults to 'generateSlug'
+      localized: true,
+      required: true,
+      overrides: (defaultField) => {
+        // Customize the generated fields if needed
+        return defaultField
+      },
+    }),
   ],
 }
-```
-
-`useAsSlug` defaults to `'title'`, so if the collection has **no `title` field**,
-you must pass the source field explicitly — otherwise the slug generates from a
-field that doesn't exist:
-
-```ts
-// Collection keyed on `name` instead of `title`
-fields: [{ name: 'name', type: 'text', required: true }, slugField({ useAsSlug: 'name' })]
-```
-
-Override defaults when needed (`overrides` receives the generated `RowField`):
-
-```ts
-slugField({
-  name: 'slug', // defaults to 'slug'
-  useAsSlug: 'title', // defaults to 'title'
-  checkboxName: 'generateSlug', // defaults to 'generateSlug'
-  localized: true,
-  required: true, // defaults to true
-  position: 'sidebar', // default; the slug is a short field well-suited to the sidebar
-  overrides: (field) => {
-    field.fields[1].label = 'Custom Slug Label'
-    return field
-  },
-})
 ```
 
 ## Rich Text (Lexical)
@@ -290,17 +264,14 @@ const blocksField: BlocksField = {
 ```ts
 import type { SelectField } from 'payload'
 
-// Use select for genuine taxonomy. For publish state, enable versions.drafts
-// and rely on the auto-injected _status field instead of a custom select.
 const selectField: SelectField = {
-  name: 'priority',
+  name: 'status',
   type: 'select',
   options: [
-    { label: 'Low', value: 'low' },
-    { label: 'Medium', value: 'medium' },
-    { label: 'High', value: 'high' },
+    { label: 'Draft', value: 'draft' },
+    { label: 'Published', value: 'published' },
   ],
-  defaultValue: 'medium',
+  defaultValue: 'draft',
   required: true,
 }
 

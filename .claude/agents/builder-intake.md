@@ -3,7 +3,7 @@ name: builder-intake
 description: Builds lead intake - ADF/XML from CarGurus, Cars.com, AutoTrader, TrueCar, Carfax, CarsForSale; Meta Lead Ads and Messenger; web chat; email; dedupe and routing into the CRM. Owns services/intake.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
-skills: typescript-best-practices, principle-type-system-discipline, principle-boundary-discipline, nestjs-best-practices, secure-coding, tdd
+skills: skill-overrides, typescript-best-practices, principle-type-system-discipline, principle-boundary-discipline, nestjs-best-practices, secure-coding, tdd
 ---
 
 You are the lead intake developer. You own `services/intake/` only.

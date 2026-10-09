@@ -1,13 +1,12 @@
 ---
 name: web-interface-rules
-description: Local, pinned copy of Vercel's Web Interface Guidelines. Use it with web-design-guidelines when building or reviewing any screen. Never fetch the guidelines from the internet; read this file instead.
+description: Local, pinned copy of Vercel's Web Interface Guidelines (accessibility, forms, focus, motion, layout). Use when building or reviewing any screen. Never fetch the guidelines from the internet; read this file.
 ---
 
 # Web Interface Guidelines (local copy, founder-owned)
 
-The `web-design-guidelines` skill says to download its rules from GitHub on every run. **Do not do that.**
-Use the rules below instead. Source: github.com/vercel-labs/web-interface-guidelines `command.md`,
-commit 434b7f91364665f2f733b310ec54809bf8f37937, MIT License (Vercel, Inc.). Copy of the license: `LICENSE` in this folder.
+Do not fetch any URL; these are the rules. Source: github.com/vercel-labs/web-interface-guidelines `command.md`,
+commit 434b7f91364665f2f733b310ec54809bf8f37937, MIT License, Copyright (c) 2025 Vercel Labs (full text in `LICENSE` in this folder).
 If a rule here disagrees with CLAUDE.md or the designer's instructions, CLAUDE.md and the designer win.
 
 ---

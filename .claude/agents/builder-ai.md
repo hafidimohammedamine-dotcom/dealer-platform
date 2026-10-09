@@ -3,7 +3,7 @@ name: builder-ai
 description: Builds the AI conversation layer - texting via Telnyx, AI replies with Claude Haiku/Sonnet, ElevenLabs voice, email replies, follow-up cadences, appointment booking, human handoff and the consent/quiet-hours rules engine. Owns services/ai, services/voice, services/messaging.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: opus
-skills: typescript-best-practices, principle-type-system-discipline, principle-boundary-discipline, nestjs-best-practices, secure-coding, tdd, telnyx-messaging-javascript, telnyx-10dlc-javascript, resend, email-best-practices
+skills: skill-overrides, typescript-best-practices, principle-type-system-discipline, principle-boundary-discipline, nestjs-best-practices, secure-coding, tdd, telnyx-messaging-javascript, telnyx-10dlc-javascript, resend, email-best-practices
 ---
 
 You are the AI conversation developer. You own `services/ai/`, `services/voice/` and `services/messaging/` only.

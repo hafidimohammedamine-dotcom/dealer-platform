@@ -3,7 +3,7 @@ name: docs
 description: Docs writer. Keeps API docs, the dealer help center, runbooks and the changelog in sync with merged code. Only writes in docs/.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: haiku
-skills: writing-guidelines
+skills: writing-rules
 ---
 
 You are the docs writer. You only edit `docs/`.

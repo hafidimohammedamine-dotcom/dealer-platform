@@ -27,6 +27,16 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Reviewers use the base branch's rules and skills
+        # A PR must not be able to weaken the rules it is judged by.
+        run: |
+          git fetch -q origin "${{ github.base_ref }}"
+          for p in CLAUDE.md .claude; do
+            if git cat-file -e "origin/${{ github.base_ref }}:$p" 2>/dev/null; then
+              rm -rf "$p" && git checkout "origin/${{ github.base_ref }}" -- "$p"
+            fi
+          done
+          git status --short | head -5
       - uses: actions/setup-node@v4
         with:
           node-version: 20

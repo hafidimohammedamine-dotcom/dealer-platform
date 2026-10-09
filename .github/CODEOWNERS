@@ -1,0 +1,10 @@
+# Founder-owned paths. GitHub asks the code owner to review any PR that touches them.
+# Enforced only when branch protection on main has "Require review from Code Owners" turned on.
+/CLAUDE.md                     @hafidimohammedamine-dotcom
+/.claude/                      @hafidimohammedamine-dotcom
+/scripts/check-skills.sh       @hafidimohammedamine-dotcom
+/scripts/check-skills.test.sh  @hafidimohammedamine-dotcom
+/scripts/gitleaks-config.test.sh @hafidimohammedamine-dotcom
+/.gitleaks.toml                @hafidimohammedamine-dotcom
+/.github/                      @hafidimohammedamine-dotcom
+/packages/contracts/           @hafidimohammedamine-dotcom

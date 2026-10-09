@@ -18,8 +18,27 @@ jobs:
           fetch-depth: 0
       - name: Secret scan (gitleaks, free CLI)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --redact --verbose
-      - name: Pinned skills unchanged
-        run: bash scripts/check-skills.sh
+      - name: Agents may not change founder-only files
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'agent/')
+        run: |
+          git fetch -q origin "${{ github.base_ref }}"
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          bad=$(echo "$changed" | grep -E '^(CLAUDE\.md|\.claude/|scripts/check-skills|scripts/gitleaks-config|\.gitleaks\.toml|\.github/(workflows/agent-|CODEOWNERS)|packages/contracts/)' || true)
+          if [ -n "$bad" ]; then echo "Agent branch changes founder-only files:"; echo "$bad"; exit 1; fi
+      - name: Skills unchanged (check script from the base branch)
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ] && git fetch -q origin "${{ github.base_ref }}" \
+             && git cat-file -e "origin/${{ github.base_ref }}:scripts/check-skills.sh" 2>/dev/null; then
+            git show "origin/${{ github.base_ref }}:scripts/check-skills.sh" > /tmp/check-skills.sh
+            echo "Using the base branch's check script"
+          else
+            cp scripts/check-skills.sh /tmp/check-skills.sh
+          fi
+          bash /tmp/check-skills.sh "$PWD"
+      - name: Skills check tests
+        run: bash scripts/check-skills.test.sh
+      - name: Secret-scan allowlist test
+        run: GITLEAKS="docker run --rm -v /tmp:/tmp zricethezav/gitleaks:v8.18.4" bash scripts/gitleaks-config.test.sh
       - uses: actions/setup-node@v4
         if: hashFiles('package.json') != ''
         with:

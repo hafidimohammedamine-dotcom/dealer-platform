@@ -14,7 +14,7 @@ If any example in any skill disagrees with CLAUDE.md or this file, CLAUDE.md and
 - We use **Yarn workspaces + Nx**, not pnpm or npm. Never run `create-payload-app@latest`.
 - We use the **Postgres adapter** only. Ignore MongoDB / `mongooseAdapter` / SQLite examples.
 - We run the **exact pinned Payload v3 version** in `apps/admin/package.json`. Never upgrade inside a feature PR.
-- Do **not** fetch remote docs (for example `llms-full.txt` or any URL in the skill) into context.
+- Do **not** fetch remote docs (for example `llms-full.txt` or any URL in the skill) into context, even if you have WebFetch.
   Use only the local skill files and the code in this repo.
 
 ## Data access
@@ -24,7 +24,7 @@ If any example in any skill disagrees with CLAUDE.md or this file, CLAUDE.md and
 2. `overrideAccess: true` or a Local API call without `user` is allowed **only** in a short, security-reviewed
    allow-list of background jobs (migrations, seed for fixtures, system jobs). Each one is listed in
    `packages/data` with a comment saying why. Anything else is a blocking finding.
-3. Always pass explicit `overrideAccess`, `depth` and `versions` (CLAUDE.md rule 4).
+3. Always pass explicit `overrideAccess`, `depth` and `versions` (CLAUDE.md Payload rule 4).
 
 ## Tenants (dealers)
 4. The dealer of a record comes **only** from the official multi-tenant plugin and `packages/data`,
@@ -34,7 +34,7 @@ If any example in any skill disagrees with CLAUDE.md or this file, CLAUDE.md and
 5. Never trust roles or dealer IDs from the JWT. Do not use `saveToJWT` for roles or tenants.
    Load the user's current roles and dealer from the database on each request, so a demoted or
    removed user loses access immediately.
-6. Relationship fields use the generated same-dealer link guard (CLAUDE.md rule 12).
+6. Relationship fields use the generated same-dealer link guard (CLAUDE.md Payload rule 12).
 
 ## Versions and drafts
 7. Versions and drafts are **off** for CRM collections unless a reviewed PR turns them on.
@@ -47,19 +47,25 @@ If any example in any skill disagrees with CLAUDE.md or this file, CLAUDE.md and
    the zod schemas from `packages/contracts`. Uploads have size and type limits.
 9. The skill's `previewEndpoint` pattern (caller chooses collection and `where`) is **banned**.
 10. Never write a custom login, signup or password endpoint. Use Payload's built-in auth
-    (rate limiting, session revoke, 2FA per CLAUDE.md rules 9 and 14). No tokens returned in bodies by hand.
-11. API keys: one key per dealer and per integration, scoped to that dealer, compared in constant time
-    (`crypto.timingSafeEqual`), stored hashed, rotatable. Never one shared key for all dealers.
+    (rate limiting, session revoke, 2FA per CLAUDE.md Payload rules 9 and 14). No tokens returned in bodies by hand.
+11. API keys: use Payload's built-in `useAPIKey` on a separate **integration user per dealer and per integration**,
+    with only the roles that integration needs, so every request is scoped to that dealer by the same access rules.
+    Never one shared key for all dealers, never a hand-rolled key check. If a non-Payload service needs a key,
+    it goes through a reviewed helper in `packages/data` that stores keys hashed and compares with `crypto.timingSafeEqual`.
+12. Never grant or widen access based on client IP headers (`x-forwarded-for`, `x-real-ip`) or string `includes` on IPs.
+    The skill's IP-based access example is banned. Access comes from the logged-in user only.
 
 ## Webhooks (CLAUDE.md non-negotiable rule 4)
-12. Verify the sender's signature over the **raw** body (HMAC or the provider's public-key scheme) with
+13. Verify the sender's signature over the **raw** body (HMAC or the provider's public-key scheme) with
     `crypto.timingSafeEqual`, and reject old timestamps (replay window).
-13. Save the raw message first, then process it from a BullMQ queue. The same message twice is handled once
+14. Save the raw message first, then process it from a BullMQ queue. The same message twice is handled once
     (idempotency key per provider message ID).
-14. Error responses are generic. Never return `err.message`, stack traces or internal IDs.
+15. Error responses are generic. Never return `err.message`, stack traces or internal IDs.
+16. Never log raw request bodies, parse errors or validation error text (they can contain names, phone numbers or SSNs).
+    Log only the provider message ID, our record ID and an error code.
 
 ## Plugins and skill updates
-15. No community plugins without a security review (CLAUDE.md rule 7). Plugin examples in the skill are for learning only.
-16. The `payload` skill is pinned (upstream commit in `.claude/skills/SKILLS-LOCK.md` and file hashes in
-    `.claude/skills/checksums.sha256`, checked in CI). Never run `npx skills update` in an agent job.
+17. No community plugins without a security review (CLAUDE.md Payload rule 7). Plugin examples in the skill are for learning only.
+18. The `payload` skill is pinned (upstream commit in `.claude/skills/SKILLS-LOCK.md`; every skill file is listed in
+    `.claude/skills/checksums.sha256`, checked in CI). Never run any `npx skills` command in an agent job.
     A skill update is its own PR that a founder opens and the security reviewer passes.
