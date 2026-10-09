@@ -1,9 +1,36 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "rootConfig": [
+      "{workspaceRoot}/tsconfig.base.json",
+      "{workspaceRoot}/eslint.config.mjs",
+      "{workspaceRoot}/vitest.config.ts",
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/yarn.lock",
+      "{workspaceRoot}/.yarnrc.yml",
+      "{workspaceRoot}/.env.example"
+    ],
+    "default": ["{projectRoot}/**/*", "!{projectRoot}/dist/**/*", "!{projectRoot}/coverage/**/*"],
+    "production": ["default", "!{projectRoot}/**/*.test.ts"]
+  },
   "targetDefaults": {
-    "build": { "cache": true },
-    "typecheck": { "cache": true },
-    "test": { "cache": true }
+    "build": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production", "rootConfig"],
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "typecheck": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["default", "^production", "rootConfig"]
+    },
+    "test": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["default", "^production", "rootConfig"],
+      "outputs": ["{projectRoot}/coverage"]
+    }
   },
   "analytics": false
 }
