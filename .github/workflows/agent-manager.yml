@@ -58,6 +58,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           # Instant fix rounds: review.yml starts this workflow as github-actions[bot] (see the job's if:).
           allowed_bots: github-actions
           github_token: ${{ secrets.AGENT_GH_TOKEN }}
@@ -66,14 +67,14 @@ jobs:
             --model opus
             --max-turns 200
             --permission-mode bypassPermissions
-            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
           # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
           # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The other layers: the
           # agent egress lock (step `lock`: outbound HTTPS only to allow-listed host names, no sudo, no Docker), Claude Code's
           # subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: tools never see the Claude token), and the scope of
           # GH_TOKEN, which holds only once it is the agents' own fine-grained token without the Workflows permission.
-          # None of these alone is a complete boundary (docs/runbooks/ci-guards.md, "Agent network lock").
+          # None of these alone is a complete boundary (docs/runbooks/agent-network-lock.md).
           # `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
           # together with its override.
       - name: Show blocked tool calls (names and commands only)

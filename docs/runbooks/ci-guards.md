@@ -16,8 +16,8 @@ again, tell a founder.
 ### Step "Founder-only files (PR author and pusher must be founders)" fails
 Message: `Not all of '<author>,<pusher>' are founders, and the PR changes founder-only files:` plus the paths.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, and `packages/data/override-allowlist.txt`. Renames count both
-ways.
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, and `packages/data/override-allowlist.txt` (reserved, not
+created yet: the reviewed system jobs that may use `overrideAccess: true`, see CLAUDE.md Payload rule 1). Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
 `founders file not found` / `could not diff` - the base checkout is broken; re-run once, then tell a founder.
@@ -122,7 +122,8 @@ A founder can run it locally: `bash scripts/check-skills-upstream-all.sh .`
 
 ## Step "Agent workflows keep their denies (base script, PR's workflows as data)" (`guards`, and `checks`)
 `scripts/check-workflows.sh` runs `scripts/check-workflows.py` (general rules) with `scripts/check-workflows-claude.py` (rules for
-jobs with a claude step) and the policy lists in `scripts/check-workflows-policy.json`. It parses every workflow and every
+jobs with a claude step); both use `scripts/check-workflows-lib.py` (the policy lists from `scripts/check-workflows-policy.json`,
+the error list and the secrets checks). It parses every workflow and every
 composite action in `.github/actions/` as YAML (duplicate keys rejected), fails closed, and prints `Workflow denies OK (Skill
 denies: ...)` when everything holds. `guards` runs the `main` copy on the PR's workflows as data, with both manifests, so a PR
 cannot switch it off. Every message, with its fix:
@@ -151,11 +152,12 @@ Any workflow or composite action
 
 Workflows with a claude step
 - `no workflow-level env in a workflow with a claude step (use the job's env)` - move the names into the job's `env`.
-- `a workflow with a claude step must not run on pull_request (PR code next to a Claude token)`.
+- `a workflow with a claude step must not run on pull_request` / `... on workflow_run` (PR code or its artifacts next to a
+  Claude token).
 - `expected exactly one claude step in agent-manager.yml (found N)`; `agent-manager.yml: missing deny <item>` - the manager keeps
   every deny in `manager_denies`.
 - `<job>: needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step` - the manager must stop when its
-  GitHub token is a founder's (see "Agent network lock").
+  GitHub token is a founder's (see `docs/runbooks/agent-network-lock.md`).
 
 Jobs with a claude step
 - `a job with a claude step must start with actions/checkout, then ./.github/actions/agent-egress-lock`; `the
@@ -173,9 +175,14 @@ Jobs with a claude step
 - `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed` /
   `'shell' not allowed in a job with a claude step`.
 - `permissions must be a mapping of scopes (no read-all/write-all)`; `permission <scope>: <value> not allowed (...)` - only the
-  scopes in `permission_scopes`, each read, write or none.
+  scopes in `permission_scopes`, plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
+  `claude.yml`), each read, write or none.
 - `runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)` - no step may
-  mention `/tmp/pr` (other than `/tmp/pr-meta`), the PR head or `head_ref`, except the exact prepare command in `pr_data_runs`.
+  mention `/tmp/pr` (other than `/tmp/pr-meta`), the PR head, `head_ref`, `merge_commit_sha`, `refs/pull/`, `pull/<n>`,
+  `gh pr checkout` or `event.issue.number`, except the exact prepare command in `pr_data_runs`.
+- `'git <cmd>' not allowed in a job with a claude step (the checkout must stay on the default branch)` - no `git fetch`,
+  `checkout`, `switch`, `worktree`, `pull`, `clone`, `reset`, `restore` or `submodule` in a run step (the prepare step does its
+  own, reviewed).
 - `no local action after the claude step (its files could have changed)`; `a step after the claude step must check its pinned
   files (sha256sum --check --strict) before running repo scripts` - steps after Claude may run `scripts/...` or
   `/tmp/gitleaks` only after checking the sha256 values a step before Claude wrote (the `pin` step).
@@ -186,11 +193,15 @@ Claude steps
   `env not allowed on a claude step (job env names: ...)` - put allowed names in the job's env.
 - `a claude step may not run after a failure (no always()/failure()/cancelled() in its if)`.
 - `input '<x>' not allowed (allowed: ...)` - only `claude_code_oauth_token`, `github_token`, `prompt`, `claude_args`,
-  `path_to_claude_code_executable` and `allowed_bots`; `allowed_bots may only be ...` - only `github-actions`, only in
+  `path_to_claude_code_executable`, `path_to_bun_executable` and `allowed_bots`; `allowed_bots may only be ...` - only `github-actions`, only in
   `agent-manager.yml` (it lets `review.yml` start a fix round right after a failed review). `<problem> in input '<x>'` - a
   secrets problem inside an input.
-- `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}` - the binary the lock installed and
-  checked (the lock writes that output only after its self-test passed).
+- `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}` / `path_to_bun_executable must be ${{
+  steps.<lock id>.outputs.bun-path }}` - the binaries the lock installed and checked (it writes those outputs only after its
+  self-test passed; the action's own Bun download would need hosts the lock closes).
+- `a claude step without a prompt (tag mode) may run only on issue_comment, issues (found ...)` / `... needs the job if to
+  contain '!github.event.issue.pull_request'` - without a prompt the action checks out an open PR's code itself and restores
+  only the top-level rule files, so nested `CLAUDE.md` files from the PR would load. Tag mode answers on issues only.
 - `claude_args cannot be parsed (...)` - fix the quoting. `claude_args flag '<x>' not allowed (allowed: ...)` / `claude_args flag
   <x> needs a value` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`,
   each with a value.
@@ -204,104 +215,8 @@ Claude steps
   any `extra_tools` listed for that file. No `git`, `find`, `sort`, `cat` or anything that can write a file: the PR's history
   is written as plain files before Claude starts (`/tmp/pr-meta`, `/tmp/audit-meta`).
 
-## Agent network lock (`.github/actions/agent-egress-lock`)
-Every agent job runs it right after checking out `main`. It:
-1. installs the pinned Claude Code binary from `downloads.claude.ai` and checks it against the sha256 pinned in `action.yml`
-   (the claude-code-action then uses that binary instead of downloading one);
-2. starts a local DNS server (dnsmasq) that answers only the names in `allow-domains.txt`;
-3. starts a local proxy (nginx `stream` with `ssl_preread`) that reads the TLS server name (SNI) of each connection and connects
-   only to allow-listed names. The firewall (iptables) sends every outbound port-443 connection, except the proxy's own, to
-   that proxy and rejects everything else: plain HTTP, raw IPs without a name, other DNS servers, all IPv6. An allowed IP
-   cannot be reused under another name;
-4. installs bubblewrap and socat for Claude Code's subprocess isolation; on runners where AppArmor restricts unprivileged user
-   namespaces, it keeps that restriction on (`kernel.apparmor_restrict_unprivileged_userns=1`) and lets only `/usr/bin/bwrap`
-   create them (AppArmor profile `agent-bwrap`);
-5. stops Docker and removes the runner user's sudo, so no later step can undo it;
-6. self-tests and fails the job on any problem. Only after the self-test passes does it write the `claude-path` output, so a
-   Claude step can never find the binary on a runner the lock did not finish.
-
-Allowed names are exact hosts (GitHub API/git/downloads, `api.anthropic.com`, the npm/Yarn registries, the runner's own
-services and log storage). Only `.actions.githubusercontent.com` is a wildcard (approved in `lock.sh`), because the runner uses
-many generated names there.
-
-Tests: `scripts/check-egress-lock.test.sh` (every failure branch, stubbed); `.github/workflows/egress-lock-test.yml` (the PR's
-lock on a real runner, no secrets, plus a break-on-purpose run); `.github/workflows/egress-lock-claude.yml` (from `main` only:
-the real claude-code-action under the lock and a `Skill(payload)` deny probe; on pushes to main, weekly and on demand).
-
-Messages and fixes:
-- `Linux x64 runners only` / `must run inside GitHub Actions` - only for GitHub-hosted Ubuntu x64 runners.
-- `bad CLAUDE_CODE_VERSION` / `bad CLAUDE_CODE_SHA256` / `Claude Code download does not match its pinned sha256` /
-  `Claude Code <v> not installed` - fix the pin in `action.yml` (see "Bumping the Claude Code pin").
-- `empty allow-list` / `not a plain host name` / `suffix entry not approved` - fix `allow-domains.txt`.
-- `no www-data user for nginx` / `nginx stream module missing` / `nginx config invalid` / `could not install dnsmasq-base nginx
-  libnginx-mod-stream bubblewrap socat` / `could not load the AppArmor profile for bubblewrap` - the runner image changed; re-run
-  once, then a founder checks the packages and the AppArmor setup.
-- `self-test: allowed host api.github.com not reachable` - the proxy or DNS is not working; the log shows the proxy log and a
-  verbose curl. `self-test: sudo still works`, `Docker still reachable`, `blocked host example.com reachable`,
-  `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another name (SNI)`, `raw IP without
-  a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not resolve`, `DNS for a blocked name
-  resolves`, `outside DNS server reachable`, `IPv6 reachable`, `group-writable admin socket still there`, `bubblewrap cannot start
-  (subprocess isolation would fail)`, `unprivileged user namespaces are not restricted`, `domain fronting through
-  registry.npmjs.org reaches example.com` - the lock is not doing its job on this runner; do not bypass it, open an
-  `area:security` issue for the founders. `self-test: deliberate break` appears only in the break-on-purpose test run.
-- A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR.
-- `Claude answered under the lock, and Skill(payload) was denied` fails (egress-lock-claude.yml, job `probe`) - either Claude
-  could not reach `api.anthropic.com` through the lock, or the Skill deny did not hold; read the printed result and denials.
-- Job `scrub` fails (egress-lock-claude.yml) - Claude ran `bash scripts/check-scrub-probe.sh` as a tool and it printed
-  `SCRUB-PROBE env-tokens=<n> proc-tokens=<n>` with a count above 0 (or nothing). It counts Claude tokens (`sk-ant...`) visible
-  to a tool in its own environment and in every readable `/proc/<pid>/environ`, and prints counts only. Above 0 means the
-  subprocess isolation is not working: open an `area:security` issue; do not turn the scrub off.
-
-Bumping the Claude Code pin (founder PR, together with the claude-code-action SHA): the action's `src/entrypoints/run.ts` names
-the Claude Code version it expects; take that version's `linux-x64` `checksum` from
-`https://downloads.claude.ai/claude-code-releases/<version>/manifest.json` into `action.yml`. The reviewers check both pins, and
-`egress-lock-test.yml` / `egress-lock-claude.yml` prove the result.
-
-The job's processes keep the groups they started with (sudo, docker, adm): Linux cannot take them away mid-job. The lock makes
-them powerless instead (no sudoers entry, Docker stopped and its socket gone) and the self-test fails if any socket writable by
-docker/lxd/containerd remains. Each run also prints a `Known open routes` notice so the gaps below stay visible.
-
-What the lock does not stop (it narrows the routes out, it is not a complete data boundary):
-- an injected instruction that also carries an attacker's own credentials could still send data to an allowed service: GitHub
-  (a push or issue in the attacker's repo), npm (a publish) or the Anthropic API (the attacker's key);
-- domain fronting on the CDNs behind allowed names (an allowed server name with another site's `Host` header inside TLS), where
-  the CDN allows it. Measured on 2026-10-09 from a GitHub runner (by the author of this change; not yet re-checked by a founder):
-  `curl -H 'Host: example.com' https://registry.npmjs.org/` was refused by the CDN (HTTP 403) and the same through
-  `objects.githubusercontent.com` returned 404, so neither reached the other site. The lock's self-test repeats the npm check on
-  every run (`domain fronting through registry.npmjs.org reaches example.com`). Other CDN customers and other hosts are not
-  tested; a founder decides whether to research further.
-Claude Code's subprocess isolation keeps the Claude token out of every tool the agents run, but `GH_TOKEN` stays visible to them
-(they need it to push and comment). So the GitHub token's scope is the real limit, and it must come from the agents' own account:
-a fine-grained token for this repository only, with Contents, Pull requests and Issues (read/write), Actions (read), and **no
-Workflows permission and no admin**. Without the Workflows permission it cannot push changes to `.github/workflows/`, so an
-agent cannot add a workflow that would receive the Claude tokens. The manager checks this before Claude starts:
-`scripts/check-agent-token.sh` fails the job if the token's login is in `.github/founders.txt` (message: `the agents' GH_TOKEN
-belongs to founder '<login>' ...`; `could not read the token's GitHub login` means the token is missing or invalid). So the
-manager does not run at all until the agents' account and token exist. The instant fix round after a failed review also needs
-the repository variable `AGENT_GH_LOGIN` (the agents' login): it starts only for a PR from this repository whose author is
-that login. The command deny lists stay as a second layer, and
-reviews plus founder merges stay the control for what lands in the repo.
-
-Evidence for the Skill deny and the pins (Claude Code 2.1.295; tag v1.0.247 of claude-code-action is commit 2dca132f, whose
-`src/entrypoints/run.ts` pins 2.1.295; the lock's sha256 is the `linux-x64` checksum in
-`https://downloads.claude.ai/claude-code-releases/2.1.295/manifest.json`). Gathered by the author of this change on 2026-10-09;
-a founder should repeat the checks below before relying on them:
-- CI: run https://github.com/hafidimohammedamine-dotcom/dealer-platform/actions/runs/37986311153 (an earlier version of the
-  egress test that still ran the probe on the PR branch; the probe now runs only from `main` in `egress-lock-claude.yml`) printed
-  `permission_denials: [{"tool_name": "Skill", ... "skill": "payload"}]` with the real claude-code-action under the lock.
-- Before merge, the probe and scrub jobs cannot run on a PR (they need a Claude token, which never runs next to PR code). They
-  run on the first push to `main` after merge, then weekly; a failure there means the deny or the isolation does not hold, and
-  the fix is a follow-up founder PR (the manager's own token check and the lock still apply meanwhile). The manager's push path
-  (`persist-credentials: false` plus `gh auth setup-git`) is checked before merge by `egress-lock-test.yml`, which runs
-  `gh auth setup-git` and `git ls-remote origin HEAD` through the lock with the job's read-only token; pushing itself is first
-  proven by the manager's next run with the agents' token.
-- Local re-check in an empty folder with `.claude/skills/probe/SKILL.md` (a skill telling Claude to reply
-  `PROBE-LOADED-7731`) and two agents in `.claude/agents/`: `subprobe` (`skills: probe`) and `subskill` (`tools: Skill`, told to load
-  `probe`):
-  `claude -p "Use the Skill tool to load the skill named probe ..." --permission-mode bypassPermissions --disallowedTools "Skill(probe)" --output-format json`
-  gives `permission_denials: [{'tool_name': 'Skill', ... 'skill': 'probe'}]`; asking it to run both subagents with the same flags
-  gives `SUBPROBE: PROBE-LOADED-7731` (the preload still works) and `SUBSKILL: SUB-SKILL-DENIED` (the deny holds in a subagent).
-Re-check when the pin changes.
+## Agent network lock
+Moved to `docs/runbooks/agent-network-lock.md` (what the lock does, its messages, the agents' GitHub token, measured limits).
 
 ## How the guards wiring is proven
 The scripts have unit tests (below). The workflow wiring (`git archive` of the PR head, base scripts on PR data, the upstream fetch)
@@ -330,7 +245,7 @@ cases, run it alone, for example `bash scripts/check-egress-lock.test.sh`; `GITL
 ## Known limits
 - Agent pushes to `.github/**` cannot be blocked by a ruleset on the current plan (push rulesets need a paid plan for a
   private repo). The protection is the token: the agents' own fine-grained token without the Workflows permission (see
-  "Agent network lock").
+  `docs/runbooks/agent-network-lock.md`).
 - The agents' own GitHub account does not exist yet. Until a founder creates it, puts its token in the `AGENT_GH_TOKEN` secret
   and sets the `AGENT_GH_LOGIN` variable, the manager stops at its step "Agents must run on their own GitHub token, never a
   founder's" on every run and no instant fix rounds start. That is on purpose: the founder check in `guards` trusts GitHub accounts, so agents must never push

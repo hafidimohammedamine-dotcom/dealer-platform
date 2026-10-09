@@ -46,6 +46,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           prompt: "Do the task."
           claude_args: |
             --model haiku
@@ -65,7 +66,7 @@ for wf in agent-daily-report.yml agent-weekly-audit.yml review.yml claude.yml ag
 done
 # Every manager deny is required
 mapfile -t MD < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["manager_denies"]))' "$(dirname "$PY")/check-workflows-policy.json")
-[ "${#MD[@]}" = 25 ] || { echo "FAIL  expected 25 manager denies, got ${#MD[@]}"; failed=$((failed+1)); }
+[ "${#MD[@]}" = 29 ] || { echo "FAIL  expected 29 manager denies, got ${#MD[@]}"; failed=$((failed+1)); }
 for d in "${MD[@]}"; do
   [ "$d" = 'Skill(payload)' ] && continue
   fresh; drop agent-manager.yml "$d";                   expect fail "manager missing $d" "missing deny $d"
@@ -81,7 +82,7 @@ EOF
 for flag in '--settings /tmp/s.json' '--mcp-config /tmp/m.json' '--permission-prompt-tool mcp__x' '--dangerously-skip-permissions x' '--allowed-tools Skill' '--disallowed-tools Read' '--allowedTools=Skill' '--disallowedTools=Read'; do
   t; sed -i "s|            --model haiku|            --model haiku\n            $flag|" "$T/$W/t.yml"; expect fail "claude_args flag ${flag%% *}" "not allowed"
 done
-for key in allowed_tools disallowed_tools settings path_to_bun_executable plugins plugin_marketplaces; do
+for key in allowed_tools disallowed_tools settings plugins plugin_marketplaces; do
   t; sed -i "s|          prompt: \"Do the task.\"|          prompt: \"Do the task.\"\n          $key: x|" "$T/$W/t.yml"; expect fail "claude input $key" "input '$key' not allowed"
 done
 t; sed -i 's|            --model haiku|            --model haiku\n            --disallowedTools "Read"|' "$T/$W/t.yml"; expect fail "two --disallowedTools" "needs exactly one --disallowedTools (found 2)"
@@ -103,6 +104,8 @@ t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.
 t; sed -i 's|      - id: lock|      -|' "$T/$W/t.yml";        expect fail "lock without an id" "needs an id"
 t; sed -i '/path_to_claude_code_executable/d' "$T/$W/t.yml"; expect fail "claude step not using the pre-installed Claude" "path_to_claude_code_executable must be"
 t; sed -i 's|steps.lock.outputs.claude-path|steps.other.outputs.claude-path|' "$T/$W/t.yml"; expect fail "path from another step" "path_to_claude_code_executable must be"
+t; sed -i '/path_to_bun_executable/d' "$T/$W/t.yml"; expect fail "claude step letting the action download Bun" "path_to_bun_executable must be"
+t; sed -i 's|steps.lock.outputs.bun-path|steps.other.outputs.bun-path|' "$T/$W/t.yml"; expect fail "Bun path from another step" "path_to_bun_executable must be"
 t; sed -i 's|claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b|claude-code-action@v1|' "$T/$W/t.yml"; expect fail "unpinned claude action" "claude action must be one of"
 t; sed -i 's|anthropics/claude-code-action@|anthropics/claude-code-base-action@|' "$T/$W/t.yml"; expect fail "other claude-code action" "claude action must be one of"
 t; sed -i 's|      - id: claude|      - id: claude\n        shell: bash|' "$T/$W/t.yml"; expect fail "unexpected key on a claude step" "key 'shell' not allowed"
@@ -245,5 +248,26 @@ fresh;                                                  expect fail "explicit --
 fresh;                                                  expect fail "two root arguments" "bad argument" "$REPO"
 fresh; out=$(python3 -I -S "$PY" "$T" 2>&1); rc=$?
 if [ $rc != 0 ] && grep -q "PyYAML is required" <<<"$out"; then pass=$((pass+1)); echo "PASS  fails closed without PyYAML"; else failed=$((failed+1)); echo "FAIL  without PyYAML"; echo "$out"; fi; rm -rf "$T"
+# Round 5: more PR-data forms, git moves, workflow_run, id-token, tag mode, pin check order
+for cmd in 'git fetch origin pull/7/head:pr' 'git fetch origin refs/pull/7/merge' 'gh pr checkout 7' 'echo ${{ github.event.pull_request.merge_commit_sha }}' 'echo ${{ github.event.issue.number }}'; do
+  t; before "      - run: $cmd"; expect fail "PR data in a run step: $cmd" "only the reviewed prepare step may touch /tmp/pr"
+done
+for cmd in 'git checkout feature' 'git -C . switch x' 'git fetch origin' 'git worktree add /tmp/w' 'git reset --hard origin/x' 'git pull'; do
+  t; before "      - run: $cmd"; expect fail "git move in a claude job: $cmd" "not allowed in a job with a claude step (the checkout must stay on the default branch)"
+done
+t; before '      - run: git log --oneline -5'; expect ok "git log is not a checkout move" "Workflow denies OK"
+t; sed -i 's/^on: workflow_dispatch$/on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]/' "$T/$W/t.yml"; expect fail "claude step in a workflow_run workflow" "must not run on workflow_run"
+fresh; sed -i 's/^      issues: write$/      issues: write\n      id-token: write/' "$T/$W/agent-manager.yml"; expect fail "id-token in agent-manager.yml" "permission id-token: write not allowed"
+fresh; grep -q 'id-token: write' "$T/$W/claude.yml" && expect ok "id-token stays allowed in claude.yml" "Workflow denies OK"
+fresh; sed -i 's/^  issue_comment:$/  pull_request_review_comment:\n    types: [created]\n  issue_comment:/' "$T/$W/claude.yml"; expect fail "tag mode on PR review comments" "a claude step without a prompt (tag mode) may run only on issue_comment, issues (found pull_request_review_comment)"
+fresh; sed -i 's/ \&\& !github.event.issue.pull_request//' "$T/$W/claude.yml"; expect fail "tag mode answering on PRs" "needs the job if to contain '!github.event.issue.pull_request'"
+t; printf '      - run: |\n          /tmp/gitleaks detect\n          printf x | sha256sum --check --strict\n' >> "$T/$W/t.yml"; expect fail "pin check after /tmp/gitleaks does not count" "must check its pinned files"
+# Missing or broken policy file: fails closed
+P0=$(mktemp -d "$TMPROOT/cwp.XXXXXX"); P2="$P0/scripts"; mkdir "$P2"; cp "$(dirname "$PY")"/check-workflows*.py "$P2/"
+out=$(python3 -I "$P2/check-workflows.py" "$REPO" 2>&1); rc=$?
+if [ $rc != 0 ] && grep -q "cannot read check-workflows-policy.json" <<<"$out"; then pass=$((pass+1)); echo "PASS  missing policy file fails closed"; else failed=$((failed+1)); echo "FAIL  missing policy file"; echo "$out"; fi
+echo '{not json' > "$P2/check-workflows-policy.json"; out=$(python3 -I "$P2/check-workflows.py" "$REPO" 2>&1); rc=$?
+if [ $rc != 0 ] && grep -q "cannot read check-workflows-policy.json" <<<"$out"; then pass=$((pass+1)); echo "PASS  broken policy file fails closed"; else failed=$((failed+1)); echo "FAIL  broken policy file"; echo "$out"; fi
+rm -rf "$P0"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

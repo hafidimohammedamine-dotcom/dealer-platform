@@ -13,6 +13,7 @@
   "claude_args",
   "claude_code_oauth_token",
   "github_token",
+  "path_to_bun_executable",
   "path_to_claude_code_executable",
   "prompt"
  ],
@@ -101,6 +102,10 @@
   "Bash(gh api -X DELETE:*)",
   "Bash(gh secret:*)",
   "Bash(gh auth:*)",
+  "Bash(gh api:*)",
+  "Bash(gh gist:*)",
+  "Bash(yarn npm publish:*)",
+  "Bash(yarn npm login:*)",
   "Read(//proc/**)",
   "Read(//sys/**)",
   "Read(//home/runner/work/_temp/**)",
@@ -127,15 +132,24 @@
  "permission_scopes": [
   "actions",
   "contents",
-  "id-token",
   "issues",
   "pull-requests"
  ],
+ "per_file_permission_scopes": {
+  "id-token": [
+   "claude.yml"
+  ]
+ },
  "permission_values": [
   "none",
   "read",
   "write"
  ],
+ "tag_mode_triggers": [
+  "issue_comment",
+  "issues"
+ ],
+ "tag_mode_job_if": "!github.event.issue.pull_request",
  "post_pin_check": "sha256sum --check --strict",
  "manager_token_guard": "bash scripts/check-agent-token.sh"
 }

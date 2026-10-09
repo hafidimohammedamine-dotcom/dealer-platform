@@ -1,12 +1,12 @@
 # Outbound HTTPS allow-list for agent jobs (founder-owned). One host name per line, matched against the TLS server name
 # (SNI) by a local proxy. A name is matched exactly; a name starting with "." also matches its subdomains.
 # Keep it to exact hosts: github.com itself stays open (git push, API), so gist.github.com, uploads.github.com and others do not.
-# GitHub: git, API, tarballs, release downloads (setup-node, bun, gitleaks)
+# GitHub: git and API. No release storage (objects./release-assets.githubusercontent.com) and no Azure blob names: both
+# answered for other hosts in the domain-fronting test (docs/runbooks/agent-network-lock.md); the lock installs gitleaks,
+# Claude Code and Bun before it closes, and the runner's log upload worked without them.
 github.com
 api.github.com
 codeload.github.com
-objects.githubusercontent.com
-release-assets.githubusercontent.com
 # The Actions runner's own services (job messages, OIDC tokens, logs)
 .actions.githubusercontent.com
 # Claude
@@ -15,24 +15,3 @@ api.anthropic.com
 registry.npmjs.org
 registry.yarnpkg.com
 repo.yarnpkg.com
-# The runner uploads job logs to these storage accounts (only these names, not all of blob.core.windows.net)
-productionresultssa0.blob.core.windows.net
-productionresultssa1.blob.core.windows.net
-productionresultssa2.blob.core.windows.net
-productionresultssa3.blob.core.windows.net
-productionresultssa4.blob.core.windows.net
-productionresultssa5.blob.core.windows.net
-productionresultssa6.blob.core.windows.net
-productionresultssa7.blob.core.windows.net
-productionresultssa8.blob.core.windows.net
-productionresultssa9.blob.core.windows.net
-productionresultssa10.blob.core.windows.net
-productionresultssa11.blob.core.windows.net
-productionresultssa12.blob.core.windows.net
-productionresultssa13.blob.core.windows.net
-productionresultssa14.blob.core.windows.net
-productionresultssa15.blob.core.windows.net
-productionresultssa16.blob.core.windows.net
-productionresultssa17.blob.core.windows.net
-productionresultssa18.blob.core.windows.net
-productionresultssa19.blob.core.windows.net

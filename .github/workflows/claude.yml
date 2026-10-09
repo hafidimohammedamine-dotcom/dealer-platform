@@ -1,24 +1,23 @@
-# Founders can mention @claude in an issue or PR comment to ask a question about the code or a PR.
+# Founders can mention @claude in an issue comment to ask a question about the code. Not on PRs: without a prompt the action
+# checks out the PR's code itself, and nested CLAUDE.md files from the PR would load (the review job covers PRs).
 # Read-only answers: Claude can read the repo and the thread and reply in the thread; it cannot change code.
 # For code changes, founders open an issue for the agents or work in their own session. Founder-owned file.
 name: Claude on mention
 on:
   issue_comment:
     types: [created]
-  pull_request_review_comment:
-    types: [created]
 
 jobs:
   claude:
     # Only comments written by a founder (see .github/founders.txt) start a run.
-    if: contains(github.event.comment.body, '@claude') && github.event.comment.user.login == 'hafidimohammedamine-dotcom'
+    if: contains(github.event.comment.body, '@claude') && !github.event.issue.pull_request && github.event.comment.user.login == 'hafidimohammedamine-dotcom'
     env:
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
       issues: write
       id-token: write          # claude-code-action signs in with GitHub OIDC for its comment token in this mode
     steps:
@@ -34,6 +33,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           claude_args: |
             --model sonnet
             --max-turns 30

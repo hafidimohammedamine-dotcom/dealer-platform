@@ -27,6 +27,16 @@ OURS="$ROOT/.claude/skills/$NAME"
 fail=0; err() { echo "ERROR: $*"; fail=1; }
 REVIEWED="$ROOT/.claude/skills-patches/$NAME.reviewed"   # founder-reviewed deletions of sections/blocks with warning words
 used=""
+# deletions_check <upstream-file> <label> <error-prefix> [--whole-file] < removed-line-numbers: runs check-skill-deletions.py
+# with the reviewed list, prints its REVIEWED lines, records them in $used, and reports any error under <error-prefix>.
+deletions_check() {
+  local rv=() out rc=0
+  [ -f "$REVIEWED" ] && rv=(--reviewed "$REVIEWED")
+  out=$(python3 -I "$HERE/check-skill-deletions.py" "$1" --label "$2" "${rv[@]}" "${@:4}" 2>&1) || rc=$?
+  grep '^REVIEWED ' <<<"$out" || true
+  used+=$(sed -n 's/^REVIEWED \([^ ]*\) .*/\1/p' <<<"$out")$'\n'
+  [ "$rc" = 0 ] || { err "$3"; grep -v '^REVIEWED ' <<<"$out" | head -5; }
+}
 is_extra() { local x; for x in "${EXTRA[@]}"; do [ "$1" = "$x" ] && return 0; done; return 1; }
 
 for d in "$UP" "$OURS"; do
@@ -54,22 +64,14 @@ while IFS= read -r -d '' f; do
     *.md) ;;
     *) err "lines removed from $rel: only whole-file deletions are allowed outside Markdown files"; continue;;
   esac
-  rv=(); [ -f "$REVIEWED" ] && rv=(--reviewed "$REVIEWED")
-  rc=0; out=$(python3 -I "$HERE/check-skill-deletions.py" "$UP/$rel" --label "$rel" "${rv[@]}" <<<"$nums" 2>&1) || rc=$?
-  grep '^REVIEWED ' <<<"$out" || true
-  used+=$(sed -n 's/^REVIEWED \([^ ]*\) .*/\1/p' <<<"$out")$'\n'
-  [ "$rc" = 0 ] || { err "deletions in $rel are not whole units:"; grep -v '^REVIEWED ' <<<"$out" | head -5; }
+  deletions_check "$UP/$rel" "$rel" "deletions in $rel are not whole units:" <<<"$nums"
 done < <(find "$OURS" -type f -print0)
 deleted=0
 while IFS= read -r -d '' f; do   # whole Markdown files deleted: one with a warning or rule word needs "<file>:0" reviewed
   rel=${f#"$UP/"}; [ -f "$OURS/$rel" ] && continue
   deleted=$((deleted+1))
   case "$rel" in *.md) ;; *) continue;; esac
-  rv=(); [ -f "$REVIEWED" ] && rv=(--reviewed "$REVIEWED")
-  rc=0; out=$(python3 -I "$HERE/check-skill-deletions.py" "$f" --label "$rel" "${rv[@]}" --whole-file </dev/null 2>&1) || rc=$?
-  grep '^REVIEWED ' <<<"$out" || true
-  used+=$(sed -n 's/^REVIEWED \([^ ]*\) .*/\1/p' <<<"$out")$'\n'
-  [ "$rc" = 0 ] || { err "deleted file $rel needs a review:"; grep -v '^REVIEWED ' <<<"$out" | head -3; }
+  deletions_check "$f" "$rel" "deleted file $rel needs a review:" --whole-file </dev/null
 done < <(find "$UP" -type f -print0)
 if [ -f "$REVIEWED" ]; then   # every reviewed entry must still match a deletion (no stale approvals)
   while IFS= read -r e; do

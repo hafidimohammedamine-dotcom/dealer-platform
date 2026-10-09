@@ -1,14 +1,20 @@
-"""Rules for jobs with a claude-code-action step (founder-owned). Loaded by scripts/check-workflows.py, which passes itself
-as `core` (policy values, err(), secrets_problems(), is_claude()). Rules and messages: docs/runbooks/ci-guards.md."""
+"""Rules for jobs with a claude-code-action step (founder-owned). Loaded by scripts/check-workflows.py after
+scripts/check-workflows-lib.py (policy values, err(), secrets_problems(), is_claude()). Rules and messages:
+docs/runbooks/ci-guards.md."""
 import json
 import re
 import shlex
 
-core = None  # set by check-workflows.py
-LOCK_OUT_RE = re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.claude-path\s*\}\}$")
-PR_DATA = re.compile(r"/tmp/pr(?![\w-])|pull_request\.head|head_ref")
+import check_workflows_lib as core  # noqa: E402 - loaded into sys.modules by check-workflows.py before this module
+
+LOCK_OUT_RE = {key: re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\." + out + r"\s*\}\}$")
+               for key, out in (("path_to_claude_code_executable", "claude-path"), ("path_to_bun_executable", "bun-path"))}
+PR_DATA = re.compile(r"/tmp/pr(?![\w-])|pull_request\.head|head_ref|merge_commit_sha|refs/pull/|\bpull/|gh\s+pr\s+checkout|"
+                     r"event\.issue\.number")
+GIT_MOVE = re.compile(r"\bgit\b(?:\s+-{1,2}[\w-]+(?:[= ]\S+)?)*\s+(fetch|checkout|switch|worktree|pull|clone|reset|restore|"
+                      r"submodule)\b")
 LATE_IF = re.compile(r"always\(\)|failure\(\)|cancelled\(\)")
-PINNED = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
+PINNED = core.PINNED
 
 
 def check_flag_value(fname, where, flag, value):
@@ -60,9 +66,11 @@ def check_inputs(fname, where, w, lock_id):
             core.err(f"{where}: allowed_bots may only be {P['allowed_bots']} (this file: {val!r})")
         for p in sorted(set(core.secrets_problems(str(val), allow_claude=(key == "claude_code_oauth_token")))):
             core.err(f"{where}: {p} in input {key!r}")
-    m = LOCK_OUT_RE.match(str(w.get("path_to_claude_code_executable", "")))
-    if not m or (lock_id and m.group(1) != lock_id):
-        core.err(f"{where}: path_to_claude_code_executable must be ${{{{ steps.{lock_id or '<lock id>'}.outputs.claude-path }}}}")
+    for key, rx in LOCK_OUT_RE.items():  # the binaries the lock installed and checked, never a download inside the action
+        m = rx.match(str(w.get(key, "")))
+        if not m or (lock_id and m.group(1) != lock_id):
+            out = "claude-path" if "claude" in key else "bun-path"
+            core.err(f"{where}: {key} must be ${{{{ steps.{lock_id or '<lock id>'}.outputs.{out} }}}}")
 
 
 def check_claude_step(fname, where, step, required, lock_id):
@@ -119,8 +127,9 @@ def check_job_start(jw, steps, ok_refs):
     return second.get("id")
 
 
-def check_job_settings(jw, job):
-    """Env allow-list with the subprocess scrub on, permissions allow-list, runner, no defaults."""
+def check_job_settings(fname, jw, job):
+    """Env allow-list with the subprocess scrub on, permissions allow-list (some scopes only in listed files), runner, no
+    defaults."""
     P = core.P
     env = job.get("env") if isinstance(job.get("env"), dict) else {}
     for k in env:
@@ -137,8 +146,10 @@ def check_job_settings(jw, job):
         core.err(f"{jw}: permissions must be a mapping of scopes (no read-all/write-all)")
         perms = {}
     for k, v in perms.items():
-        if k not in P["permission_scopes"] or v not in P["permission_values"]:
-            core.err(f"{jw}: permission {k}: {v} not allowed (scopes {', '.join(P['permission_scopes'])}; read/write/none)")
+        scope_ok = k in P["permission_scopes"] or fname in P["per_file_permission_scopes"].get(k, [])
+        if not scope_ok or v not in P["permission_values"]:
+            core.err(f"{jw}: permission {k}: {v} not allowed (scopes {', '.join(P['permission_scopes'])}; "
+                     f"per file {P['per_file_permission_scopes']}; read/write/none)")
 
 
 def check_other_steps(jw, steps, claude_at, ok_refs):
@@ -158,13 +169,18 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
             if key in step:
                 core.err(f"{sw}: '{key}' not allowed in a job with a claude step")
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
-        if PR_DATA.search(body) and str(step.get("run", "")).strip() not in P["pr_data_runs"]:
+        reviewed = str(step.get("run", "")).strip() in P["pr_data_runs"]
+        if PR_DATA.search(body) and not reviewed:
             core.err(f"{sw}: runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)")
+        m = GIT_MOVE.search(str(step.get("run", "")))
+        if m and not reviewed:
+            core.err(f"{sw}: 'git {m.group(1)}' not allowed in a job with a claude step (the checkout must stay on the default branch)")
         if claude_at and i > claude_at:
             run = str(step.get("run", ""))
             if uses.startswith("./"):
                 core.err(f"{sw}: no local action after the claude step (its files could have changed)")
-            if re.search(r"scripts/|/tmp/gitleaks", run) and P["post_pin_check"] not in run.split("scripts/")[0]:
+            m = re.search(r"scripts/|/tmp/gitleaks", run)
+            if m and P["post_pin_check"] not in run[:m.start()]:
                 core.err(f"{sw}: a step after the claude step must check its pinned files ({P['post_pin_check']}) before running repo scripts")
 
 
@@ -177,7 +193,7 @@ def check_job(fname, jw, job, steps, required, triggers):
         check_checkout(f"{jw} step 1", steps[0], ok_refs)
         if not PINNED.match(str(steps[0].get("uses", ""))):
             core.err(f"{jw} step 1: action must be pinned to a full commit SHA: {steps[0].get('uses')}")
-    check_job_settings(jw, job)
+    check_job_settings(fname, jw, job)
     claude_at = next((i for i, s in enumerate(steps, 1) if isinstance(s, dict) and core.is_claude(s)), 0)
     check_other_steps(jw, steps, claude_at, ok_refs)
     if fname == P["manager"]:
@@ -189,4 +205,21 @@ def check_job(fname, jw, job, steps, required, triggers):
         if isinstance(step, dict) and core.is_claude(step):
             count += 1
             check_claude_step(fname, f"{jw} step {i}", step, required, lock_id)
+            check_tag_mode(f"{jw} step {i}", job, step, triggers)
     return count
+
+
+def check_tag_mode(where, job, step, triggers):
+    """A claude step without a prompt runs in tag mode, which checks out an open PR's head itself; the action restores only
+    the top-level CLAUDE.md/.claude/.mcp.json from the base branch, so nested rule files of the PR would load. Tag mode is
+    allowed only on issue events, with the job skipping comments on PRs."""
+    w = step.get("with") if isinstance(step.get("with"), dict) else {}
+    if "prompt" in w:
+        return
+    extra = triggers - set(core.P["tag_mode_triggers"])
+    if extra:
+        core.err(f"{where}: a claude step without a prompt (tag mode) may run only on {', '.join(core.P['tag_mode_triggers'])} "
+                 f"(found {', '.join(sorted(extra))})")
+    if core.P["tag_mode_job_if"] not in str(job.get("if", "")):
+        core.err(f"{where}: a claude step without a prompt (tag mode) needs the job if to contain "
+                 f"'{core.P['tag_mode_job_if']}' (it would check out the PR's code)")

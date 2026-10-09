@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Checks the agent workflows; fails closed. Rules and messages: docs/runbooks/ci-guards.md, "Workflow denies OK"."""
+"""Checks the agent workflows and local actions; fails closed. Shared state: scripts/check-workflows-lib.py; rules for jobs
+with a claude step: scripts/check-workflows-claude.py. Rules and messages: docs/runbooks/ci-guards.md."""
 import glob
 import importlib.util
 import json
 import os
 import re
-import shlex
 import sys
 
 try:
@@ -15,16 +15,21 @@ except ImportError:  # fail closed
     sys.exit(1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-try:  # founder-owned policy data next to this file
-    with open(os.path.join(HERE, "check-workflows-policy.json"), encoding="utf-8") as fh:
-        P = json.load(fh)
-except (OSError, ValueError) as e:
-    print(f"ERROR: cannot read check-workflows-policy.json ({e})")
-    sys.exit(1)
+
+
+def _load(name, filename):
+    """Loads a founder-owned module that sits next to this file (python3 -I does not add this folder to sys.path)."""
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, filename))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+LIB = _load("check_workflows_lib", "check-workflows-lib.py")
+CLAUDE = _load("check_workflows_claude", "check-workflows-claude.py")
+P, err, errors, is_claude, secrets_problems = LIB.P, LIB.err, LIB.errors, LIB.is_claude, LIB.secrets_problems
 LOCAL_ACTIONS, MANAGER = set(P["local_actions"]), P["manager"]
-SECRETS_TOKEN = re.compile(r"\bsecrets\b(\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?")
-CLAUDE_NAME = re.compile(r"claude|anthropic", re.I)
-CRED_ENV = re.compile(r"ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN")
 CLI_RE = re.compile(r"(^|[\s;&|(`$\"'/=])claude(\s|$|\")|claude-code|@anthropic-ai/|outputs\.claude-path|\.local/bin/claude", re.M)
 
 
@@ -43,15 +48,6 @@ def _construct_mapping(loader, node, deep=False):
 
 
 UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)
-errors = []
-_spec = importlib.util.spec_from_file_location("check_workflows_claude", os.path.join(HERE, "check-workflows-claude.py"))
-CLAUDE = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(CLAUDE)
-CLAUDE.core = sys.modules[__name__]
-
-
-def err(msg):
-    errors.append(msg)
 
 
 def third_party(manifests):
@@ -65,24 +61,6 @@ def third_party(manifests):
                 if len(parts) >= 2 and not parts[0].startswith("#") and parts[1] == "third-party":
                     names.add(parts[0])
     return names
-
-
-def is_claude(step):
-    return "claude-code" in str(step.get("uses", ""))
-
-
-def secrets_problems(text, allow_claude=False):
-    """Returns a list of problems with how `secrets` is used in text."""
-    out = []
-    for m in SECRETS_TOKEN.finditer(text):
-        name = m.group(2)
-        if not name:
-            out.append("secrets used other than as secrets.<NAME>")
-        elif CLAUDE_NAME.search(name) and not allow_claude:
-            out.append(f"Claude/Anthropic credential secrets.{name}")
-    if not allow_claude and CRED_ENV.search(text):
-        out.append("Claude/Anthropic credential variable")
-    return out
 
 
 def check_other(where, obj):
@@ -143,7 +121,7 @@ def check_actions(root):
         for i, step in enumerate(steps, 1):
             check_other(f"{name} step {i}", step)
             u = str(step.get("uses", "")) if isinstance(step, dict) else ""
-            if u and not u.startswith("./") and not CLAUDE.PINNED.match(u):
+            if u and not u.startswith("./") and not LIB.PINNED.match(u):
                 err(f"{name} step {i}: action must be pinned to a full commit SHA: {u}")
 
 
@@ -182,8 +160,8 @@ def check_file(path, required):
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
-    if count and triggers & {"pull_request"}:
-        err(f"{name}: a workflow with a claude step must not run on pull_request (PR code next to a Claude token)")
+    for t in sorted(triggers & {"pull_request", "workflow_run"}) if count else []:
+        err(f"{name}: a workflow with a claude step must not run on {t} (PR code or its artifacts next to a Claude token)")
     return count
 
 

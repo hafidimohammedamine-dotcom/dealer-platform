@@ -12,7 +12,7 @@ while IFS= read -r f; do
   f="${f%%#*}"; f="${f//[[:space:]]/}"
   [ -n "$f" ] || continue
   if [ "${f,,}" = "${login,,}" ]; then
-    echo "ERROR: the agents' GH_TOKEN belongs to founder '$login'. Create the agents' own account and token (see docs/runbooks/ci-guards.md, 'Agent network lock') and put it in the AGENT_GH_TOKEN secret."
+    echo "ERROR: the agents' GH_TOKEN belongs to founder '$login'. Create the agents' own account and token (see docs/runbooks/agent-network-lock.md) and put it in the AGENT_GH_TOKEN secret."
     exit 1
   fi
 done < "$FOUNDERS"

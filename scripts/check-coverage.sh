@@ -26,7 +26,8 @@ REAL_PY=$(command -v python3)
 "$REAL_PY" -m venv --system-site-packages "$W/venv" >/dev/null
 "$W/venv/bin/python" -m pip install -q --disable-pip-version-check --require-hashes --no-deps \
   -r "$HERE/check-coverage-requirements.txt" >/dev/null
-printf '[run]\ndata_file = %s/py.cov\nparallel = True\n' "$W" > "$W/rc"
+# [paths]: tests that run copies of the scripts in temp folders (…/<temp>/scripts/) count for the real ones.
+printf '[run]\ndata_file = %s/py.cov\nparallel = True\n[paths]\nsource =\n    %s/scripts/\n    */scripts/\n' "$W" "$ROOT" > "$W/rc"
 mkdir -p "$W/bin"
 cat > "$W/bin/python3" <<EOF
 #!/usr/bin/env bash

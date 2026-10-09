@@ -26,7 +26,6 @@ jobs:
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
-      - uses: ./.github/actions/install-gitleaks
       - id: pin
         name: Pin the files the post step runs (checked again before it runs them)
         run: |
@@ -36,6 +35,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
           prompt: "/daily-report"
           claude_args: |

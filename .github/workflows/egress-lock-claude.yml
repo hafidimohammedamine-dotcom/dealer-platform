@@ -1,8 +1,8 @@
 # Runs the real pinned claude-code-action under the agent egress lock, from main only (founder-owned), and checks that
 # `Skill(payload)` in --disallowedTools blocks a skill named payload (a throwaway user-level probe skill).
 # A second job checks Claude Code's subprocess isolation: tools Claude runs must not see the Claude token.
-# Never runs PR code: triggers are pushes to main, a weekly schedule and founder runs. Before merge, the same checks were
-# run by a founder on a throwaway branch (see docs/runbooks/ci-guards.md, "Agent network lock").
+# Never runs PR code: triggers are pushes to main that change the lock or this file, a weekly schedule and founder runs.
+# These checks cannot run before merge; see docs/runbooks/agent-network-lock.md ("Evidence").
 name: Agent egress lock - Claude probe
 on:
   push:
@@ -38,6 +38,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
           prompt: "Test. First call the Skill tool with skill 'payload'. Then reply with EGRESS-LOCK-OK, plus SKILL-DENIED if that call was denied."
           claude_args: |
@@ -82,6 +83,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
           prompt: "This is our own security self-test. Run exactly this Bash command once and reply with its output line only: bash scripts/check-scrub-probe.sh"
           claude_args: |

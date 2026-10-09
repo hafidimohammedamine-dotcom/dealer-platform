@@ -13,6 +13,8 @@ die() { echo "::error::agent egress lock: $*"; exit 1; }
 [ -n "${GITHUB_OUTPUT:-}" ] && [ -n "${GITHUB_ENV:-}" ] || die "must run inside GitHub Actions"
 [[ "${CLAUDE_CODE_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "bad CLAUDE_CODE_VERSION"
 [[ "${CLAUDE_CODE_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad CLAUDE_CODE_SHA256"
+[[ "${BUN_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "bad BUN_VERSION"
+[[ "${BUN_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad BUN_SHA256"
 
 # --- Allowed names (founder-owned list; no extras from workflows) ---------------------------------------------------------
 APPROVED_SUFFIXES=".actions.githubusercontent.com"
@@ -34,6 +36,14 @@ echo "$CLAUDE_CODE_SHA256  $DL" | sha256sum --check --quiet || die "Claude Code 
 install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 "$BIN" --version | grep -q "^$CLAUDE_CODE_VERSION " || die "Claude Code $CLAUDE_CODE_VERSION not installed"
 { echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"; echo "DISABLE_AUTOUPDATER=1"; } >> "$GITHUB_ENV"
+# Bun for the claude-code-action (its own setup-bun would download from GitHub's release storage, which the lock blocks),
+# pinned to the version the action expects and checked against the release's SHASUMS256.txt.
+BUN="$HOME/.local/bin/bun"
+DL=$(mktemp); UZ=$(mktemp -d)
+curl -fsSL --retry 3 -o "$DL" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+echo "$BUN_SHA256  $DL" | sha256sum --check --quiet || die "Bun download does not match its pinned sha256"
+unzip -q -o "$DL" -d "$UZ" && install -m 0755 "$UZ/bun-linux-x64/bun" "$BUN" && rm -rf "$DL" "$UZ"
+[ "$("$BUN" --version)" = "$BUN_VERSION" ] || die "Bun $BUN_VERSION not installed"
 
 # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
 PKGS=(dnsmasq-base nginx libnginx-mod-stream bubblewrap socat)
@@ -41,12 +51,11 @@ apt_install() { sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-
 apt_install || { sudo apt-get update -qq >/dev/null && apt_install; } || die "could not install ${PKGS[*]}"
 # Claude Code's subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) runs tools in bubblewrap, which needs user
 # namespaces. Ubuntu 24.04 restricts those through AppArmor; keep the restriction on for everything else and let only
-# /usr/bin/bwrap create them.
+# /usr/bin/bwrap create them; what bwrap starts gets no capabilities and no user namespaces (agent-bwrap.apparmor).
 USERNS="${AGENT_LOCK_TEST_USERNS:-/proc/sys/kernel/apparmor_restrict_unprivileged_userns}"   # tests use a temp file
 if [ -f "$USERNS" ]; then
   sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=1
-  printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile agent-bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' \
-    | sudo tee /etc/apparmor.d/agent-bwrap >/dev/null
+  sudo install -m 0644 "$HERE/agent-bwrap.apparmor" /etc/apparmor.d/agent-bwrap
   sudo apparmor_parser -r /etc/apparmor.d/agent-bwrap || die "could not load the AppArmor profile for bubblewrap"
 fi
 UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
@@ -116,15 +125,18 @@ sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null 
 sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock
 sudo gpasswd -d "$USER" sudo >/dev/null 2>&1 || true
 sudo gpasswd -d "$USER" docker >/dev/null 2>&1 || true
-sudo sed -i -E "/^[[:space:]]*$USER[[:space:]]/d" /etc/sudoers
-# Last sudo call: delete every sudoers.d file that grants this user (or everyone) anything.
-sudo sh -c 'grep -lE "^[[:space:]]*($1|%$1|ALL)[[:space:]]" /etc/sudoers.d/* 2>/dev/null | xargs -r rm -f' sh "$USER"
+# Who sudo could match: this user, ALL, and every group the job's processes still carry (they keep their start-up groups).
+WHO="$USER|ALL"; for g in $(id -Gn); do [[ "$g" =~ ^[A-Za-z0-9_.-]+$ ]] && WHO+="|%$g"; done
+sudo sed -i -E "/^[[:space:]]*($WHO)[[:space:]]/d" /etc/sudoers
+# Last sudo call: delete every sudoers.d file that grants any of them anything.
+sudo sh -c 'grep -lE "^[[:space:]]*($1)[[:space:]]" /etc/sudoers.d/* 2>/dev/null | xargs -r rm -f' sh "$WHO"
 sudo -k || true
 
-# --- 5. Prove it (each failure names the check; see docs/runbooks/ci-guards.md "Agent network lock") ----------------------
+# --- 5. Prove it (each failure names the check; see docs/runbooks/agent-network-lock.md) ----------------------------
 fail=0; bad() { echo "::error::agent egress lock self-test: $*"; fail=1; }
 blocked() { ! curl -sS -o /dev/null --max-time 8 "$@" 2>/dev/null; }
 if sudo -n true 2>/dev/null; then bad "sudo still works"; fi
+if sudo -n -l >/dev/null 2>&1; then bad "sudo still lists rules for this user (a command-limited rule is left)"; fi
 DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point these AGENT_LOCK_* hooks at temp paths
 if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
 # The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
@@ -149,17 +161,28 @@ if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolve
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
 bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
+if [ -f "$USERNS" ] && bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
+  bad "a program started by bubblewrap can create user namespaces"
+fi
 if [ -f "$USERNS" ] && [ "$(cat "$USERNS")" != 1 ]; then
   bad "unprivileged user namespaces are not restricted"
 fi
-FRONT=$(curl -sS --max-time 10 -H 'Host: example.com' https://registry.npmjs.org/ 2>/dev/null | head -c 2000 || true)
-if grep -qi 'Example Domain' <<<"$FRONT"; then bad "domain fronting through registry.npmjs.org reaches example.com"; fi
+# Domain fronting: each exact allowed name, asked for another site in the HTTP Host header, must not answer with content
+# (2xx) or send us to another host (3xx). Suffix entries are measured in the runbook instead (generic health answers).
+for d in "${NAMES[@]}"; do
+  [[ "$d" == .* ]] && continue
+  read -r code loc < <(curl -sS -o /dev/null --max-time 10 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
+  lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
+  if [[ "${code:-000}" == 2* ]] || { [[ "${code:-000}" == 3* ]] && [ "$lh" != "$d" ]; }; then
+    bad "domain fronting through $d answers for another host (HTTP ${code} ${loc:-})"
+  fi
+done
 [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
 if [ "$fail" != 0 ]; then
   echo "--- proxy log (last 20 lines) ---"; tail -n 20 /var/log/agent-nginx.log 2>/dev/null || true
   curl -sv -o /dev/null --max-time 15 https://api.github.com/zen 2>&1 | tail -n 15 || true
   die "self-test failed; see errors above"
 fi
-echo "claude-path=$BIN" >> "$GITHUB_OUTPUT"   # only now: a Claude step can find the binary only after the self-test passed
-echo "::notice::Known open routes (an attacker with their own credentials could use them): github.com / api.github.com (pushes, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/ci-guards.md."
+{ echo "claude-path=$BIN"; echo "bun-path=$BUN"; } >> "$GITHUB_OUTPUT"   # only now: a Claude step can find them only after the self-test passed
+echo "::notice::Known open routes (an attacker with their own credentials could use them): github.com / api.github.com (pushes, issues, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/agent-network-lock.md."
 echo "Agent egress lock on: ${#NAMES[@]} allowed names, SNI proxy, sudo and Docker removed."
