@@ -4,8 +4,9 @@ Founder-owned action. Every job with a Claude step runs it right after checking 
 enforces that). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
 
 ## What it does
-1. Installs gitleaks (`.github/actions/install-gitleaks`), Claude Code from `downloads.claude.ai` and Bun from Bun's GitHub
-   release, each checked against a sha256 pinned in the action. The claude-code-action uses these binaries
+1. Installs Node 20 (`actions/setup-node`, the runner image no longer caches it), gitleaks
+   (`.github/actions/install-gitleaks`), Claude Code from `downloads.claude.ai` and Bun from Bun's GitHub release; the last
+   three are checked against a sha256 pinned in the action. The claude-code-action uses these binaries
    (`path_to_claude_code_executable`, `path_to_bun_executable`) instead of downloading its own, because the lock closes
    GitHub's release storage.
 2. Starts a local DNS server (dnsmasq) that answers only the names in `allow-domains.txt`.

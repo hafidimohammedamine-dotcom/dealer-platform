@@ -44,9 +44,6 @@ jobs:
         uses: ./.github/actions/agent-egress-lock
       - name: Agents must run on their own GitHub token, never a founder's
         run: bash scripts/check-agent-token.sh .github/founders.txt
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
       - run: corepack enable
       - name: Git identity
         run: |

@@ -27,9 +27,6 @@ jobs:
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
       - run: corepack enable
       - name: Write the repo history as plain files for the auditors (they read these instead of running git)
         run: |

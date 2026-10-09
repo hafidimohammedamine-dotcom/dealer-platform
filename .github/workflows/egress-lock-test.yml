@@ -30,9 +30,6 @@ jobs:
           persist-credentials: false
       - id: lock
         uses: ./.github/actions/agent-egress-lock
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
       - name: Still locked in a later step; the agents' tools still work
         env:
           GH_TOKEN: ${{ github.token }}   # read-only job token, to prove git through gh's credential helper works (manager push path)
