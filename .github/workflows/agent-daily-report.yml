@@ -1,0 +1,30 @@
+# Founders' daily report at about 7am Ohio time (11:00 UTC in summer, 12:00 UTC in winter - adjust).
+name: Agent - Daily report
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          prompt: "/daily-report"
+          claude_args: |
+            --model haiku
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,Write,Bash(gh:*),Bash(date:*)"

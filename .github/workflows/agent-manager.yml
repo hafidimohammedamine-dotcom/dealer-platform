@@ -1,0 +1,50 @@
+# Manager shift every 3 hours (steady pace). Uses Founder 1's Claude subscription.
+name: Agent - Manager shift
+on:
+  schedule:
+    - cron: "15 */3 * * *"      # every 3 hours at :15 (UTC)
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "Optional focus for this shift (e.g. 'only finance issues')"
+        required: false
+        default: ""
+
+concurrency:
+  group: agent-manager        # only one manager shift at a time
+  cancel-in-progress: false
+
+jobs:
+  shift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}   # pushes/PRs with this token trigger the review workflow
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AGENT_GH_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: corepack enable
+      - name: Git identity
+        run: |
+          git config user.name "agent-manager"
+          git config user.email "agents@users.noreply.github.com"
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
+          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          prompt: "/manager ${{ github.event.inputs.focus }}"
+          claude_args: |
+            --model opus
+            --max-turns 200
+            --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(npx:*),Bash(node:*),Bash(npm:*),Bash(corepack:*),Bash(mkdir:*),Bash(ls:*),Bash(cat:*),Bash(rm -rf ../wt-*)"
