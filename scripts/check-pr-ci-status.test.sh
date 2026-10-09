@@ -38,5 +38,10 @@ ci "[{\"headSha\":\"$OTHER\",\"displayTitle\":\"x\",\"status\":\"completed\",\"c
 run "CI for another commit is ignored" "ci=pending guards=success"
 out=$(GH_BIN="$W/gh" bash "$SCRIPT" "21 x" "$SHA" 0 0 2>&1); [ $? != 0 ] && pass=$((pass+1)) && echo "PASS  bad PR number rejected" || { failed=$((failed+1)); echo "FAIL  bad PR number"; }
 out=$(GH_BIN="$W/gh" bash "$SCRIPT" 21 "abc" 0 0 2>&1); [ $? != 0 ] && pass=$((pass+1)) && echo "PASS  bad sha rejected" || { failed=$((failed+1)); echo "FAIL  bad sha"; }
+# guards.yml must produce exactly the run title this script looks for (an unquoted '#' in YAML starts a comment).
+REPO="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
+want='Guards PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}'
+got=$(python3 -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["run-name"])' "$REPO/.github/workflows/guards.yml" 2>&1)
+[ "$got" = "$want" ] && { pass=$((pass+1)); echo "PASS  guards.yml run-name matches what this script looks for"; } || { failed=$((failed+1)); echo "FAIL  guards.yml run-name is '$got'"; }
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

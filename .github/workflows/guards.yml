@@ -1,7 +1,7 @@
 # Guard checks that a pull request cannot change: pull_request_target always runs THIS file and the scripts from the
 # base branch. The PR's files are fetched as data only and never executed. Founder-owned file.
 name: Guards
-run-name: Guards PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}
+run-name: "Guards PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}"
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
