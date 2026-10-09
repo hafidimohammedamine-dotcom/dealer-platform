@@ -97,7 +97,7 @@ sudo ip6tables -A OUTPUT -j REJECT
 sudo ip6tables -P OUTPUT DROP
 
 if [ "${AGENT_LOCK_DEBUG:-}" = 1 ]; then
-  curl -s -o /dev/null --max-time 10 https://api.github.com/zen; echo "debug curl rc=$?"
+  rc=0; curl -s -o /dev/null --max-time 10 https://api.github.com/zen || rc=$?; echo "debug curl rc=$rc"
   sudo iptables -t nat -L OUTPUT -v -n; sudo iptables -L OUTPUT -v -n; sudo ss -ltnp | grep 8443 || true
   sudo update-alternatives --display iptables | head -3 || true
 fi
