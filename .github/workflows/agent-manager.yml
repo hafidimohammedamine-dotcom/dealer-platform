@@ -1,8 +1,8 @@
-# Manager shift every 3 hours (steady pace). Uses Founder 1's Claude subscription.
+# Manager shift every hour (max pace, set by the founders). Uses Founder 1's Claude subscription.
 name: Agent - Manager shift
 on:
   schedule:
-    - cron: "15 */3 * * *"      # every 3 hours at :15 (UTC)
+    - cron: "15 * * * *"        # every hour at :15 (UTC) - max pace; concurrency below lets a long shift finish first
   workflow_dispatch:
     inputs:
       focus:
