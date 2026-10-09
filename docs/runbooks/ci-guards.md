@@ -40,7 +40,7 @@ the founder pushes once more after checking the agent's commits.
 - `<agent>.md: 'X' must be loaded together with 'Y'` - add `Y` to that agent's `skills:` line.
 - `skill 'X' requires 'Y', which is not in the manifest` / `unknown option` - fix the manifest line (`<name> <kind> [requires=<skill>]`).
 - `skill 'X' has no SKILL.md` / `front matter name is '...'` - each skill folder needs `SKILL.md` starting with `---`, `name: <folder>`.
-- `third-party skill 'X' has no license file` - add the upstream license (LICENSE, LICENSE.md/.txt or UPSTREAM-LICENSE*) at the top
+- `third-party skill 'X' has no license file` - add the upstream license (LICENSE or UPSTREAM-LICENSE, plain, .md or .txt) at the top
   of the folder, non-empty.
 - `no full 40-character commit` (SKILLS-LOCK.md or NOTICE.md) / `commit ... differs` - write the same full commit SHA in both.
 
@@ -62,25 +62,33 @@ Also `pull_request_target`, also from `main`.
 - **"Post the result (secret-scanned) and set labels"**: if the answer looked like it contained a secret, it posts FAIL without
   the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
 
-## Proving a third-party skill equals upstream (founder, manual)
-`bash scripts/check-skill-upstream.sh <upstream-skill-dir> <name>` must print exactly
-`OK: .claude/skills/<name> = upstream with deletions only (<n> upstream file(s) removed) + top-level NOTICE.md/UPSTREAM-LICENSE*`.
-Errors: `lines added or changed in <file>`, `file not in upstream: <file>`, `not a regular file or folder` (symlinks),
-`upstream dir not found`, `no skill folder`. Fix by re-copying from upstream and deleting lines only.
+## Proving a third-party skill equals upstream (guards, automatic)
+The `guards` job step "Third-party skills equal their pinned upstream with deletions only" runs
+`scripts/check-skills-upstream-all.sh`: for each third-party skill it fetches the exact commit from its SKILLS-LOCK.md row and runs
+`scripts/check-skill-upstream.sh`, which must print
+`OK: .claude/skills/<name> = upstream with deletions only (<n> upstream file(s) removed) + top-level NOTICE.md/UPSTREAM-LICENSE; <name>.diff matches`.
+Errors: `lines added or changed in <file>`, `file not in upstream: <file>`, `diff failed on <file>`, `not a regular file or folder`
+(symlinks), `more than one UPSTREAM-LICENSE file`, `missing record .claude/skills-patches/<name>.diff`, `<name>.diff does not
+match diff -ru of upstream and our copy`, `<name>.diff has added lines`, `could not fetch <repo> at <commit>`, `needs exactly one
+SKILLS-LOCK.md row`. Fix by re-copying from upstream, deleting lines only, and regenerating the `.diff` record. A founder can run it
+locally: `bash scripts/check-skills-upstream-all.sh .`
 
-## "Workflow denies OK" (in `checks`)
-`scripts/check-workflows.sh` fails if an agent workflow that can use skills doesn't deny `Skill(payload)`, or if the manager job
-lost one of its command denies. Put the deny back.
+## "Workflow denies OK" (`guards` from `main`, and `checks`)
+`scripts/check-workflows.sh` checks every `anthropics/claude-code*` step, one by one. It fails if a step has no single
+`--disallowedTools "..."` line containing `Skill(payload)`, if a step sets tools any other way (`allowed_tools:`, `settings:`,
+`--allowed-tools`, `--allowedTools=`, ...), or if the manager step lost a command deny. `guards` runs the `main` copy of the script on
+the PR's workflows, so a PR cannot switch the check off. Put the deny back.
 
 ## After changing agent permissions (founder, manual)
 Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls" step: a `Skill(payload)` deny must not stop
 builders from preloading `payload` with `payload-dealer-overrides` (preloads don't use the Skill tool). If a builder reports it
-can't see the Payload skill, remove the deny and tell the founders.
+can't see the Payload skill, **do not remove the deny**: open an `area:security` issue for the founders.
 
 ## Workflow "CI" (job `checks`), step "Guard script tests"
 Run locally to see which case broke:
-- `bash scripts/check-founder-files.test.sh`, `bash scripts/check-skills.test.sh`, `bash scripts/check-skill-upstream.test.sh`, `bash scripts/check-review-prepare.test.sh`,
-  `bash scripts/check-pr-ci-status.test.sh`, `bash scripts/check-review-post.test.sh`
+- `bash scripts/check-founder-files.test.sh`, `bash scripts/check-skills.test.sh`, `bash scripts/check-skill-upstream.test.sh`,
+  `bash scripts/check-skills-upstream-all.test.sh`, `bash scripts/check-workflows.sh`, `bash scripts/check-workflows.test.sh`,
+  `bash scripts/check-review-prepare.test.sh`, `bash scripts/check-pr-ci-status.test.sh`, `bash scripts/check-review-post.test.sh`
 - `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh` (exits 2 if gitleaks can't run)
 "Secret scan of all history (pushes to main)" failing means a secret reached `main`: follow "Real key" above.
 

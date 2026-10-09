@@ -88,5 +88,12 @@ fresh; printf '| Skill | Source | Commit |\n|---|---|---|\n| gamma | like alpha 
 fresh; printf '| Skill | Source | Commit |\n|---|---|---|\n| alpha | x | %s |\n| alpha | y | %s |\n' "$SHA" "$SHA" > "$S/SKILLS-LOCK.md"; expect fail "two rows for one skill" "more than one row"
 fresh; rm "$S/alpha/UPSTREAM-LICENSE"; ln -s /etc/hostname "$S/alpha/LICENSE"; expect fail "license symlink" "no license file"
 fresh; rm "$S/alpha/UPSTREAM-LICENSE"; mkdir "$S/alpha/LICENSE"; echo x > "$S/alpha/LICENSE/x"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "license is a folder" "no license file"
+fresh; echo "beta ours" >> "$S/manifest.txt";               expect fail "duplicate manifest line" "listed more than once in the manifest"
+fresh; sed -i 's/requires=beta/requires=/' "$S/manifest.txt"; expect fail "empty requires=" "empty requires="
+fresh; sed -i 's/requires=beta/requires=beta requires=beta/' "$S/manifest.txt"; expect fail "two requires= options" "more than one requires="
+fresh; sed -i 's/ requires=beta//' "$S/manifest.txt"; sed -i 's/skills: alpha, beta/skills: alpha/' "$A/builder.md"; expect fail "third-party skill without requires=" "needs requires=<our override skill>"
+fresh; sed -i 's/^beta ours$/beta third-party/' "$S/manifest.txt"; expect fail "third-party skill requiring another third-party skill" "must require one of our own"
+fresh; sed -i 's/$/\r/' "$S/manifest.txt";                 expect fail "CRLF manifest" "CRLF"
+fresh; sed -i 's/skills: alpha, beta/skills: alpha, beta, alpha/' "$A/builder.md"; expect fail "skill repeated in an agent's skills: list" "skill 'alpha' is listed more than once in 'skills:'"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

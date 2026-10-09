@@ -14,8 +14,9 @@ Payload app, not for a multi-dealer system holding customer and credit data.
 - We use **Yarn workspaces + Nx**. Ignore every `npx`, `npm`, `pnpm` and `create-payload-app` command in the skill
   (for example its Quick Start); never run them.
 - We use the **Postgres adapter** only. Ignore MongoDB / `mongooseAdapter` / SQLite examples.
-- We run the **exact pinned Payload v3 version** in `apps/admin/package.json`, **3.90.0 or later** (earlier 3.x versions leak
-  read-restricted data through relationships and join filters). Never upgrade inside a feature PR.
+- We run the **exact pinned Payload v3 version** in `apps/admin/package.json`: **3.90.2** today, never below **3.87.1**
+  (earlier versions miss security fixes, including multi-tenant and draft-mode fixes; see the advisory table in
+  `.claude/skills/SKILLS-LOCK.md`). Never upgrade inside a feature PR. Payload 4 canary/beta builds are not allowed.
 - **Background jobs and queues use BullMQ on Redis** (`packages/platform`), never Payload's `jobs` config or `payload.jobs.queue`.
 - **Validation** uses the schemas exported by `packages/contracts`.
 - **Never fetch** documentation from the internet for Payload work, even if you have WebFetch. Use only the local skill files

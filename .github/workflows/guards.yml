@@ -44,6 +44,14 @@ jobs:
             git archive refs/remotes/pr/head .claude | tar -x -C /tmp/pr-skills
           fi
           bash scripts/check-skills.sh /tmp/pr-skills
+      - name: Third-party skills equal their pinned upstream with deletions only (fresh fetch of the locked commit)
+        run: bash scripts/check-skills-upstream-all.sh /tmp/pr-skills /tmp/pr-upstream
+      - name: Agent workflows keep their denies (base script, PR's workflows as data)
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pr-wf && mkdir -p /tmp/pr-wf
+          git archive refs/remotes/pr/head .github/workflows | tar -x -C /tmp/pr-wf
+          bash scripts/check-workflows.sh /tmp/pr-wf
       - uses: ./.github/actions/install-gitleaks
       - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)
         run: |

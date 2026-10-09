@@ -25,15 +25,22 @@ front_matter() {
 [ -d "$DIR" ] || { echo "ERROR: missing $DIR"; exit 1; }
 [ -f "$MANIFEST" ] || { echo "ERROR: missing $MANIFEST"; exit 1; }
 
-declare -A listed=() third=() requires=()
+! grep -q $'\r' "$MANIFEST" || err "manifest.txt has CRLF (Windows) line endings; use LF only"
+declare -A listed=() third=() requires=() kinds=()
 while read -r name kind rest; do
   [ -z "${name:-}" ] && continue
   case "$name" in \#*) continue;; esac
   case "$kind" in ours|third-party) ;; *) err "manifest line for '$name' needs kind 'ours' or 'third-party'";; esac
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || err "bad skill name in manifest: '$name'"
-  listed["$name"]=1
+  [ -z "${listed[$name]:-}" ] || err "skill '$name' is listed more than once in the manifest"
+  listed["$name"]=1; kinds["$name"]="$kind"
   for opt in $rest; do
-    case "$opt" in requires=*) requires["$name"]="${opt#requires=}";; *) err "unknown option '$opt' for '$name' in manifest";; esac
+    case "$opt" in
+      requires=?*) [ -z "${requires[$name]:-}" ] || err "skill '$name' has more than one requires= in the manifest"
+                   requires["$name"]="${opt#requires=}";;
+      requires=) err "skill '$name' has an empty requires= in the manifest";;
+      *) err "unknown option '$opt' for '$name' in manifest";;
+    esac
   done
   [ "$kind" = third-party ] && third["$name"]=1
 done < "$MANIFEST"
@@ -59,7 +66,7 @@ for name in "${!third[@]}"; do
     b=$(basename "$lf")
     if [[ "${b,,}" =~ ^(upstream-)?licen[cs]e(\.(md|txt))?$ ]] && [ -f "$lf" ] && [ ! -L "$lf" ] && [ -s "$lf" ]; then lic=1; fi
   done
-  [ "$lic" = 1 ] || err "third-party skill '$name' has no license file (LICENSE, LICENSE.md/.txt or UPSTREAM-LICENSE*, non-empty, at the top of the folder)"
+  [ "$lic" = 1 ] || err "third-party skill '$name' has no license file (LICENSE or UPSTREAM-LICENSE, plain, .md or .txt, non-empty, at the top of the folder)"
   row=""
   if [ -f "$DIR/SKILLS-LOCK.md" ]; then
     rows=$(awk -F'|' -v n="$name" 'NF>2 { c=$2; gsub(/[[:space:]]/,"",c); k=split(c,a,","); for(i=1;i<=k;i++) if (a[i]==n) {print; break} }' "$DIR/SKILLS-LOCK.md")
@@ -85,7 +92,10 @@ done
 for name in "${!requires[@]}"; do
   [ "${requires[$name]}" != "$name" ] || err "skill '$name' requires itself"
   [ -n "${listed[${requires[$name]}]:-}" ] || err "skill '$name' requires '${requires[$name]}', which is not in the manifest"
+  [ -z "${third[$name]:-}" ] || [ "${kinds[${requires[$name]}]:-}" = ours ] || err "third-party skill '$name' must require one of our own (override) skills"
 done
+# Every third-party skill is tied to an override skill of ours (CLAUDE.md: conflicts are covered by a founder-owned override).
+for name in "${!third[@]}"; do [ -n "${requires[$name]:-}" ] || err "third-party skill '$name' needs requires=<our override skill> in the manifest"; done
 # Agents may only preload skills from the manifest, and always together with what they require.
 if [ ! -d .claude/agents ]; then
   err "missing .claude/agents (the agent skill preloads can't be checked)"
@@ -106,7 +116,8 @@ else
       err "$(basename "$agent"): 'skills:' must be a one-line comma list (e.g. skills: a, b), got '$line'"; continue
     fi
     IFS=',' read -r -a sk <<< "$line"
-    have=" "; for x in "${sk[@]}"; do x="${x//[[:space:]]/}"; have+="$x "; done
+    have=" "; for x in "${sk[@]}"; do x="${x//[[:space:]]/}"
+      [[ "$have" != *" $x "* ]] || err "$(basename "$agent"): skill '$x' is listed more than once in 'skills:'"; have+="$x "; done
     for x in $have; do
       [ -n "${listed[$x]:-}" ] || err "$(basename "$agent"): skill '$x' is not in the manifest"
       r="${requires[$x]:-}"
