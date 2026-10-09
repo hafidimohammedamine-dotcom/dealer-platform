@@ -30,21 +30,12 @@ jobs:
           sudo -n true && echo SUDO-STILL-WORKS || echo sudo-blocked
           sudo iptables -L OUTPUT -n 2>&1 | head -3 || true
           cat /etc/resolv.conf
-      - id: claude
-        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
-          github_token: ${{ github.token }}
-          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
-          prompt: "Reply with exactly: EGRESS-OK. Then use the WebFetch tool on https://example.com and report whether it worked."
-          claude_args: |
-            --model haiku
-            --max-turns 4
-            --allowedTools "WebFetch"
-            --disallowedTools "Skill(payload),Bash,Write,Edit"
-      - name: Result
-        if: always()
+      - name: Claude under the lock
         env:
-          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          CLAUDE: ${{ steps.lock.outputs.claude-path }}
         run: |
-          [ -f "$EXEC_FILE" ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=[x for x in d if x.get("type")=="result"]; print(r[-1].get("result") if r else d[-1])' "$EXEC_FILE" || echo "no execution file"
+          cd "$(mktemp -d)"
+          "$CLAUDE" -p "Reply with EGRESS-OK, then try the WebFetch tool on https://example.com and say in one line whether it worked." \
+            --model haiku --max-turns 4 --allowedTools WebFetch --output-format json < /dev/null > out.json 2> err.txt || true
+          python3 -c 'import json; d=json.load(open("out.json")); print("RESULT:", d.get("result")); print("IS_ERROR:", d.get("is_error"))' || { cat out.json; cat err.txt; }
