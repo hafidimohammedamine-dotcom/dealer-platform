@@ -13,8 +13,8 @@ and never print the environment.
 
 **Run every agent in the foreground** (never `run_in_background`). Start them together in one message so they run in parallel, but wait for every result before you push, open PRs or post the log. This job ends when you stop, so background agents would be lost.
 
-## Limits for one shift (max pace, set by the founders)
-- At most **8 builder jobs** this shift (fixes count too), started in parallel. Never two jobs in the same folder.
+## Limits for one shift (steady pace)
+- At most **4 builder jobs** this shift (fixes count too), started in parallel. Never two jobs in the same folder.
 - The Chief Engineer still counts as one job and runs at most once per shift.
 - If you hit a usage or rate limit, stop cleanly, post the log, and leave the rest for the next shift.
 

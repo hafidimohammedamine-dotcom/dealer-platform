@@ -61,12 +61,6 @@ gitleaks found something that looks like a secret in this PR's commits (`main`'s
 - Documented fake value from vendor docs: a founder may add that exact value to `.gitleaks.toml` (anchored, `regexTarget = "secret"`)
   in a founder PR, with a case in `scripts/gitleaks-config.test.sh`.
 
-## Workflow "Agent - Manager wake-up" (job `wake`)
-Starts `agent-manager.yml` right away when CI fails on main, a founder opens an issue or adds an `agent:*` label, or a founder
-comments `REQUEST:` or `BLOCKED`. It only runs `gh workflow run` with its own token (no Claude). If it fails, the hourly shift
-still runs; re-run it once, then check the job's `actions: write` permission. Until the agents' own account exists, the shift it
-starts stops at the manager's token check.
-
 ## Workflow "Agent - Review team" (job `review`)
 Also `pull_request_target`, also from `main`.
 - **"Fetch the PR as data into /tmp/pr"** fails - as above (it also writes the PR's history as plain files to `/tmp/pr-meta`:
