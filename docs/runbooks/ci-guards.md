@@ -110,7 +110,9 @@ Messages and fixes:
 - `needs exactly one --disallowedTools (found N)` - one `--disallowedTools "a,b,..."` in `claude_args` (nothing in `prompt` counts).
 - `claude_args flag '<x>' not allowed` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`,
   `--add-dir`, each with a value. `input '<x>' not allowed` - a claude step takes only `claude_code_oauth_token`, `github_token`,
-  `prompt`, `claude_args`, `path_to_claude_code_executable`.
+  `prompt`, `claude_args`, `path_to_claude_code_executable`, and - only in `agent-manager.yml` - `allowed_bots: github-actions`
+  (`allowed_bots may only be ...`). That lets `review.yml` start a fix round right after a failed review; without it the action
+  refuses runs started by `github-actions[bot]`.
 - `claude action must be one of [...]` - use the pinned `anthropics/claude-code-action@<sha>`.
 - `a job with a claude step must start with actions/checkout, then ./.github/actions/agent-egress-lock` (with an `id`, no `if` or
   `continue-on-error`), and `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}`.

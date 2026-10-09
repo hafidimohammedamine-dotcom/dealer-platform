@@ -6,7 +6,7 @@ Rules:
      @anthropic-ai/claude-code, and no reusable workflow, container job or local action outside LOCAL_ACTIONS is used.
   2. Claude credentials (secrets.*CLAUDE*/*ANTHROPIC*, secrets['...'], toJSON(secrets), ANTHROPIC_API_KEY,
      CLAUDE_CODE_OAUTH_TOKEN) appear only in a claude step's `claude_code_oauth_token` input.
-  3. A claude step only uses the inputs in CLAUDE_INPUTS, and its `claude_args` only the flags in CLAUDE_FLAGS, with exactly
+  3. A claude step only uses the inputs in CLAUDE_INPUTS (allowed_bots only as in ALLOWED_BOTS), and its `claude_args` only the flags in CLAUDE_FLAGS, with exactly
      one --disallowedTools whose comma list holds Skill(<name>) for `payload` and every third-party skill in the manifests.
   4. A job with a claude step starts with: actions/checkout, then the agent egress lock (LOCK_ACTION); the claude step
      passes `path_to_claude_code_executable: ${{ steps.<lock id>.outputs.claude-path }}`.
@@ -29,7 +29,9 @@ except ImportError:  # fail closed
 CLAUDE_ACTIONS = {"anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b"}
 LOCK_ACTION = "./.github/actions/agent-egress-lock"
 LOCAL_ACTIONS = {"./.github/actions/install-gitleaks", LOCK_ACTION}
-CLAUDE_INPUTS = {"claude_code_oauth_token", "github_token", "prompt", "claude_args", "path_to_claude_code_executable"}
+CLAUDE_INPUTS = {"claude_code_oauth_token", "github_token", "prompt", "claude_args", "path_to_claude_code_executable", "allowed_bots"}
+# allowed_bots only on the manager (instant fix rounds from review.yml), and only GitHub's own Actions bot.
+ALLOWED_BOTS = {"agent-manager.yml": "github-actions"}
 CLAUDE_FLAGS = {"--model", "--max-turns", "--permission-mode", "--allowedTools", "--disallowedTools", "--add-dir"}
 MANAGER_DENIES = (
     "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),"
@@ -97,6 +99,8 @@ def check_claude_step(where, step, required, manager):
         err(f"{where}: 'with' must be a mapping")
         return
     for key, val in w.items():
+        if key == "allowed_bots" and ALLOWED_BOTS.get(where.split()[0]) != str(val):
+            err(f"{where}: allowed_bots may only be {ALLOWED_BOTS} (this file: {val!r})")
         if key not in CLAUDE_INPUTS:
             err(f"{where}: input {key!r} not allowed (allowed: {', '.join(sorted(CLAUDE_INPUTS))})")
         if key != "claude_code_oauth_token" and CRED_RE.search(str(val)):

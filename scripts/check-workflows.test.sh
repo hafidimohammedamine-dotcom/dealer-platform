@@ -88,6 +88,8 @@ t; printf 'payload-cms third-party requires=x\n' > "$T/m.txt"; expect fail "seco
 t; printf '# old third-party\npayload-cms third-party requires=x\n' > "$T/m.txt"; for f in "$T/$W"/*.yml; do sed -i 's|--disallowedTools "Skill(payload),|--disallowedTools "Skill(payload),Skill(payload-cms),|' "$f"; done
                                                         expect ok   "second third-party skill denied everywhere" "Skill denies: payload, payload-cms" --manifest "$T/m.txt"
 t; mkdir -p "$T/.claude/skills"; printf 'other third-party requires=x\n' > "$T/.claude/skills/manifest.txt"; expect fail "the root's own manifest is read too" "does not deny Skill(other)"
+t; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\n          allowed_bots: github-actions|' "$T/$W/t.yml"; expect fail "allowed_bots outside the manager" "allowed_bots may only be"
+fresh; sed -i 's|allowed_bots: github-actions|allowed_bots: "*"|' "$T/$W/agent-manager.yml"; expect fail "manager allowing every bot" "allowed_bots may only be"
 # Structure: duplicate keys, the lock step and the pinned action
 t; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\n          claude_args: "--model haiku"|' "$T/$W/t.yml"; expect fail "duplicate claude_args key" "duplicate key"
 t; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, then ./.github/actions/agent-egress-lock"

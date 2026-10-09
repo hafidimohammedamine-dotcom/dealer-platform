@@ -21,5 +21,7 @@
   `UPSTREAM-LICENSE` (plain, .md or .txt) or upstream's own `LICENSE`; manifest without CRLF, duplicate names, empty or repeated
   `requires=`; every third-party skill requires one of our own override skills; no skill repeated in an agent's `skills:` line.
 - Every agent workflow step denies `Skill(payload)` ahead of the Payload skill (#22).
+- Fix: instant fix rounds never started, because claude-code-action refuses runs started by `github-actions[bot]`. The manager
+  now sets `allowed_bots: github-actions` (only there, enforced by `check-workflows.py`).
 - `packages/data/override-allowlist.txt` is founder-only once it exists (CLAUDE.md, CODEOWNERS, `check-founder-files.sh`).
 - Messages and fixes for every check: `docs/runbooks/ci-guards.md`.
