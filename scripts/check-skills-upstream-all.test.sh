@@ -7,14 +7,14 @@ pass=0; failed=0
 fresh() {
   W=$(mktemp -d "$TMPROOT/sua.XXXXXX") || exit 2
   U="$W/hub/acme/tools"; mkdir -p "$U/skills/demo"
-  ( cd "$U" && git init -q -b main . && git config user.email t@t && git config user.name t
-    printf 'keep\nnpx bad\n' > skills/demo/SKILL.md; echo other > README.md; git add -A; git commit -qm up )
+  ( cd "$U" && git init -q -b main . && git config uploadpack.allowFilter true && git config user.email t@t && git config user.name t
+    printf '# Demo\nkeep\n## Install\nnpx bad\n' > skills/demo/SKILL.md; echo other > README.md; git add -A; git commit -qm up )
   SHA=$(git -C "$U" rev-parse HEAD)
   R="$W/repo"; S="$R/.claude/skills"; mkdir -p "$S/demo" "$R/.claude/skills-patches"
-  printf 'keep\n' > "$S/demo/SKILL.md"; echo n > "$S/demo/NOTICE.md"; echo mit > "$S/demo/UPSTREAM-LICENSE"
+  printf '# Demo\nkeep\n' > "$S/demo/SKILL.md"; echo n > "$S/demo/NOTICE.md"; echo mit > "$S/demo/UPSTREAM-LICENSE"
   printf 'demo third-party requires=ovr\novr ours\n' > "$S/manifest.txt"
   printf '| Skill | Source | Commit |\n|---|---|---|\n| demo | acme/tools `skills/demo`, tag v1 | %s |\n' "$SHA" > "$S/SKILLS-LOCK.md"
-  printf -- '--- upstream/SKILL.md\n+++ ours/SKILL.md\n@@ -1,2 +1 @@\n keep\n-npx bad\n' > "$R/.claude/skills-patches/demo.diff"
+  printf -- '--- upstream/SKILL.md\n+++ ours/SKILL.md\n@@ -1,4 +1,2 @@\n # Demo\n keep\n-## Install\n-npx bad\n' > "$R/.claude/skills-patches/demo.diff"
 }
 expect() { out=$(UPSTREAM_BASE="file://$W/hub/" bash "$SCRIPT" "$R" "$W/work" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
   if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"; else failed=$((failed+1)); echo "FAIL  $2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
@@ -27,6 +27,7 @@ fresh; sed -i 's/| demo |/| nodemo |/' "$S/SKILLS-LOCK.md"; expect fail "missing
 fresh; sed -i 's/acme\/tools `/acme `/' "$S/SKILLS-LOCK.md"; expect fail "malformed source cell" "must read"
 fresh; printf 'ovr ours\n' > "$S/manifest.txt";           expect ok   "no third-party skills" "Upstream check OK for 0 third-party skill(s)"
 fresh; rm "$S/manifest.txt";                              expect fail "missing manifest" "missing"
+fresh; printf '# demo third-party is pinned below\n\n#old third-party\n' | cat - "$S/manifest.txt" > "$W/m" && mv "$W/m" "$S/manifest.txt"; expect ok "manifest comments and blank lines are skipped" "Upstream check OK for 1 third-party skill(s)"
 fresh; echo 'Bad_Name third-party requires=ovr' >> "$S/manifest.txt"; expect fail "bad skill name in the manifest" "bad skill name 'Bad_Name'"
 fresh; printf '| demo | acme/tools `skills/demo` | %s |\n' "$SHA" >> "$S/SKILLS-LOCK.md"; expect fail "two lock rows for one skill" "needs exactly one SKILLS-LOCK.md row"
 fresh; sed -i "s/$SHA/${SHA:0:12}/" "$S/SKILLS-LOCK.md";  expect fail "short commit" "must read"

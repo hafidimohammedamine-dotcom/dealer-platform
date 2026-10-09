@@ -33,6 +33,9 @@ jobs:
           ref: ${{ github.base_ref }}
           fetch-depth: 0
           persist-credentials: false
+      - id: lock
+        # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
+        uses: ./.github/actions/agent-egress-lock
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
@@ -50,6 +53,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           github_token: ${{ github.token }}
           prompt: "/review-pr ${{ github.event.pull_request.number }} ${{ steps.status.outputs.result }}"
           claude_args: |

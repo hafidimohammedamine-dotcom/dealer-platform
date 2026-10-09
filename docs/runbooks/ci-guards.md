@@ -16,7 +16,8 @@ again, tell a founder.
 ### Step "Founder-only files (PR author and pusher must be founders)" fails
 Message: `Not all of '<author>,<pusher>' are founders, and the PR changes founder-only files:` plus the paths.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt`. Renames count both ways.
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, and `packages/data/override-allowlist.txt` once it exists (the
+guard already protects that path). Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
 `founders file not found` / `could not diff` - the base checkout is broken; re-run once, then tell a founder.
@@ -67,43 +68,77 @@ Also `pull_request_target`, also from `main`.
 - **"Post the result (secret-scanned) and set labels"**: if the answer looked like it contained a secret, it posts FAIL without
   the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
 
+## Third-party skills compared with the base branch (guards, automatic)
+`scripts/check-skills-vs-base.sh` (from `main`) compares the PR's manifest and SKILLS-LOCK.md rows with `main`'s. The log lists
+every `CHANGED`, `NEW` and `REMOVED` third-party skill with its repo, path and commit, for the founders to read. Errors:
+- `third-party skill 'X' is now listed as 'ours'` - a vendored skill stays third-party. To replace it, remove it and add a new one.
+- `changed its source repo (a -> b)` - a different upstream (for example a fork) needs a new skill name.
+- `removed from the manifest but its folder is still there` - delete the folder too, or keep the manifest line.
+
 ## Proving a third-party skill equals upstream (guards, automatic)
 The `guards` job step "Third-party skills equal their pinned upstream with deletions only" runs
-`scripts/check-skills-upstream-all.sh`: for each third-party skill it fetches the exact commit from its SKILLS-LOCK.md row (found by
-an exact match on the first cell; lower-case 40-hex commit) and runs `scripts/check-skill-upstream.sh`, which must print
+`scripts/check-skills-upstream-all.sh`: for each third-party skill it fetches the exact commit from its SKILLS-LOCK.md row and runs
+`scripts/check-skill-upstream.sh`. Both read lock rows with `scripts/check-skills-lib.sh`, like `check-skills.sh`: the row whose
+first cell is exactly the skill name, shaped `| <name> | <owner>/<repo> `<path>`, ... | <40-hex commit, lower case> |`.
+It must print
 `OK: .claude/skills/<name> = upstream with deletions only (<n> upstream file(s) removed) + top-level NOTICE.md/UPSTREAM-LICENSE; <name>.diff matches`.
 Messages and fixes:
 - `lines added or changed in <file>`, `file not in upstream: <file>`, `more than one UPSTREAM-LICENSE file`, `not a regular file or
   folder` - re-copy from upstream and only delete. The only files we may add are top-level `NOTICE.md` and one `UPSTREAM-LICENSE`
   (plain, .md or .txt).
-- `removed a warning line in <file>` - a deleted line contained a warning word (❌, WRONG, SECURITY, never, must, not, avoid, ...).
-  Keep the line, or remove the whole file instead.
-- `part of a code block removed in <file>` - keep the fenced code block whole or remove it whole.
+- `deletions in <file> are not whole units` - deletions must be whole units (`scripts/check-skill-deletions.py`): a whole file;
+  a heading's whole own body (the heading line up to the next heading of any level); a whole fenced code block (``` or ~~~, any
+  length, an unclosed one runs to the end of the file); or a single table row or list item with no warning or rule word (❌, ✅,
+  WRONG, never, must, not, always, only, important, critical, required, access, overrideAccess, secret, token, ...). Partial prose,
+  part of a code block (including indented code) or a heading without its body fails. Blank lines can go anywhere. To drop a whole
+  file's text, delete the file rather than emptying it.
 - `missing or empty record`, `<name>.diff does not match diff -ru of upstream and our copy`, `<name>.diff has added lines`,
-  `records changes but our copy equals upstream` - regenerate `.claude/skills-patches/<name>.diff` with the command in
-  SKILLS-LOCK.md step 3.
-- `diff failed on <file>` / `diff of upstream and ours failed` - a file could not be read; fix permissions and re-run.
-- `could not fetch <repo> at <commit>` - the commit or repo in the lock row is wrong, or GitHub was down (re-run once).
+  `records changes but our copy equals upstream` - regenerate the record from a folder holding the upstream copy as `upstream` and
+  ours as `ours`:
+  `diff -ru -a -x NOTICE.md -x UPSTREAM-LICENSE -x UPSTREAM-LICENSE.md -x UPSTREAM-LICENSE.txt upstream ours > .claude/skills-patches/<name>.diff`
+- `diff failed on <file>` / `diff of upstream and ours failed (exit N)` - a file could not be read; fix permissions and re-run.
+- `could not fetch <repo> at <commit>` - the repo or commit in the lock row is wrong, or GitHub was down (re-run once).
 - `needs exactly one SKILLS-LOCK.md row` / `must read '| name | owner/repo `path`, ... | <40-hex commit> |'` - fix the lock row.
 A founder can run it locally: `bash scripts/check-skills-upstream-all.sh .`
 
 ## "Workflow denies OK" (`guards` from `main`, and `checks`)
-`scripts/check-workflows.sh` checks every workflow chunk (each `- ` list item) and fails closed. `guards` runs the `main` copy on
-the PR's workflows, so a PR cannot switch the check off. Messages and fixes:
-- `claude step N: --disallowedTools does not deny Skill(payload)` - add `Skill(payload)` to that step's `--disallowedTools "..."`.
-- `claude step N: needs exactly one --disallowedTools line (found K)` - one quoted `--disallowedTools "a,b,..."` line per step. A
-  `- ` list line inside `claude_args` also splits the step and gives this error: don't use one there.
-- `claude step N: tools set outside --allowedTools/--disallowedTools lines` - remove `allowed_tools:`, `disallowed_tools:`,
-  `settings:`, `--settings`, `--allowed-tools`, `--disallowed-tools`, `--allowedTools=`, `--permission-prompt-tool` or
-  `--mcp-config`, or an unquoted `--disallowedTools`.
-- `agent-manager.yml: missing deny <item>` - put the item back in the manager's deny list.
-- `expected exactly one claude step in agent-manager.yml (found N)` - the manager has exactly one claude-code-action step.
-- `runs Claude outside an anthropics/claude-code-action step` - run Claude only through the pinned action (no `claude` CLI, no
-  `@anthropic-ai/claude-code`, no other claude-code action).
-- `Claude/Anthropic credential outside an anthropics/claude-code-action step` - pass `secrets.CLAUDE_*`/`ANTHROPIC_*`,
-  `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` only to that step (not to the job, the workflow or another action).
-- `local action not on the allow-list` / `reusable workflow not allowed` - only `./.github/actions/install-gitleaks` is allowed;
-  a new one needs a founder PR that adds it to `LOCAL_ACTIONS` in the script.
+`scripts/check-workflows.sh` runs `scripts/check-workflows.py`, which parses every workflow as YAML (duplicate keys rejected) and
+fails closed. `guards` runs the `main` copy on the PR's workflows as data, with both manifests, so a PR cannot switch it off.
+Messages and fixes:
+- `--disallowedTools does not deny Skill(<name>)` - add `Skill(<name>)` for `payload` and every third-party skill in the base or PR
+  manifest to that step's `--disallowedTools "..."` in `claude_args`.
+- `needs exactly one --disallowedTools (found N)` - one `--disallowedTools "a,b,..."` in `claude_args` (nothing in `prompt` counts).
+- `claude_args flag '<x>' not allowed` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`,
+  `--add-dir`, each with a value. `input '<x>' not allowed` - a claude step takes only `claude_code_oauth_token`, `github_token`,
+  `prompt`, `claude_args`, `path_to_claude_code_executable`.
+- `claude action must be one of [...]` - use the pinned `anthropics/claude-code-action@<sha>`.
+- `a job with a claude step must start with actions/checkout, then ./.github/actions/agent-egress-lock` (with an `id`, no `if` or
+  `continue-on-error`), and `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}`.
+- `agent-manager.yml: missing deny <item>` / `expected exactly one claude step in agent-manager.yml (found N)`.
+- `runs Claude outside the pinned claude-code-action` - no `claude` CLI (any path), `@anthropic-ai/...` or other claude-code action
+  in `run:` or `uses:`.
+- `Claude/Anthropic credential outside a claude step's claude_code_oauth_token` - `secrets.*CLAUDE*`, `secrets['...']`,
+  `toJSON(secrets)`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` appear nowhere else (not in env at any level, not in `prompt`).
+- `local action not on the allow-list` (only `install-gitleaks` and `agent-egress-lock`), `not allowed: docker://...`,
+  `reusable workflow not allowed`, `'container'/'services' not allowed`, `not valid YAML or has duplicate keys`.
+- `python3 PyYAML is required` - GitHub's Ubuntu runners include it; locally `python3 -m pip install pyyaml==6.0.2`.
+
+## Agent network lock (`.github/actions/agent-egress-lock`)
+Every agent job runs it right after checkout. It installs the pinned Claude Code release (the claude-code-action then uses that
+binary), then: a local DNS server (dnsmasq) answers only the domains in `allow-domains.txt` (GitHub, Anthropic API, npm/Yarn
+registries, the runner's log storage) and adds their addresses to a firewall set; the firewall (iptables) rejects every other
+outbound connection, other DNS servers and all IPv6; Docker is stopped and the runner user's sudo is removed, so no later step can
+undo it. A self-test then fails the job if an allowed host is unreachable or if a blocked host, a raw IP, outside DNS, IPv6, sudo or
+Docker still works. `.github/workflows/egress-lock-test.yml` runs it, plus the real claude-code-action and a `Skill(payload)` deny
+probe, whenever the lock changes.
+- A job fails with `allowed host ... not reachable` or a tool cannot download something: add the domain to `allow-domains.txt` in a
+  founder PR (plain domain names; subdomains are included), or pass `extra-domains:` for one job.
+- What it does not stop: a prompt injection that also carries an attacker's own GitHub or npm credentials could still push data to
+  GitHub or npm, which are allowed. The agents' token reaches this repo only. The command deny lists stay as a second layer
+  (hygiene, not a boundary).
+- Verified on the pinned Claude Code (2.1.295, the version this claude-code-action installs): `Skill(<name>)` in
+  `--disallowedTools` denies the Skill tool for that skill, also under `bypassPermissions` and inside subagents, while a subagent's
+  `skills:` preload is injected at start and still works.
 
 ## How the guards wiring is proven
 The scripts have unit tests (below). The workflow wiring (`git archive` of the PR head, base scripts on PR data, the upstream fetch)
@@ -111,14 +146,15 @@ is proven by the live `guards` run: a guards change takes effect only after it m
 the new steps passing. For the guards PR itself, a founder runs the same commands locally on the PR head and posts the output.
 
 ## After changing agent permissions (founder, manual)
-Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls" step: a `Skill(payload)` deny must not stop
-builders from preloading `payload` with `payload-dealer-overrides` (preloads don't use the Skill tool). If a builder reports it
-can't see the Payload skill, **do not remove the deny**: open an `area:security` issue for the founders.
+Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls" step. Once vendored skills exist (the Payload
+skill, #22), a `Skill(payload)` deny must not stop builders from preloading `payload` with `payload-dealer-overrides`. If a builder
+reports it can't see the skill, **do not remove the deny**: open an `area:security` issue for the founders.
 
 ## Workflow "CI" (job `checks`), step "Guard script tests"
 Run locally to see which case broke:
 - `bash scripts/check-founder-files.test.sh`, `bash scripts/check-skills.test.sh`, `bash scripts/check-skill-upstream.test.sh`,
-  `bash scripts/check-skills-upstream-all.test.sh`, `bash scripts/check-workflows.sh`, `bash scripts/check-workflows.test.sh`,
+  `bash scripts/check-skills-upstream-all.test.sh`, `bash scripts/check-skills-vs-base.test.sh`, `bash scripts/check-workflows.sh`,
+  `bash scripts/check-workflows.test.sh`,
   `bash scripts/check-review-prepare.test.sh`, `bash scripts/check-pr-ci-status.test.sh`, `bash scripts/check-review-post.test.sh`
 - `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh` (exits 2 if gitleaks can't run)
 "Secret scan of all history (pushes to main)" failing means a secret reached `main`: follow "Real key" above.

@@ -37,6 +37,9 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.AGENT_GH_TOKEN }}
+      - id: lock
+        # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
+        uses: ./.github/actions/agent-egress-lock
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
@@ -49,6 +52,7 @@ jobs:
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           github_token: ${{ secrets.AGENT_GH_TOKEN }}
           prompt: "/manager ${{ github.event.inputs.focus }}"
           claude_args: |
@@ -57,12 +61,11 @@ jobs:
             --permission-mode bypassPermissions
             --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
-          # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode:
-          # no npx/npm/yarn dlx/yarn create/node -e/-p, curl/wget/sudo, no printing the environment, no force-push, merge, deleting via API, secrets or auth,
-          # and no reading runner internals. Builders can still run code through yarn and node scripts - building and testing
-          # need that - so the deny list stops the easy one-liners, not a determined attacker. The runner is thrown away
-          # after the job, and the agents' token reaches this repo only. The manager itself never loads the payload skill
-          # without its override (builders preload both).
+          # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
+          # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The boundary is the
+          # agent egress lock (step `lock`): outbound network only to GitHub, Anthropic and the package registries, no sudo,
+          # no Docker. `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
+          # together with its override.
       - name: Show blocked tool calls (names and commands only)
         if: always() && steps.claude.outputs.execution_file != ''
         env:

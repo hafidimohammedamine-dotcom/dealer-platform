@@ -6,13 +6,13 @@
 #  1. No symlinks or special files on either side.
 #  2. Every file in ours exists upstream and adds no line to it (deletions only). The only files ours may add are the
 #     top-level names in EXTRA below (at most one UPSTREAM-LICENSE*).
-#  3. Deletions must not turn a warning into advice: a removed line may not contain a warning word (WARN_RE), and a fenced
-#     code block (``` ... ```) is either kept whole or removed whole. Whole files may be removed.
+#  3. Deletions are whole units only (scripts/check-skill-deletions.py): a whole file, a heading's whole body, a whole fenced
+#     code block, or a single table row / list item without a warning or rule word. Partial prose or code fails.
 #  4. The record .claude/skills-patches/<skill-name>.diff equals today's `diff -ru` of upstream and ours (EXTRA files left
 #     out; `diff` command lines and header timestamps ignored), so the record cannot drift.
 set -euo pipefail
 EXTRA=(NOTICE.md UPSTREAM-LICENSE UPSTREAM-LICENSE.md UPSTREAM-LICENSE.txt)
-WARN_RE='❌|⚠|WRONG|SECURITY|BUG|[Nn]ever|NEVER|[Mm]ust|MUST|[Nn]ot\b|NOT\b|[Dd]on.t|[Aa]void|[Ww]arning|WARNING|[Dd]anger|[Bb]ypass|[Uu]nsafe|[Ii]nsecure'
+HERE="$(cd "$(dirname "$0")" && pwd)"
 UP="${1:?upstream skill dir}"; NAME="${2:?skill name}"; ROOT="${3:-$(cd "$(dirname "$0")/.." && pwd)}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "ERROR: bad skill name"; exit 1; }
 [ -d "$UP" ] || { echo "ERROR: upstream dir not found: $UP"; exit 1; }
@@ -37,15 +37,14 @@ while IFS= read -r -d '' f; do
   rc=0; added=$(diff -a --unchanged-line-format= --old-line-format= --new-line-format='%L' "$UP/$rel" "$f") || rc=$?
   if [ "$rc" -gt 1 ]; then err "diff failed on $rel (exit $rc)"; continue; fi
   [ -z "$added" ] || { err "lines added or changed in $rel:"; printf '%s\n' "$added" | head -5; continue; }
-  # Removed lines, as "<upstream line number> <text>".
-  removed=$(diff -a --unchanged-line-format= --new-line-format= --old-line-format='%dn %L' "$UP/$rel" "$f" || true)
-  [ -n "$removed" ] || continue
-  if w=$(cut -d' ' -f2- <<<"$removed" | grep -E -m1 -- "$WARN_RE"); then err "removed a warning line in $rel: $w"; fi
-  partial=$(awk 'NR==FNR { gone[$1]=1; next }
-    /^[[:space:]]*```/ { if (!inb) { inb=1; s=FNR; all=1; any=0 } else { inb=0; if (gone[FNR]) any=1; else all=0;
-                         if (gone[s]) any=1; else all=0; if (any && !all) print s; } next }
-    inb { if (gone[FNR]) any=1; else all=0 }' <(printf '%s\n' "$removed") "$UP/$rel")
-  [ -z "$partial" ] || err "part of a code block removed in $rel (block at upstream line $(head -n1 <<<"$partial")); keep it whole or remove it whole"
+  # Removed upstream line numbers must form whole units.
+  rc=0; nums=$(diff -a --unchanged-line-format= --new-line-format= --old-line-format='%dn
+' "$UP/$rel" "$f") || rc=$?
+  if [ "$rc" -gt 1 ]; then err "diff failed on $rel (exit $rc)"; continue; fi
+  [ -n "$nums" ] || continue
+  if ! out=$(python3 -I "$HERE/check-skill-deletions.py" "$UP/$rel" <<<"$nums" 2>&1); then
+    err "deletions in $rel are not whole units:"; printf '%s\n' "$out" | head -5
+  fi
 done < <(find "$OURS" -type f -print0)
 deleted=0
 while IFS= read -r -d '' f; do

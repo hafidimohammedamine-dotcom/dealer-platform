@@ -7,6 +7,8 @@
 # file names with newline/backslash/control characters, added / removed / renamed / changed files.
 # Usage: scripts/check-skills.sh [--write] [repo-root]     (--write: founders only, in a skills PR)
 set -euo pipefail
+# shellcheck source=scripts/check-skills-lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/check-skills-lib.sh"
 MODE=check
 if [ "${1:-}" = "--write" ]; then MODE=write; shift; fi
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -69,16 +71,16 @@ for name in "${!third[@]}"; do
   [ "$lic" = 1 ] || err "third-party skill '$name' has no license file (UPSTREAM-LICENSE, plain, .md or .txt, non-empty, at the top of the folder; or upstream's own LICENSE)"
   row=""
   if [ -f "$DIR/SKILLS-LOCK.md" ]; then
-    rows=$(awk -F'|' -v n="$name" 'NF>2 { c=$2; gsub(/[[:space:]]/,"",c); if (c==n) print }' "$DIR/SKILLS-LOCK.md")
+    rows=$(lock_rows "$DIR/SKILLS-LOCK.md" "$name")
     [ "$(grep -c . <<<"$rows" || true)" -le 1 ] || err "skill '$name' has more than one row in SKILLS-LOCK.md"
     row=$(head -n1 <<<"$rows")
   fi
   if [ -z "$row" ]; then err "third-party skill '$name' has no row in SKILLS-LOCK.md"; continue; fi
-  ! grep -qE '\b[0-9a-fA-F]*[A-F][0-9a-fA-F]*\b' <<<"$(grep -oE '\b[0-9a-fA-F]{40}\b' <<<"$row")" || err "SKILLS-LOCK.md row for '$name': write the commit in lower case"
-  [ "$(grep -oE '\b[0-9a-f]{40}\b' <<<"$row" | wc -l)" -le 1 ] || err "SKILLS-LOCK.md row for '$name' has more than one 40-character commit"
-  lock_sha=$(grep -oE '\b[0-9a-f]{40}\b' <<<"$row" | head -n1 || true)
+  if ! lock_parse "$row"; then
+    err "SKILLS-LOCK.md row for '$name' must read '| $name | owner/repo \`path\`, ... | <40-hex commit, lower case> | ...'"; continue
+  fi
+  lock_sha=$LOCK_SHA
   notice_sha=$( [ -f "$DIR/$name/NOTICE.md" ] && grep -oE '\b[0-9a-f]{40}\b' "$DIR/$name/NOTICE.md" | head -n1 || true)
-  [ -n "$lock_sha" ] || err "SKILLS-LOCK.md row for '$name' has no full 40-character commit"
   [ -n "$notice_sha" ] || err "NOTICE.md for '$name' has no full 40-character commit"
   [ -z "$lock_sha" ] || [ -z "$notice_sha" ] || [ "$lock_sha" = "$notice_sha" ] || err "commit for '$name' differs between SKILLS-LOCK.md and NOTICE.md"
 done

@@ -28,6 +28,7 @@ jobs:
           bash scripts/check-skills.test.sh
           bash scripts/check-skill-upstream.test.sh
           bash scripts/check-skills-upstream-all.test.sh
+          bash scripts/check-skills-vs-base.test.sh
           bash scripts/check-workflows.sh
           bash scripts/check-workflows.test.sh
           bash scripts/check-review-prepare.test.sh
