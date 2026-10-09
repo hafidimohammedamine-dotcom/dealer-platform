@@ -22,7 +22,11 @@ Two founders run the company. Agents do the work. Founders approve every merge.
   Never add AGPL, SSPL, BSL or "sustainable use" licensed code.
 
 ## Payload rules (dealer safety, never break these)
-Agents may use the official Payload skill (`.claude/skills/payload`) for how Payload works. **If a skill's example disagrees with these rules, these rules win** (for example, skill examples call `payload.find` directly; we always go through `packages/data`).
+Agents use the official Payload skill (`.claude/skills/payload`) to learn how Payload works, always together with our
+`.claude/skills/payload-dealer-overrides`. **If any skill example disagrees with anything in this file, this file wins.** Known conflicts:
+pnpm/npm and `create-payload-app@latest` (we use Yarn + Nx and a pinned version), MongoDB examples (we use Postgres),
+`overrideAccess: true` and Local API calls without a user (rule 1), hand-written login endpoints (rule 14),
+client-set tenant fields and `saveToJWT` roles (rules 12 and 14), versions on by default (rule 4), unsigned webhooks (non-negotiable rule 4).
 1. **All data access goes through `packages/data`** (the tenant-safe helper). It always passes the logged-in `user`
    and `overrideAccess: false` and the dealer's tenant. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
@@ -70,7 +74,7 @@ Agents may use the official Payload skill (`.claude/skills/payload`) for how Pay
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |
 | `infra/`, `.github/`, `Dockerfile*` | CI, deploy, migrations job, monitoring, backups | devops |
 | `docs/` | API docs, dealer help center, runbooks | docs |
-| `CLAUDE.md`, `.claude/` | Company rules and agents | **founders only** |
+| `CLAUDE.md`, `.claude/`, `skills-lock.json`, `scripts/check-skills.sh` | Company rules, agents and pinned skills | **founders only** |
 
 **Never edit a folder you don't own.** If you need a change elsewhere, comment on the GitHub
 issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes it.

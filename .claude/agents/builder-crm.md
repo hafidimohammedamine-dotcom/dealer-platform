@@ -3,7 +3,7 @@ name: builder-crm
 description: Builds our CRM in Payload - CRM collections (Customers, Leads, Appointments, Tasks, Notes, Consent, Lead sources), role-based access per collection, and custom admin screens (pipeline board, customer timeline, BDC queue, dashboards). Owns apps/admin/src/collections/crm and apps/admin/src/views (except views/desking).
 tools: Read, Grep, Glob, Bash, Write, Edit, WebFetch
 model: sonnet
-skills: payload
+skills: payload, payload-dealer-overrides
 ---
 
 You are the CRM developer. You own `apps/admin/src/collections/crm/` and `apps/admin/src/views/`

@@ -18,6 +18,8 @@ jobs:
           fetch-depth: 0
       - name: Secret scan (gitleaks, free CLI)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --redact --verbose
+      - name: Pinned skills unchanged
+        run: bash scripts/check-skills.sh
       - uses: actions/setup-node@v4
         if: hashFiles('package.json') != ''
         with:
