@@ -74,5 +74,6 @@ fresh; rm "$S/alpha/UPSTREAM-LICENSE"; echo MIT > "$S/alpha/reference/LICENSE"; 
 fresh; : > "$S/alpha/UPSTREAM-LICENSE"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "empty license file" "has no license file"
 fresh; mv "$S/alpha/UPSTREAM-LICENSE" "$S/alpha/license-notes.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "license-notes.md is not a license" "has no license file"
 fresh; sed -i 's/requires=beta/requires=beta extra=1/' "$S/manifest.txt"; expect fail "second unknown manifest option" "unknown option 'extra=1'"
+fresh; printf -- '---\nname: builder\nskills: alpha, beta\nskills: alpha\n---\n' > "$A/builder.md"; expect fail "duplicate skills lines" "more than one 'skills:' line"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

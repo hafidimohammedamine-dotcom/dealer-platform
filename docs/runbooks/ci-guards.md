@@ -16,7 +16,7 @@ again, tell a founder.
 ### Step "Founder-only files (PR author and pusher must be founders)" fails
 Message: `Not all of '<author>,<pusher>' are founders, and the PR changes founder-only files:` plus the paths.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/contracts/`. Renames count both ways.
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`. Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
 `founders file not found` / `could not diff` - the base checkout is broken; re-run once, then tell a founder.
@@ -34,6 +34,7 @@ the founder pushes once more after checking the agent's commits.
   Intended (founder): review the change, then `bash scripts/check-skills.sh --write`.
 - `missing .claude/skills/manifest.txt` / `missing .claude/skills/checksums.sha256` - restore the file from `main`.
 - `missing .claude/agents` - restore the folder from `main`.
+- `<agent>.md: more than one 'skills:' line` - keep exactly one.
 - `<agent>.md: 'skills:' must be a one-line comma list` - write it as `skills: a, b` (no YAML list, no brackets, not empty).
 - `<agent>.md: skill 'X' is not in the manifest` - fix the spelling or add the skill.
 - `<agent>.md: 'X' must be loaded together with 'Y'` - add `Y` to that agent's `skills:` line.
@@ -63,7 +64,8 @@ Also `pull_request_target`, also from `main`.
 
 ## Proving a third-party skill equals upstream (founder, manual)
 `bash scripts/check-skill-upstream.sh <upstream-skill-dir> <name>` must print `OK: ... = upstream + recorded patch`. Otherwise the
-folder or `.claude/skills-patches/<name>.diff` is wrong: re-copy from upstream and redo the deletions.
+folder or `.claude/skills-patches/<name>.diff` is wrong: re-copy from upstream and redo the deletions. It also fails if the patch
+adds lines or files, contains unsafe paths, or if NOTICE.md / UPSTREAM-LICENSE* appear below the top of the folder.
 
 ## Workflow "CI" (job `checks`), step "Guard script tests"
 Run locally to see which case broke:

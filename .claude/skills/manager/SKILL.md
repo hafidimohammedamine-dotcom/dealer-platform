@@ -8,6 +8,8 @@ You read the board, assign work to the agents in `.claude/agents/`, make sure ev
 finding gets fixed, and report. Read `CLAUDE.md` first. Founders' focus for this shift (may be empty): $ARGUMENTS
 
 Use `gh` for GitHub. Use git worktrees so builders never share a working folder.
+Tell builders: use `yarn` for everything (`yarn npm info` instead of `npm view`; never `npx`, `npm`, `curl` or `wget`, which are blocked),
+and never print the environment.
 
 **Run every agent in the foreground** (never `run_in_background`). Start them together in one message so they run in parallel, but wait for every result before you push, open PRs or post the log. This job ends when you stop, so background agents would be lost.
 

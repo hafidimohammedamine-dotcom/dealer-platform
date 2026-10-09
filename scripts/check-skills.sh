@@ -83,7 +83,9 @@ else
   for agent in .claude/agents/*.md; do
     [ -f "$agent" ] || continue
     fmt=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$agent")
-    grep -q '^skills:' <<<"$fmt" || continue
+    n=$(grep -c '^skills:' <<<"$fmt" || true)
+    [ "$n" -le 1 ] || { err "$(basename "$agent"): more than one 'skills:' line"; continue; }
+    [ "$n" = 1 ] || continue
     line=$(grep -m1 '^skills:' <<<"$fmt" | sed 's/^skills:[[:space:]]*//; s/[[:space:]]*$//')
     if ! [[ "$line" =~ ^[a-z0-9][a-z0-9-]*([[:space:]]*,[[:space:]]*[a-z0-9][a-z0-9-]*)*$ ]]; then
       err "$(basename "$agent"): 'skills:' must be a one-line comma list (e.g. skills: a, b), got '$line'"; continue

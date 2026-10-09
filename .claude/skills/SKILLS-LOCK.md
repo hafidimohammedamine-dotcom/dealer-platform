@@ -11,6 +11,9 @@ runs `scripts/check-skill-upstream.sh` and posts the output on the PR (step 3 be
 |---|---|---|---|---|
 | payload | payloadcms/payload `tools/claude-plugin/skills/payload`, tag v3.90.2 | 6254c3bf561a205223849a6497d7dae824d4e81b | MIT (NOTICE.md, UPSTREAM-LICENSE.md) | `.claude/skills-patches/payload.diff` (deletions only: install commands, link lists, "fetch these URLs", plugin guide) |
 
+Upstream proof for `payload` (founder, 2026-10-09): `git rev-parse v3.90.2^{commit}` = 6254c3bf561a205223849a6497d7dae824d4e81b and
+`scripts/check-skill-upstream.sh` = OK; outputs posted on PR #22.
+
 Payload version: no version is pinned in `apps/admin/package.json` yet. When it is, a founder keeps the skill on the same tag
 (manual step).
 

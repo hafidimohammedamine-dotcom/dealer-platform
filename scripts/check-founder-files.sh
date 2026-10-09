@@ -24,7 +24,7 @@ if [ "$all_founders" = 1 ]; then
 fi
 
 # Founder-only paths (regex on repo-relative paths), at any depth where it matters.
-PATTERN='(^|/)CLAUDE(\.local)?\.md$|(^|/)\.mcp\.json$|(^|/)\.claude/|^\.github/|^scripts/check-|^scripts/gitleaks-config|(^|/)\.gitleaks(\.toml|ignore)$|^packages/contracts/'
+PATTERN='(^|/)CLAUDE(\.local)?\.md$|(^|/)\.mcp\.json$|(^|/)\.claude/|^\.github/|^scripts/check-|^scripts/gitleaks-config|(^|/)\.gitleaks(\.toml|ignore)$|^packages/data/override-allowlist'
 
 # -z: raw paths (no quoting); --no-renames: a rename lists both old and new paths. Fail closed if git fails.
 if ! changed=$(git -c core.quotepath=off diff -z --no-renames --name-only "$BASE...$HEAD" | tr '\0' '\n'; exit "${PIPESTATUS[0]}"); then

@@ -14,3 +14,4 @@ CLAUDE.local.md                  @hafidimohammedamine-dotcom
 /.gitleaks.toml                  @hafidimohammedamine-dotcom
 /.gitleaksignore                 @hafidimohammedamine-dotcom
 /packages/contracts/             @hafidimohammedamine-dotcom
+/packages/data/override-allowlist.txt @hafidimohammedamine-dotcom

@@ -25,8 +25,8 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 Agents that work on Payload load the official `payload` skill (how Payload works) together with `payload-dealer-overrides`
 (what we allow). **Order of authority: CLAUDE.md > payload-dealer-overrides > payload skill.**
 1. **All data access goes through `packages/data`** (the tenant-safe helper). It always passes the logged-in `user`
-   and `overrideAccess: false` and the dealer's tenant. Only exception: the file-path allow-list in
-   `packages/data` (migrations, fixture seeding, named system jobs); see payload-dealer-overrides rule 2. Calling `payload.find/create/update/delete` anywhere else is
+   and `overrideAccess: false` and the dealer's tenant. Only exception: founder-approved system jobs in
+   `packages/data/override-allowlist.txt`, active once the lint rule exists; see payload-dealer-overrides rule 2. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
 2. **Second lock in the database:** Postgres row-level security on `tenant` (dealer) for every CRM table, with
    `FORCE ROW LEVEL SECURITY`; the app sets the dealer per transaction. The app's database user is not the table owner.
@@ -66,13 +66,13 @@ Agents that work on Payload load the official `payload` skill (how Payload works
 | `services/ai/`, `services/voice/`, `services/messaging/` | AI replies, ElevenLabs voice, Telnyx texting, consent rules engine | builder-ai |
 | `services/inventory/` | VIN/recalls (NHTSA), listing feeds, AI inventory tools | builder-inventory |
 | `services/desking/`, `services/lenders/`, `services/callbacks/`, `services/documents/`, `services/accounting/` | Deals, encrypted credit data, lender adapters, bank callbacks, contracts/title, accounting | builder-finance |
-| `packages/contracts/` | Shared data shapes: Lead, Customer, Vehicle, Deal, CreditApp, LenderDecision | **founders only** |
+| `packages/contracts/` | Shared data shapes: Lead, Customer, Vehicle, Deal, CreditApp, LenderDecision | devops builds; a founder approves every change (CODEOWNERS); other agents ask with `REQUEST:` |
 | `packages/platform/` | Encryption, audit log, queues, config | devops builds, security must approve |
 | `packages/ui/` | Design system and Payload admin theme | designer |
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |
 | `infra/`, `Dockerfile*` | Deploy, migrations job, monitoring, backups | devops |
 | `docs/` | API docs, dealer help center, runbooks | docs |
-| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder, including `skills-patches/`), `.github/` (CI, guards, agent workflows, CODEOWNERS, founders.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore` | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
+| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder, including `skills-patches/`), `.github/` (CI, guards, agent workflows, CODEOWNERS, founders.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt` | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
 
 **Never edit a folder you don't own.** If you need a change elsewhere, comment on the GitHub
 issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes it.

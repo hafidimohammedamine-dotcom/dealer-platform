@@ -50,10 +50,15 @@ jobs:
           claude_args: |
             --model opus
             --max-turns 200
-            --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,TodoWrite,Skill,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(node:*),Bash(corepack:*),Bash(cd:*),Bash(pwd),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(mkdir:*),Bash(test:*),Bash(true),Bash(rm -rf .worktrees/:*)"
-            --disallowedTools "Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env),Bash(printenv:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
-          # Builders work only inside the repo (worktrees in .worktrees/, git-ignored). Allow-list: git, gh, yarn and basic
-          # shell; no npx/npm/curl, no reading the runner's environment or credentials. Agents ask with REQUEST: when blocked.
+            --permission-mode bypassPermissions
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+          # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
+          # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode:
+          # no npx/npm/yarn dlx/yarn create/node -e/-p, curl/wget/sudo, no printing the environment, no force-push, merge, deleting via API, secrets or auth,
+          # and no reading runner internals. Builders can still run code through yarn and node scripts - building and testing
+          # need that - so the deny list stops the easy one-liners, not a determined attacker. The runner is thrown away
+          # after the job, and the agents' token reaches this repo only. The manager itself never loads the payload skill
+          # without its override (builders preload both).
       - name: Show blocked tool calls (names and commands only)
         if: always() && steps.claude.outputs.execution_file != ''
         env:

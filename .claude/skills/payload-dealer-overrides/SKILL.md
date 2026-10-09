@@ -5,7 +5,7 @@ description: Our binding rules on top of the official Payload skill. Read togeth
 
 # Payload: our overrides (founder-owned)
 
-The `payload` skill next to this one is Payload's own general guide (upstream, unchanged). It is written for every kind of
+The `payload` skill next to this one is Payload's own general guide (upstream, with our recorded deletion-only patch). It is written for every kind of
 Payload app, not for a multi-dealer system holding customer and credit data.
 **Use it to learn how Payload works. Use CLAUDE.md and this file to decide what we are allowed to do.**
 **Order of authority: CLAUDE.md > payload-dealer-overrides (this file) > payload skill.**
@@ -17,19 +17,20 @@ Payload app, not for a multi-dealer system holding customer and credit data.
 - We run the **exact pinned Payload v3 version** in `apps/admin/package.json`. Never upgrade inside a feature PR.
 - **Background jobs and queues use BullMQ on Redis** (`packages/platform`), never Payload's `jobs` config or `payload.jobs.queue`.
 - **Validation** uses the schemas exported by `packages/contracts`.
-- **Never fetch** anything the skill links to (for example `llms-full.txt`, or the "fetch these URLs" list at the end of
-  `reference/ADVANCED.md`), even if you have WebFetch. Use only the local skill files and this repo.
+- **Never fetch** documentation from the internet for Payload work, even if you have WebFetch. Use only the local skill files
+  and this repo.
 
 ## Data access
 1. All reads and writes go through `packages/data` with the logged-in `user`, `overrideAccess: false` and the dealer tenant -
    **anywhere in the repo**: routes, endpoints, server components, hooks (collection and field), access functions, `validate`,
    `filterOptions`, plugins, `onInit` and background jobs - except the allow-list in rule 2. This covers every Local API call
    (`payload.find/findByID/count/create/update/delete/duplicate`, `req.payload.*`).
-2. `overrideAccess: true` or a Local API call without `user` is allowed **only** in files on an allow-list of file paths kept in
-   `packages/data` (with the reason for each) and enforced by the lint rule from CLAUDE.md Payload rule 1. Allowed kinds: database
-   migrations, fixture seeding, and named system jobs (for example the nightly inventory feed). Each entry still sets the dealer per
-   transaction the way the app does, so Postgres row-level security applies. Only the CI migration job uses the table-owner role.
-   Fixture seeding refuses to run when `NODE_ENV=production`. Anything else is a blocking finding.
+2. `overrideAccess: true` or a Local API call without `user` is allowed **only** for reviewed system jobs that a founder approved,
+   each listed with its reason in `packages/data/override-allowlist.txt` (a founder-only file). Each still sets the dealer per
+   transaction the way the app does, so Postgres row-level security applies. This exception is **not active** until the lint rule
+   from CLAUDE.md Payload rule 1 and its CI test exist; until then there is no exception at all. Database migrations run as SQL in
+   the CI migration job (the only place the table-owner role is used), not through the Local API. Fixture seeding goes through
+   `packages/data` with a fixture user like any other code, never with `overrideAccess: true`.
 3. Always pass explicit `overrideAccess`, `depth` and `versions` (CLAUDE.md Payload rule 4).
 
 ## Collections stay thin
@@ -94,6 +95,11 @@ Payload app, not for a multi-dealer system holding customer and credit data.
     and reject old timestamps (replay window).
 19. Save the raw message first, then process it from a BullMQ queue. The same message twice is handled once (idempotency key per
     provider message ID).
+
+## Secrets and credentials (CLAUDE.md non-negotiable rule 2)
+- Read `PAYLOAD_SECRET`, database URLs and every key through a required-environment helper (`packages/platform`) that throws at
+  startup if the value is missing or too short. Never `process.env.X || ''` or any other fallback, and never a literal password or
+  key outside `fixtures/` (fake values only). Ignore the skill's `secret: process.env.PAYLOAD_SECRET || ''` and `password: 'password'`.
 
 ## Logs, errors and personal data (CLAUDE.md non-negotiable rule 7) - everywhere, not only webhooks
 20. Error responses are generic. Never return `err.message`, stack traces or internal IDs.
