@@ -15,7 +15,7 @@ Flow: Issue -> manager -> builder -> pull request -> review team -> fixes (up to
 ## Models
 | Model | Agents |
 |---|---|
-| Claude Fable 5.1 | chief-engineer (only when stuck, max one job per shift; when Fable usage is available, currently on Opus) |
+| Claude Fable 5.1 | chief-engineer by default (only when stuck, max one job per shift). Not in use right now: a founder sets it back to claude-fable-5-1 when Fable usage is available again |
 | Opus | manager, security, compliance, architect, builder-finance, builder-ai, weekly audit, chief-engineer (temporarily, while Fable usage is unavailable) |
 | Sonnet | builder-intake, builder-crm, builder-inventory, tester, designer, devops, review coordinator |
 | Haiku | docs, daily report |
