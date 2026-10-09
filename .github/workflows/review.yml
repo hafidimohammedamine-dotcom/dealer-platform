@@ -58,6 +58,14 @@ jobs:
             --add-dir /tmp/pr
             --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git -C /tmp/pr diff:*),Bash(git -C /tmp/pr log:*),Bash(git -C /tmp/pr show:*),Bash(git -C /tmp/pr ls-files:*),Bash(gh pr view:*),Bash(gh issue view:*)"
             --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+      - name: Show blocked tool calls (names and commands only)
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
+                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
+            "$EXEC_FILE" || true
       - name: Post the result (secret-scanned) and set labels
         if: always() && steps.claude.outputs.execution_file != ''
         env:
