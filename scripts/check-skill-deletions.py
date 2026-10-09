@@ -1,30 +1,36 @@
 #!/usr/bin/env python3
 """Checks that the lines removed from one upstream Markdown file are whole, safe units (founder-owned).
 
-Usage: scripts/check-skill-deletions.py <upstream-file> [--label REL] [--reviewed FILE] < removed-line-numbers (1-based)
+Usage: scripts/check-skill-deletions.py <upstream-file> [--label REL] [--reviewed FILE] [--whole-file] < removed-line-numbers
+(1-based; nothing is read from stdin with --whole-file).
 A removed (non-blank) line passes only if it belongs to one of these, removed completely:
   - a heading's own body: the heading line and every line up to the next heading of any level (outside code);
   - a fenced code block (``` or ~~~, 3 or more, CommonMark rules; an unclosed fence runs to the end of the file);
-  - a single table row, or a whole list item (its marker line and its deeper-indented continuation lines), outside code,
-    with no warning or rule word (WARN_RE).
-A removed section or code block that contains a warning or rule word also needs a founder's review: its entry
-"<REL>:<upstream line of the heading or opening fence>" must be in the --reviewed file. Each one is printed as
+  - a whole table (header, separator and every row);
+  - a single body row of a table (never its header or separator row alone), or a whole list item (its marker line and
+    every deeper-indented line after it, nested list items included), outside code, with no warning or rule word (WARN_RE).
+A removed section, code block or table that contains a warning or rule word also needs a founder's review: its entry
+"<REL>:<upstream line of the heading, opening fence or header row>" must be in the --reviewed file. With --whole-file the
+whole upstream file was deleted: if it contains a warning or rule word, the entry "<REL>:0" must be in the --reviewed file. Each one is printed as
 "REVIEWED <REL>:<line> ..." (or reported as an error), so the guards log shows every such deletion.
 Everything else - prose, part of a code block, part of a section, an indented code line - fails.
-Blank lines may be removed anywhere. Whole-file removals are handled by the caller (no partial content remains).
+Blank lines may be removed anywhere.
 """
 import re
 import sys
 
-USAGE = "usage: check-skill-deletions.py <upstream-file> [--label REL] [--reviewed FILE] < removed-line-numbers"
+USAGE = "usage: check-skill-deletions.py <upstream-file> [--label REL] [--reviewed FILE] [--whole-file] < removed-line-numbers"
 
 WARN_RE = re.compile(
     r"❌|⚠|✅|🚫|\b(wrong|security|secure|insecure|unsafe|bug|never|must|not|don'?t|avoid|warning|danger|caution|"
     r"important|critical|required|require|always|only|bypass|override|overrideAccess|access|auth\w*|secret|password|"
-    r"token|permission\w*|deny|denied|risk|careful|note)\b", re.I)
+    r"token|permission\w*|deny|denied|risk|careful|note|forbidden|forbid|prohibited|cannot|can'?t|unless|tenant\w*|pii|ssn|"
+    r"credential\w*|encrypt\w*|sensitive|private|leak\w*|vulnerab\w*|cve|ghsa|inject\w*|xss|csrf|sanitiz\w*|escap\w*|"
+    r"validat\w*|verify|role\w*|admin|limit\w*|should|do not)\b", re.I)
 FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 HEADING = re.compile(r"^ {0,3}#{1,6}(\s|$)")
 TABLE_ROW = re.compile(r"^ {0,3}\|")
+TABLE_SEP = re.compile(r"^ {0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 LIST_ITEM = re.compile(r"^ {0,7}([-*+]|\d{1,9}[.)])\s+\S")
 
 
@@ -56,26 +62,29 @@ def parse(lines):
 
 
 def args(argv):
-    """Returns (path, label, reviewed entries, problem)."""
-    path, label, reviewed = None, None, set()
+    """Returns (path, label, reviewed entries, whole_file, problem)."""
+    path, label, reviewed, whole = None, None, set(), False
     rest = list(argv)
     while rest:
         a = rest.pop(0)
-        if a in ("--label", "--reviewed") and rest:
+        if a == "--whole-file":
+            whole = True
+        elif a in ("--label", "--reviewed") and rest:
             v = rest.pop(0)
             if a == "--label":
                 label = v
                 continue
             try:
-                text = open(v, encoding="utf-8").read()
+                with open(v, encoding="utf-8") as fh:
+                    text = fh.read()
             except OSError as e:
-                return None, None, None, f"cannot read {v} ({e.strerror})"
+                return None, None, None, False, f"cannot read {v} ({e.strerror})"
             reviewed.update(x for x in (ln.split("#", 1)[0].strip() for ln in text.splitlines()) if x)
         elif path is None and not a.startswith("--"):
             path = a
         else:
-            return None, None, None, USAGE
-    return (path, label or path, reviewed, None) if path else (None, None, None, USAGE)
+            return None, None, None, False, USAGE
+    return (path, label or path, reviewed, whole, None) if path else (None, None, None, False, USAGE)
 
 
 def list_items(lines, fence_of):
@@ -83,21 +92,44 @@ def list_items(lines, fence_of):
     following lines indented deeper than the marker, up to a blank line."""
     item_of = {}
     for i, text in enumerate(lines):
-        if fence_of[i] is not None or not LIST_ITEM.match(text):
+        if fence_of[i] is not None or not LIST_ITEM.match(text) or i in item_of:  # nested items belong to the outer item
             continue
         indent = len(text) - len(text.lstrip())
         j = i + 1
-        while (j < len(lines) and lines[j].strip() and fence_of[j] is None and not LIST_ITEM.match(lines[j])
-               and not HEADING.match(lines[j]) and len(lines[j]) - len(lines[j].lstrip()) > indent):
+        while (j < len(lines) and lines[j].strip() and fence_of[j] is None and not HEADING.match(lines[j])
+               and len(lines[j]) - len(lines[j].lstrip()) > indent):
             j += 1
         for k in range(i, j):
             item_of[k] = (i, j - 1)
     return item_of
 
 
-def whole_units(lines, removed, fences, headings, label, reviewed):
-    """Finds the whole sections and code blocks removed. Returns (whole fence ids, lines in whole sections, problems):
-    a removed unit with a warning or rule word is a problem unless "<label>:<first line>" is in `reviewed`."""
+def tables(lines, fence_of):
+    """Maps each table line (outside code) to (first line, last line) of its table: consecutive '|' rows whose second
+    row is a separator row."""
+    table_of, i = {}, 0
+    while i < len(lines):
+        if fence_of[i] is None and TABLE_ROW.match(lines[i]):
+            j = i
+            while j + 1 < len(lines) and fence_of[j + 1] is None and TABLE_ROW.match(lines[j + 1]):
+                j += 1
+            if j > i and TABLE_SEP.match(lines[i + 1]):
+                for k in range(i, j + 1):
+                    table_of[k] = (i, j)
+            i = j + 1
+        else:
+            i += 1
+    return table_of
+
+
+def first_warn(lines, a, b):
+    return next((m for m in (WARN_RE.search(lines[k]) for k in range(a, b + 1)) if m), None)
+
+
+def whole_units(lines, removed, fences, headings, table_of, label, reviewed):
+    """Finds the whole sections, code blocks and tables removed. Returns (whole fence ids, lines in whole sections or
+    tables, problems): a removed unit with a warning or rule word is a problem unless "<label>:<first line>" is in
+    `reviewed`."""
     whole_fence = {fid for fid, (a, b) in enumerate(fences) if all(k in removed for k in range(a, b + 1))}
     in_whole_section = set()
     units = []  # (start line, end line) of every whole section or code block removed
@@ -107,28 +139,53 @@ def whole_units(lines, removed, fences, headings, label, reviewed):
             in_whole_section.update(range(h, nxt))
             units.append((h, nxt - 1))
     units += [fences[fid] for fid in sorted(whole_fence) if fences[fid][0] not in in_whole_section]
+    for a, b in sorted(set(table_of.values())):
+        if a not in in_whole_section and all(k in removed for k in range(a, b + 1)):
+            in_whole_section.update(range(a, b + 1))
+            units.append((a, b))
     bad = []
     for a, b in sorted(units):
-        w = next((m for m in (WARN_RE.search(lines[k]) for k in range(a, b + 1)) if m), None)
+        w = first_warn(lines, a, b)
         if not w:
             continue
         key = f"{label}:{a + 1}"
         if key in reviewed:
             print(f"REVIEWED {key} ({lines[a][:80]!r}, contains {w.group(0)!r})")
         else:
-            bad.append((a, f"a section or code block with a warning or rule word ({w.group(0)!r}) that is not in the "
+            bad.append((a, f"a section, code block or table with a warning or rule word ({w.group(0)!r}) that is not in the "
                            f"reviewed list (add '{key}' after a founder review)"))
     return whole_fence, in_whole_section, bad
 
 
+def whole_file(lines, label, reviewed):
+    """The whole upstream file was deleted: one with a warning or rule word needs the reviewed entry "<label>:0"."""
+    w = first_warn(lines, 0, len(lines) - 1) if lines else None
+    key = f"{label}:0"
+    if not w:
+        return 0
+    if key in reviewed:
+        print(f"REVIEWED {key} (whole file deleted, contains {w.group(0)!r})")
+        return 0
+    print(f"ERROR: whole file deleted that has a warning or rule word ({w.group(0)!r}); add '{key}' to the reviewed list "
+          "after a founder review")
+    return 1
+
+
 def main():
-    path, label, reviewed, problem = args(sys.argv[1:])
+    path, label, reviewed, whole, problem = args(sys.argv[1:])
     if problem:
         print(f"ERROR: {problem}")
         return 2
-    lines = open(path, encoding="utf-8", errors="replace").read().replace("\r\n", "\n").split("\n")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().replace("\r\n", "\n").split("\n")
+    except OSError as e:
+        print(f"ERROR: cannot read {path} ({e.strerror})")
+        return 2
     if lines and lines[-1] == "":
         lines.pop()
+    if whole:
+        return whole_file(lines, label, reviewed)
     removed = set()
     for tok in sys.stdin.read().split():
         if not tok.isdigit() or not 1 <= int(tok) <= len(lines):
@@ -136,7 +193,8 @@ def main():
             return 2
         removed.add(int(tok) - 1)
     fence_of, fences, headings = parse(lines)
-    whole_fence, in_whole_section, bad = whole_units(lines, removed, fences, headings, label, reviewed)
+    table_of = tables(lines, fence_of)
+    whole_fence, in_whole_section, bad = whole_units(lines, removed, fences, headings, table_of, label, reviewed)
     item_of = list_items(lines, fence_of)
     for k in sorted(removed):
         if not lines[k].strip() or k in in_whole_section:
@@ -146,11 +204,14 @@ def main():
                 bad.append((k, "part of a code block (keep it whole or remove it whole)"))
         elif k in item_of:
             a, b = item_of[k]
-            w = next((m for m in (WARN_RE.search(lines[x]) for x in range(a, b + 1)) if m), None)
+            w = first_warn(lines, a, b)
             if any(x not in removed for x in range(a, b + 1)):
                 bad.append((k, f"part of a list item (lines {a + 1}-{b + 1}; remove it whole)"))
             elif w and k == a:
                 bad.append((k, f"a table row or list item with a warning or rule word ({w.group(0)!r})"))
+        elif k in table_of and k <= table_of[k][0] + 1:
+            bad.append((k, f"the header or separator row of a table (lines {table_of[k][0] + 1}-{table_of[k][1] + 1}; "
+                           "remove the whole table)"))
         elif TABLE_ROW.match(lines[k]):
             w = WARN_RE.search(lines[k])
             if w:

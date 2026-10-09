@@ -16,7 +16,9 @@ PR opened / pushed
       posts it, labels PASS (ready-to-merge) or FAIL (changes-requested)
 A founder reads the result and merges.
 ```
-Agents (manager and builders) open and push PRs with the agents' own GitHub account; founders use their own accounts.
+Agents (manager and builders) must open and push PRs with the agents' own GitHub account; founders use their own accounts.
+That account does not exist yet: until a founder creates it, the manager stops before Claude starts (its token check refuses a
+founder's token). Details: `docs/runbooks/ci-guards.md` ("Agent network lock", "Known limits").
 Failure handling: `docs/runbooks/ci-guards.md`.
 
 ### Guard checks for skills and agent workflows
@@ -28,7 +30,9 @@ Failure handling: `docs/runbooks/ci-guards.md`.
 - `scripts/check-workflows.sh`: Claude runs only through the pinned claude-code-action, on `main`'s code, after the agent network
   lock, with known flags and a deny list that blocks loading any vendored skill on its own; Claude credentials reach no other
   step; no workflow with a claude step runs on `pull_request`.
-- `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them.
+- `scripts/check-agent-token.sh` (manager, before Claude): the agents' GitHub token must not belong to a founder.
+- `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard
+  script's tests through `scripts/check-coverage.sh` (each guard script at least 90% line coverage).
 
 ### Agent network lock
 Agent jobs (manager, review, daily report, weekly audit, founder mentions) check out `main` and then run

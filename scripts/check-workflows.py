@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checks the agent workflows; fails closed. Rules and messages: docs/runbooks/ci-guards.md, "Workflow denies OK"."""
 import glob
+import importlib.util
 import json
 import os
 import re
@@ -13,22 +14,18 @@ except ImportError:  # fail closed
     print("ERROR: python3 PyYAML is required (python3 -m pip install pyyaml==6.0.2)")
     sys.exit(1)
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 try:  # founder-owned policy data next to this file
-    P = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-workflows-policy.json"), encoding="utf-8"))
+    with open(os.path.join(HERE, "check-workflows-policy.json"), encoding="utf-8") as fh:
+        P = json.load(fh)
 except (OSError, ValueError) as e:
     print(f"ERROR: cannot read check-workflows-policy.json ({e})")
     sys.exit(1)
-CLAUDE_ACTIONS, LOCK_ACTION, LOCAL_ACTIONS = set(P["claude_actions"]), P["lock_action"], set(P["local_actions"])
-CLAUDE_INPUTS, ALLOWED_BOTS, CLAUDE_FLAGS = set(P["claude_inputs"]), P["allowed_bots"], set(P["claude_flags"])
-CLAUDE_STEP_KEYS, DEFAULT_REFS, BASE_REF, MANAGER = set(P["claude_step_keys"]), set(P["default_refs"]), P["base_ref"], P["manager"]
-READ_ONLY_TOOLS, READ_ONLY_BASH, ADD_DIRS = set(P["read_only_tools"]), set(P["read_only_bash"]), P["add_dirs"]
-JOB_ENV, MANAGER_DENIES = set(P["job_env"]), P["manager_denies"]
-PR_CODE = re.compile(r"github\.event\.pull_request\.head|github\.head_ref|(cd|--cwd|-C)\s+/tmp/pr\b|/tmp/pr/\S+\.(sh|js|mjs|cjs|ts|py)\b")
+LOCAL_ACTIONS, MANAGER = set(P["local_actions"]), P["manager"]
 SECRETS_TOKEN = re.compile(r"\bsecrets\b(\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?")
 CLAUDE_NAME = re.compile(r"claude|anthropic", re.I)
 CRED_ENV = re.compile(r"ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN")
 CLI_RE = re.compile(r"(^|[\s;&|(`$\"'/=])claude(\s|$|\")|claude-code|@anthropic-ai/|outputs\.claude-path|\.local/bin/claude", re.M)
-LOCK_OUT_RE = re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.claude-path\s*\}\}$")
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
@@ -47,6 +44,10 @@ def _construct_mapping(loader, node, deep=False):
 
 UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)
 errors = []
+_spec = importlib.util.spec_from_file_location("check_workflows_claude", os.path.join(HERE, "check-workflows-claude.py"))
+CLAUDE = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CLAUDE)
+CLAUDE.core = sys.modules[__name__]
 
 
 def err(msg):
@@ -54,12 +55,15 @@ def err(msg):
 
 
 def third_party(manifests):
-    names = {"payload"}
+    """Skill names to deny: always_denied_skills plus every third-party skill in the manifests (same rules as
+    manifest_lines in scripts/check-skills-lib.sh: blank and # lines skipped, name then kind)."""
+    names = set(P["always_denied_skills"])
     for m in manifests:
-        for line in open(m, encoding="utf-8"):
-            parts = line.split()
-            if len(parts) >= 2 and not parts[0].startswith("#") and parts[1] == "third-party":
-                names.add(parts[0])
+        with open(m, encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 2 and not parts[0].startswith("#") and parts[1] == "third-party":
+                    names.add(parts[0])
     return names
 
 
@@ -99,119 +103,6 @@ def check_other(where, obj):
             err(f"{where}: not allowed: {u}")
 
 
-def check_flag_value(fname, where, flag, value):
-    """Per-workflow limits on what claude_args may grant."""
-    if flag == "--permission-mode" and not (value == "bypassPermissions" and fname == MANAGER):
-        err(f"{where}: --permission-mode {value} not allowed (only bypassPermissions, only in {MANAGER})")
-    if flag == "--add-dir" and ADD_DIRS.get(fname) != value:
-        err(f"{where}: --add-dir {value} not allowed (allowed: {ADD_DIRS})")
-    if flag == "--allowedTools" and fname != MANAGER:
-        for t in (x.strip() for x in value.split(",")):
-            if t not in READ_ONLY_TOOLS and t not in READ_ONLY_BASH:
-                err(f"{where}: --allowedTools item {t!r} not allowed outside {MANAGER} (read-only tools only)")
-
-
-def parse_claude_args(fname, where, text):
-    """Returns the --disallowedTools items, or None after reporting an error."""
-    try:
-        args = shlex.split(text)
-    except ValueError as e:
-        err(f"{where}: claude_args cannot be parsed ({e})")
-        return None
-    denies, i = [], 0
-    while i < len(args):
-        a = args[i]
-        if a not in CLAUDE_FLAGS:
-            err(f"{where}: claude_args flag {a!r} not allowed (allowed: {', '.join(sorted(CLAUDE_FLAGS))})")
-            i += 1
-        elif i + 1 >= len(args) or args[i + 1].startswith("--"):
-            err(f"{where}: claude_args flag {a} needs a value")
-            i += 1
-        else:
-            check_flag_value(fname, where, a, args[i + 1])
-            if a == "--disallowedTools":
-                denies.append([x.strip() for x in args[i + 1].split(",")])
-            i += 2
-    if len(denies) != 1:
-        err(f"{where}: needs exactly one --disallowedTools (found {len(denies)})")
-        return None
-    return set(denies[0])
-
-
-def check_claude_step(fname, where, step, required, lock_id):
-    if step.get("uses") not in CLAUDE_ACTIONS:
-        err(f"{where}: claude action must be one of {sorted(CLAUDE_ACTIONS)}, got {step.get('uses')!r}")
-    for key in step:
-        if key not in CLAUDE_STEP_KEYS:
-            err(f"{where}: key {key!r} not allowed on a claude step")
-    if step.get("env"):
-        err(f"{where}: env not allowed on a claude step (job env names: {', '.join(sorted(JOB_ENV))})")
-    w = step.get("with") or {}
-    if not isinstance(w, dict):
-        err(f"{where}: 'with' must be a mapping")
-        return
-    for key, val in w.items():
-        if key not in CLAUDE_INPUTS:
-            err(f"{where}: input {key!r} not allowed (allowed: {', '.join(sorted(CLAUDE_INPUTS))})")
-        elif key == "allowed_bots" and ALLOWED_BOTS.get(fname) != str(val):
-            err(f"{where}: allowed_bots may only be {ALLOWED_BOTS} (this file: {val!r})")
-        for p in sorted(set(secrets_problems(str(val), allow_claude=(key == "claude_code_oauth_token")))):
-            err(f"{where}: {p} in input {key!r}")
-    m = LOCK_OUT_RE.match(str(w.get("path_to_claude_code_executable", "")))
-    if not m or (lock_id and m.group(1) != lock_id):
-        err(f"{where}: path_to_claude_code_executable must be ${{{{ steps.{lock_id or '<lock id>'}.outputs.claude-path }}}}")
-    have = parse_claude_args(fname, where, str(w.get("claude_args", "")))
-    if have is None:
-        return
-    for n in sorted(required):
-        if f"Skill({n})" not in have:
-            err(f"{where}: --disallowedTools does not deny Skill({n})")
-    if fname == MANAGER:
-        for d in MANAGER_DENIES:
-            if d not in have:
-                err(f"agent-manager.yml: missing deny {d}")
-
-
-def check_claude_job_start(jw, steps, triggers):
-    """Rule 4: checkout of the default (or base) branch without credentials, then the lock. Returns the lock id."""
-    first = steps[0] if steps and isinstance(steps[0], dict) else {}
-    second = steps[1] if len(steps) > 1 and isinstance(steps[1], dict) else {}
-    if not str(first.get("uses", "")).startswith("actions/checkout@") or second.get("uses") != LOCK_ACTION:
-        err(f"{jw}: a job with a claude step must start with actions/checkout, then {LOCK_ACTION}")
-        return None
-    w = first.get("with") if isinstance(first.get("with"), dict) else {}
-    ok_refs = DEFAULT_REFS | ({BASE_REF} if triggers == {"pull_request_target"} else set())
-    if str(w.get("ref", "")) not in ok_refs:
-        err(f"{jw}: the checkout needs an explicit ref of the default branch ({' or '.join(sorted(ok_refs))}), never the PR's code")
-    if w.get("persist-credentials") is not False:
-        err(f"{jw}: the checkout needs persist-credentials: false")
-    extra = set(second) - {"id", "uses", "name"}
-    if extra:
-        err(f"{jw}: the {LOCK_ACTION} step may only have id/uses/name (found {', '.join(sorted(extra))})")
-    if not second.get("id"):
-        err(f"{jw}: the {LOCK_ACTION} step needs an id")
-    return second.get("id")
-
-
-def check_claude_job_rules(jw, job, steps):
-    """Env allow-list, subprocess scrub on, no PR code, extra checkouts only of the default branch."""
-    env = job.get("env") if isinstance(job.get("env"), dict) else {}
-    for k in env:
-        if k not in JOB_ENV:
-            err(f"{jw}: env {k!r} not allowed in a job with a claude step (allowed: {', '.join(sorted(JOB_ENV))})")
-    if str(env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "")) != "1":
-        err(f'{jw}: needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" (tool subprocesses must not see the Claude token)')
-    for i, step in enumerate(steps[2:], 3):
-        if not isinstance(step, dict) or is_claude(step):
-            continue
-        if str(step.get("uses", "")).startswith("actions/checkout@"):
-            ref = str((step.get("with") or {}).get("ref", "")) if isinstance(step.get("with"), dict) else ""
-            if ref not in DEFAULT_REFS:
-                err(f"{jw} step {i}: a later checkout in a claude job must also use the default branch")
-        if PR_CODE.search(json.dumps([step.get("run"), step.get("with")])):
-            err(f"{jw} step {i}: runs or checks out PR code in a job with a claude step")
-
-
 def check_job(fname, jname, job, required, triggers):
     """Checks one job; returns its number of claude steps."""
     jw = f"{fname} job {jname}"
@@ -230,21 +121,39 @@ def check_job(fname, jname, job, required, triggers):
     if not isinstance(steps, list):
         err(f"{jw}: steps must be a list")
         return 0
-    has_claude = any(isinstance(s, dict) and is_claude(s) for s in steps)
-    lock_id = check_claude_job_start(jw, steps, triggers) if has_claude else None
-    if has_claude:
-        check_claude_job_rules(jw, job, steps)
-    count = 0
     for i, step in enumerate(steps, 1):
-        sw = f"{jw} step {i}"
         if not isinstance(step, dict):
-            err(f"{sw}: not a mapping")
-        elif is_claude(step):
-            count += 1
-            check_claude_step(fname, sw, step, required, lock_id)
-        else:
-            check_other(sw, step)
-    return count
+            err(f"{jw} step {i}: not a mapping")
+        elif not is_claude(step):
+            check_other(f"{jw} step {i}", step)
+    if any(isinstance(s, dict) and is_claude(s) for s in steps):
+        return CLAUDE.check_job(fname, jw, job, steps, required, triggers)
+    return 0
+
+
+def check_actions(root):
+    """Composite actions in .github/actions: same rules as other steps, and every remote action pinned by SHA."""
+    for path in sorted(glob.glob(os.path.join(root, ".github", "actions", "*", "action.y*ml"))):
+        name = os.path.relpath(path, root)
+        doc = load_yaml(path, name)
+        steps = ((doc or {}).get("runs") or {}).get("steps") if isinstance(doc, dict) else None
+        if not isinstance(steps, list):
+            err(f"{name}: not a composite action with steps")
+            continue
+        for i, step in enumerate(steps, 1):
+            check_other(f"{name} step {i}", step)
+            u = str(step.get("uses", "")) if isinstance(step, dict) else ""
+            if u and not u.startswith("./") and not CLAUDE.PINNED.match(u):
+                err(f"{name} step {i}: action must be pinned to a full commit SHA: {u}")
+
+
+def load_yaml(path, name):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return yaml.load(fh, Loader=UniqueKeyLoader)
+    except yaml.YAMLError as e:
+        err(f"{name}: not valid YAML or has duplicate keys ({str(e).splitlines()[0]})")
+        return None
 
 
 def triggers_of(doc):
@@ -260,10 +169,8 @@ def triggers_of(doc):
 
 def check_file(path, required):
     name = os.path.basename(path)
-    try:
-        doc = yaml.load(open(path, encoding="utf-8"), Loader=UniqueKeyLoader)
-    except yaml.YAMLError as e:
-        err(f"{name}: not valid YAML or has duplicate keys ({str(e).splitlines()[0]})")
+    doc = load_yaml(path, name)
+    if doc is None:
         return 0
     if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
         err(f"{name}: no jobs mapping")
@@ -316,6 +223,7 @@ def main(argv):
     own = os.path.join(root, ".claude", "skills", "manifest.txt")
     required = third_party(manifests + ([own] if os.path.isfile(own) else []))
     counts = {os.path.basename(f): check_file(f, required) for f in files}
+    check_actions(root)
     if counts.get(MANAGER, 0) != 1:
         err(f"expected exactly one claude step in {MANAGER} (found {counts.get(MANAGER, 0)})")
     for e in errors:

@@ -3,11 +3,16 @@
 # credentials), checks it out into <dest> outside the project folder, and removes every agent-instruction file
 # (CLAUDE.md, CLAUDE.local.md, .mcp.json, .claude/ at any depth) from that working copy. Git history is untouched,
 # so reviewers still see those files in 'git diff'.
-# Usage: GIT_TOKEN=<token or empty> scripts/check-review-prepare.sh <pr-number> <dest> [remote]
+# With <base-ref>, it also writes the PR's history as plain files to <dest>-meta (diff-stat.txt, diff.patch, files.txt,
+# log.txt, log-patch.txt), so reviewers read them instead of running git (whose --output= could write files).
+# Usage: GIT_TOKEN=<token or empty> scripts/check-review-prepare.sh <pr-number> <dest> [base-ref] [remote]
 set -euo pipefail
-PR="${1:?pr number}"; DEST="${2:?destination}"; REMOTE="${3:-origin}"
+PR="${1:?pr number}"; DEST="${2:?destination}"; BASE="${3:-}"; REMOTE="${4:-origin}"
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: bad PR number: $PR"; exit 1; }
 [ ! -e "$DEST" ] || { echo "ERROR: $DEST already exists"; exit 1; }
+META="$DEST-meta"
+[ -z "$BASE" ] || [ ! -e "$META" ] || { echo "ERROR: $META already exists"; exit 1; }
+[ -z "$BASE" ] || [[ "$BASE" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "ERROR: bad base ref: $BASE"; exit 1; }
 auth=()
 if [ -n "${GIT_TOKEN:-}" ]; then
   auth=(-c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)")
@@ -18,4 +23,14 @@ find "$DEST" -path "$DEST/.git" -prune -o \( -name CLAUDE.md -o -name CLAUDE.loc
 find "$DEST" -path "$DEST/.git" -prune -o -type d -name .claude -print0 | xargs -0 -r rm -rf
 left=$(find "$DEST" -path "$DEST/.git" -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json -o -name .claude \) -print)
 [ -z "$left" ] || { echo "ERROR: rule files left in $DEST:"; echo "$left"; exit 1; }
+if [ -n "$BASE" ]; then
+  git -C "$DEST" rev-parse -q --verify "$BASE^{commit}" >/dev/null || { echo "ERROR: base ref not found: $BASE"; exit 1; }
+  mkdir "$META"
+  git -C "$DEST" diff --stat "$BASE...HEAD" > "$META/diff-stat.txt"
+  git -C "$DEST" diff "$BASE...HEAD" > "$META/diff.patch"
+  git -C "$DEST" diff --name-status "$BASE...HEAD" > "$META/files.txt"
+  git -C "$DEST" log --format='%H %an <%ae> %aI%n    %s' "$BASE..HEAD" > "$META/log.txt"
+  git -C "$DEST" log -p "$BASE..HEAD" > "$META/log-patch.txt"
+  echo "PR history written to $META"
+fi
 echo "PR #$PR head $(git -C "$DEST" rev-parse HEAD) ready in $DEST (rule files removed)"

@@ -17,11 +17,7 @@ while read -r name kind _; do
   [ "$kind" = third-party ] || continue
   valid_skill_name "$name" || { echo "ERROR: bad skill name '$name'"; fail=1; continue; }
   rc=0; lock_row_one "$S/SKILLS-LOCK.md" "$name" || rc=$?
-  case $rc in
-    1) echo "ERROR: third-party skill '$name' but no $S/SKILLS-LOCK.md"; fail=1; continue;;
-    2|3) echo "ERROR: '$name' needs exactly one SKILLS-LOCK.md row"; fail=1; continue;;
-    4) echo "ERROR: SKILLS-LOCK.md row for '$name' must read '| $name | owner/repo \`path\`, ... | <40-hex commit, lower case> |'"; fail=1; continue;;
-  esac
+  [ "$rc" = 0 ] || { echo "ERROR: $(lock_row_error "$rc" "$name")"; fail=1; continue; }
   repo=$LOCK_REPO; path=$LOCK_PATH; sha=$LOCK_SHA
   d="$WORK/$name"; rm -rf "$d"; mkdir -p "$d"
   if ! ( cd "$d" && git init -q . && git remote add origin "$BASE$repo" \

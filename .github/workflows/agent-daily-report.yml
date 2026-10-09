@@ -26,6 +26,11 @@ jobs:
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
+      - uses: ./.github/actions/install-gitleaks
+      - id: pin
+        name: Pin the files the post step runs (checked again before it runs them)
+        run: |
+          { echo 'pins<<PINS_EOF'; sha256sum scripts/check-review-post.sh .gitleaks.toml /tmp/gitleaks; echo 'PINS_EOF'; } >> "$GITHUB_OUTPUT"
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -47,15 +52,15 @@ jobs:
           jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
                  | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
             "$EXEC_FILE" || true
-      - uses: ./.github/actions/install-gitleaks
-        if: always()
       - name: Post the report (secret-scanned) to the "Daily reports" issue
         if: always() && steps.claude.outputs.execution_file != ''
         env:
           GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS: ${{ steps.pin.outputs.pins }}
         run: |
           set -euo pipefail
+          printf '%s\n' "$PINS" | sha256sum --check --strict --quiet
           n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
           [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
           bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"

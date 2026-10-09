@@ -28,6 +28,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}   # gh for the reviewers (read-only commands)
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.base_ref }}
     steps:
       - name: Check out the base branch (rules, agents, skills)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -41,13 +42,17 @@ jobs:
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
-        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"
       - name: Wait for CI and guards on the PR head (max 30 min)
         id: status
         env:
           GH_TOKEN: ${{ github.token }}
         run: echo "result=$(bash scripts/check-pr-ci-status.sh "$PR_NUMBER" "$HEAD_SHA" 1800 30)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/install-gitleaks
+      - id: pin
+        name: Pin the files the post step runs (checked again before it runs them)
+        run: |
+          { echo 'pins<<PINS_EOF'; sha256sum scripts/check-review-post.sh .gitleaks.toml /tmp/gitleaks; echo 'PINS_EOF'; } >> "$GITHUB_OUTPUT"
       - name: Review (read-only)
         id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
@@ -60,7 +65,8 @@ jobs:
             --model sonnet
             --max-turns 120
             --add-dir /tmp/pr
-            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git -C /tmp/pr diff:*),Bash(git -C /tmp/pr log:*),Bash(git -C /tmp/pr show:*),Bash(git -C /tmp/pr ls-files:*),Bash(git -C /tmp/pr ls-tree:*),Bash(git -C /tmp/pr status:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(gh pr view:*),Bash(gh issue view:*)"
+            --add-dir /tmp/pr-meta
+            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(gh pr view:*),Bash(gh issue view:*)"
             --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
       - name: Show blocked tool calls (names and commands only)
         if: always() && steps.claude.outputs.execution_file != ''
@@ -75,10 +81,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: bash scripts/check-review-post.sh pr "$PR_NUMBER" "$EXEC_FILE"
+          PINS: ${{ steps.pin.outputs.pins }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$PINS" | sha256sum --check --strict --quiet
+          bash scripts/check-review-post.sh pr "$PR_NUMBER" "$EXEC_FILE"
       - name: Start a fix round now (agent PRs that failed review)
         # Instead of waiting for the next hourly shift, start the manager as soon as an agent's PR fails review.
-        if: always() && startsWith(github.event.pull_request.head.ref, 'agent/')
+        # Only for PRs from this repo opened by the agents' own account (repository variable AGENT_GH_LOGIN, set by a founder
+        # once that account exists). Until then this step never runs and agent PRs wait for the hourly shift.
+        if: >-
+          always() && vars.AGENT_GH_LOGIN != '' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.user.login == vars.AGENT_GH_LOGIN &&
+          startsWith(github.event.pull_request.head.ref, 'agent/')
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

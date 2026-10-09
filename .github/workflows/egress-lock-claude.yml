@@ -1,6 +1,8 @@
 # Runs the real pinned claude-code-action under the agent egress lock, from main only (founder-owned), and checks that
 # `Skill(payload)` in --disallowedTools blocks a skill named payload (a throwaway user-level probe skill).
-# Never runs PR code: triggers are pushes to main, a weekly schedule and founder runs.
+# A second job checks Claude Code's subprocess isolation: tools Claude runs must not see the Claude token.
+# Never runs PR code: triggers are pushes to main, a weekly schedule and founder runs. Before merge, the same checks were
+# run by a founder on a throwaway branch (see docs/runbooks/ci-guards.md, "Agent network lock").
 name: Agent egress lock - Claude probe
 on:
   push:
@@ -59,4 +61,45 @@ jobs:
           ok = "EGRESS-LOCK-OK" in text and "PROBE-LOADED" not in text
           ok = ok and any(x.get("tool_name") == "Skill" and (x.get("tool_input") or {}).get("skill") == "payload" for x in denials)
           sys.exit(0 if ok else 1)
+          EOF
+  scrub:
+    # Claude Code's subprocess isolation under the lock: a Bash tool started by Claude must not see the Claude token, either
+    # in its environment or in any process environment it can read (scripts/check-scrub-probe.sh prints counts only).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main   # always the default branch
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          github_token: ${{ github.token }}
+          prompt: "This is our own security self-test. Run exactly this Bash command once and reply with its output line only: bash scripts/check-scrub-probe.sh"
+          claude_args: |
+            --model haiku
+            --max-turns 4
+            --allowedTools "Bash(bash scripts/check-scrub-probe.sh)"
+            --disallowedTools "Skill(payload),Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+      - name: The tools saw no Claude token
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          python3 - "$EXEC_FILE" <<'EOF'
+          import json, re, sys
+          d = json.load(open(sys.argv[1]))
+          outs = " ".join(str(c.get("content")) for m in d if isinstance(m, dict) and m.get("type") == "user"
+                          for c in (m.get("message", {}).get("content") or []) if isinstance(c, dict) and c.get("type") == "tool_result")
+          m = re.search(r"SCRUB-PROBE env-tokens=(\d+) proc-tokens=(\d+) pid=(\d+)", outs)
+          print("probe:", m.group(0) if m else "did not run")
+          sys.exit(0 if m and m.group(1) == "0" and m.group(2) == "0" else 1)
           EOF

@@ -64,7 +64,7 @@ for wf in agent-daily-report.yml agent-weekly-audit.yml review.yml claude.yml ag
   fresh; drop "$wf" 'Skill(payload)';                   expect fail "$wf without Skill(payload)" "--disallowedTools does not deny Skill(payload)"
 done
 # Every manager deny is required
-mapfile -t MD < <(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("c",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print("\n".join(m.MANAGER_DENIES))' "$PY")
+mapfile -t MD < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["manager_denies"]))' "$(dirname "$PY")/check-workflows-policy.json")
 [ "${#MD[@]}" = 25 ] || { echo "FAIL  expected 25 manager denies, got ${#MD[@]}"; failed=$((failed+1)); }
 for d in "${MD[@]}"; do
   [ "$d" = 'Skill(payload)' ] && continue
@@ -122,7 +122,7 @@ t; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTH
 t; sed -i 's|prompt: "Do the task."|prompt: "${{ toJSON(secrets) }}"|' "$T/$W/t.yml"; expect fail "credential in the prompt" "in input 'prompt'"
 # Actions and jobs
 t; printf '      - uses: "./.github/actions/evil"\n' >> "$T/$W/t.yml"; expect fail "quoted local action not on the allow-list" "local action not on the allow-list: ./.github/actions/evil"
-t; printf '      - uses: ./.github/actions/install-gitleaks\n' >> "$T/$W/t.yml"; expect ok "allow-listed local action" "Workflow denies OK"
+t; printf '      - uses: ./.github/actions/install-gitleaks\n' >> "$T/$W/t.yml"; expect fail "local action after the claude step" "no local action after the claude step"
 t; printf '      - uses: docker://alpine:3\n' >> "$T/$W/t.yml"; expect fail "docker:// action" "not allowed: docker://alpine:3"
 t; printf '  r:\n    uses: org/repo/.github/workflows/w.yml@v1\n' >> "$T/$W/t.yml"; expect fail "reusable workflow job" "reusable workflow not allowed"
 t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    container: node:20|' "$T/$W/t.yml"; expect fail "container job" "'container' not allowed"
@@ -181,7 +181,7 @@ fresh; sed -i 's|--add-dir /tmp/pr|--add-dir /etc|' "$T/$W/review.yml"; expect f
 for tool in 'Bash' 'Bash(*)' 'Write' 'Edit' 'WebFetch' 'Bash(find /tmp/pr:*)' 'Bash(git -C /tmp/pr grep:*)' 'Bash(yarn install:*)'; do
   t; sed -i "s|            --model haiku|            --model haiku\n            --allowedTools \"Read,$tool\"|" "$T/$W/t.yml"; expect fail "allowedTools $tool outside the manager" "--allowedTools item '$tool' not allowed"
 done
-t; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read,Grep,Bash(gh pr view:*),Bash(git -C /tmp/pr log:*)"|' "$T/$W/t.yml"; expect ok "read-only allowedTools" "Workflow denies OK"
+t; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read,Grep,Bash(gh pr view:*),Bash(gh issue view:*)"|' "$T/$W/t.yml"; expect ok "read-only allowedTools" "Workflow denies OK"
 fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p=sys.argv[1]; s=open(p).read()
 s=s.replace("--permission-mode bypassPermissions", "--permission-mode bypassPermissions\n            --allowedTools \"Bash(*),Write\"", 1)
@@ -189,12 +189,45 @@ open(p,"w").write(s)
 PYEOF
                                                         expect ok "the manager may allow write tools" "Workflow denies OK"
 # No PR code in a claude job after the lock
-t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n' >> "$T/$W/t.yml"; expect fail "later checkout of the PR head" "a later checkout in a claude job must also use the default branch"
-t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: main\n          path: other\n' >> "$T/$W/t.yml"; expect ok "later checkout of main" "Workflow denies OK"
+t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n' >> "$T/$W/t.yml"; expect fail "later checkout of the PR head" "the checkout needs an explicit ref of the default branch"
+t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: main\n          persist-credentials: false\n' >> "$T/$W/t.yml"; expect ok "later checkout of main" "Workflow denies OK"
+t; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          ref: main\n          path: other\n          persist-credentials: false\n' >> "$T/$W/t.yml"; expect fail "later checkout with a path" "checkout input(s) path not allowed"
 for cmd in 'cd /tmp/pr && yarn install' 'yarn --cwd /tmp/pr install' 'bash /tmp/pr/scripts/x.sh' 'git -C /tmp/pr checkout main && make' 'git fetch origin ${{ github.event.pull_request.head.sha }}' 'echo ${{ github.head_ref }}'; do
   t; printf '      - run: %s\n' "$cmd" >> "$T/$W/t.yml"; expect fail "PR code in a run step: $cmd" "runs or checks out PR code in a job with a claude step"
 done
 t; printf '      - if: startsWith(github.event.pull_request.head.ref, %s)\n        run: echo ok\n' "'agent/'" >> "$T/$W/t.yml"; expect ok "reading the PR branch name in an if is fine" "Workflow denies OK"
+# Round 4: checkouts, pins, PR data, post steps, job settings, manager token guard, composite actions
+before() { python3 - "$T/$W/t.yml" "$1" <<'PYEOF'
+import sys; p, add = sys.argv[1], sys.argv[2]; s = open(p).read()
+s = s.replace("      - id: claude\n", add.replace("\\n", "\n") + "\n      - id: claude\n", 1); open(p, "w").write(s)
+PYEOF
+}
+t; before '      - uses: ./.github/actions/install-gitleaks'; expect ok "allow-listed local action before the claude step" "Workflow denies OK"
+t; sed -i 's|          persist-credentials: false|          persist-credentials: false\n          repository: evil/fork|' "$T/$W/t.yml"; expect fail "first checkout from another repository" "checkout input(s) repository not allowed"
+t; sed -i 's|          persist-credentials: false|          persist-credentials: false\n          token: x|' "$T/$W/t.yml"; expect fail "first checkout with a token" "checkout input(s) token not allowed"
+t; sed -i 's|      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|      - uses: actions/checkout@v6|' "$T/$W/t.yml"; expect fail "unpinned first checkout" "step 1: action must be pinned to a full commit SHA: actions/checkout@v6"
+t; before '      - uses: actions/setup-node@v4'; expect fail "unpinned action in a claude job" "action must be pinned to a full commit SHA: actions/setup-node@v4"
+t; before '      - run: echo hi\n        working-directory: /tmp'; expect fail "working-directory in a claude job" "'working-directory' not allowed"
+t; before '      - run: echo hi\n        shell: python'; expect fail "custom shell in a claude job" "'shell' not allowed"
+t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: /tmp/pr|' "$T/$W/t.yml"; expect fail "job defaults in a claude job" "'defaults' not allowed"
+t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: self-hosted|' "$T/$W/t.yml"; expect fail "self-hosted runner" "runs-on must be ubuntu-latest"
+t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    permissions: write-all|' "$T/$W/t.yml"; expect fail "write-all permissions" "permissions must be a mapping"
+t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    permissions:\n      packages: write|' "$T/$W/t.yml"; expect fail "unknown permission scope" "permission packages: write not allowed"
+for cmd in 'cd "/tmp/pr" \&\& make' 'pushd /tmp/pr' 'make -C /tmp/pr' 'yarn --cwd=/tmp/pr install' 'bash -c "$(cat /tmp/pr/x)"' 'source /tmp/pr/env.sh' 'gh pr checkout ${{ github.event.pull_request.head.ref }}'; do
+  t; before "      - run: $cmd"; expect fail "PR data in a run step: $cmd" "only the reviewed prepare step may touch /tmp/pr"
+done
+t; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"'; expect ok "the reviewed prepare step may use /tmp/pr" "Workflow denies OK"
+t; before '      - run: echo /tmp/pr-meta/log.txt'; expect ok "/tmp/pr-meta is not PR code" "Workflow denies OK"
+t; printf '      - run: bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect fail "post step without the pin check" "must check its pinned files"
+t; printf '      - env:\n          PINS: x\n        run: |\n          printf "%%s\\n" "$PINS" | sha256sum --check --strict --quiet\n          bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect ok "post step that checks its pins first" "Workflow denies OK"
+t; printf '      - run: /tmp/gitleaks detect\n' >> "$T/$W/t.yml"; expect fail "gitleaks after the claude step without the pin check" "must check its pinned files"
+t; sed -i 's|      - id: claude|      - id: claude\n        if: always()|' "$T/$W/t.yml"; expect fail "claude step running after a failure" "may not run after a failure"
+t; sed -i 's|      - id: claude|      - id: claude\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "claude step with continue-on-error" "key 'continue-on-error' not allowed"
+fresh; sed -i '/check-agent-token.sh/d' "$T/$W/agent-manager.yml"; sed -i '/Agents must run on their own GitHub token/d' "$T/$W/agent-manager.yml"; expect fail "manager without the founder-token guard" "needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step"
+fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$T/.github/actions/x/action.yml"; expect fail "unpinned action inside a composite action" ".github/actions/x/action.yml step 1: action must be pinned"
+fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ secrets.CLAUDE_TOKEN_BUILD }}\n      shell: bash\n' > "$T/.github/actions/x/action.yml"; expect fail "Claude credential inside a composite action" ".github/actions/x/action.yml step 1: Claude/Anthropic credential"
+fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: node20\n  main: index.js\n' > "$T/.github/actions/x/action.yml"; expect fail "non-composite local action" "not a composite action with steps"
+fresh; cp -r "$REPO/.github/actions" "$T/.github/"; expect ok "the real composite actions pass" "Workflow denies OK"
 # Claude never runs in a pull_request workflow
 t; sed -i 's|^on: workflow_dispatch|on:\n  pull_request:\n  workflow_dispatch:|' "$T/$W/t.yml"; expect fail "claude step in a pull_request workflow" "must not run on pull_request"
 t; sed -i 's|^on: workflow_dispatch|on: [push, pull_request]|' "$T/$W/t.yml"; expect fail "pull_request in a trigger list" "must not run on pull_request"

@@ -31,6 +31,16 @@ jobs:
         with:
           node-version: 20
       - run: corepack enable
+      - name: Write the repo history as plain files for the auditors (they read these instead of running git)
+        run: |
+          mkdir -p /tmp/audit-meta
+          git log --stat -n 300 > /tmp/audit-meta/log.txt
+          git ls-files > /tmp/audit-meta/files.txt
+      - uses: ./.github/actions/install-gitleaks
+      - id: pin
+        name: Pin the files the post step runs (checked again before it runs them)
+        run: |
+          { echo 'pins<<PINS_EOF'; sha256sum scripts/check-review-post.sh .gitleaks.toml /tmp/gitleaks; echo 'PINS_EOF'; } >> "$GITHUB_OUTPUT"
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -41,7 +51,8 @@ jobs:
           claude_args: |
             --model opus
             --max-turns 150
-            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git log:*),Bash(git ls-files:*),Bash(git show:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
+            --add-dir /tmp/audit-meta
+            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
             --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
       - name: Show blocked tool calls (names and commands only)
@@ -52,15 +63,15 @@ jobs:
           jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
                  | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
             "$EXEC_FILE" || true
-      - uses: ./.github/actions/install-gitleaks
-        if: always()
       - name: Post the report (secret-scanned) to the "Daily reports" issue
         if: always() && steps.claude.outputs.execution_file != ''
         env:
           GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS: ${{ steps.pin.outputs.pins }}
         run: |
           set -euo pipefail
+          printf '%s\n' "$PINS" | sha256sum --check --strict --quiet
           n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
           [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
           bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"

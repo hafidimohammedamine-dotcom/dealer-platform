@@ -42,6 +42,16 @@ lock_row_one() {
   lock_parse "$rows" || return 4
 }
 
+# lock_row_error <return code of lock_row_one> <name>: prints the one message for that code (the same in every guard).
+lock_row_error() {
+  case "$1" in
+    1) echo "third-party skill '$2' has no row in SKILLS-LOCK.md (no SKILLS-LOCK.md file)";;
+    2) echo "third-party skill '$2' has no row in SKILLS-LOCK.md";;
+    3) echo "skill '$2' has more than one row in SKILLS-LOCK.md";;
+    *) echo "SKILLS-LOCK.md row for '$2' must read '| $2 | owner/repo \`path\`, ... | <40-hex commit, lower case> | ...'";;
+  esac
+}
+
 # lock_rows <SKILLS-LOCK.md> <name>: prints every row whose first cell is exactly <name>.
 lock_rows() {
   awk -F'|' -v n="$2" 'NF>2 { c=$2; gsub(/[[:space:]]/,"",c); if (c==n) print }' "$1"

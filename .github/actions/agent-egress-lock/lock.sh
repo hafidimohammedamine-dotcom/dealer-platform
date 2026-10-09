@@ -33,16 +33,23 @@ curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/
 echo "$CLAUDE_CODE_SHA256  $DL" | sha256sum --check --quiet || die "Claude Code download does not match its pinned sha256"
 install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 "$BIN" --version | grep -q "^$CLAUDE_CODE_VERSION " || die "Claude Code $CLAUDE_CODE_VERSION not installed"
-echo "claude-path=$BIN" >> "$GITHUB_OUTPUT"
 { echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"; echo "DISABLE_AUTOUPDATER=1"; } >> "$GITHUB_ENV"
 
 # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream bubblewrap socat >/dev/null 2>&1 || {
-  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream bubblewrap socat >/dev/null; }
-# Claude Code's subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) needs bubblewrap; Ubuntu 24.04 restricts the
-# unprivileged user namespaces it uses unless this is off.
-[ ! -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] || sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
-UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' /run/systemd/resolve/resolv.conf 2>/dev/null || true)
+PKGS=(dnsmasq-base nginx libnginx-mod-stream bubblewrap socat)
+apt_install() { sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${PKGS[@]}" >/dev/null 2>&1; }
+apt_install || { sudo apt-get update -qq >/dev/null && apt_install; } || die "could not install ${PKGS[*]}"
+# Claude Code's subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) runs tools in bubblewrap, which needs user
+# namespaces. Ubuntu 24.04 restricts those through AppArmor; keep the restriction on for everything else and let only
+# /usr/bin/bwrap create them.
+USERNS="${AGENT_LOCK_TEST_USERNS:-/proc/sys/kernel/apparmor_restrict_unprivileged_userns}"   # tests use a temp file
+if [ -f "$USERNS" ]; then
+  sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=1
+  printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile agent-bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' \
+    | sudo tee /etc/apparmor.d/agent-bwrap >/dev/null
+  sudo apparmor_parser -r /etc/apparmor.d/agent-bwrap || die "could not load the AppArmor profile for bubblewrap"
+fi
+UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
 [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
 id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
 id www-data >/dev/null 2>&1 || die "no www-data user for nginx"
@@ -141,11 +148,18 @@ blocked http://registry.npmjs.org || bad "plain HTTP (port 80) reachable"
 if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolves"; fi
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
+bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
+if [ -f "$USERNS" ] && [ "$(cat "$USERNS")" != 1 ]; then
+  bad "unprivileged user namespaces are not restricted"
+fi
+FRONT=$(curl -sS --max-time 10 -H 'Host: example.com' https://registry.npmjs.org/ 2>/dev/null | head -c 2000 || true)
+if grep -qi 'Example Domain' <<<"$FRONT"; then bad "domain fronting through registry.npmjs.org reaches example.com"; fi
 [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
 if [ "$fail" != 0 ]; then
   echo "--- proxy log (last 20 lines) ---"; tail -n 20 /var/log/agent-nginx.log 2>/dev/null || true
   curl -sv -o /dev/null --max-time 15 https://api.github.com/zen 2>&1 | tail -n 15 || true
   die "self-test failed; see errors above"
 fi
+echo "claude-path=$BIN" >> "$GITHUB_OUTPUT"   # only now: a Claude step can find the binary only after the self-test passed
 echo "::notice::Known open routes (an attacker with their own credentials could use them): github.com / api.github.com (pushes, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/ci-guards.md."
 echo "Agent egress lock on: ${#NAMES[@]} allowed names, SNI proxy, sudo and Docker removed."

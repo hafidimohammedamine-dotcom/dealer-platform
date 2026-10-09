@@ -68,11 +68,7 @@ for name in "${!third[@]}"; do
   done
   [ "$lic" = 1 ] || err "third-party skill '$name' has no license file (UPSTREAM-LICENSE, plain, .md or .txt, non-empty, at the top of the folder; or upstream's own LICENSE)"
   rc=0; lock_row_one "$DIR/SKILLS-LOCK.md" "$name" || rc=$?
-  case $rc in
-    1|2) err "third-party skill '$name' has no row in SKILLS-LOCK.md"; continue;;
-    3) err "skill '$name' has more than one row in SKILLS-LOCK.md"; continue;;
-    4) err "SKILLS-LOCK.md row for '$name' must read '| $name | owner/repo \`path\`, ... | <40-hex commit, lower case> | ...'"; continue;;
-  esac
+  [ "$rc" = 0 ] || { err "$(lock_row_error "$rc" "$name")"; continue; }
   lock_sha=$LOCK_SHA
   notice_sha=$( [ -f "$DIR/$name/NOTICE.md" ] && grep -oE '\b[0-9a-f]{40}\b' "$DIR/$name/NOTICE.md" | head -n1 || true)
   [ -n "$notice_sha" ] || err "NOTICE.md for '$name' has no full 40-character commit"

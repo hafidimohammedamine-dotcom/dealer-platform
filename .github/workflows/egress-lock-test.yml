@@ -34,6 +34,8 @@ jobs:
         with:
           node-version: 20
       - name: Still locked in a later step; the agents' tools still work
+        env:
+          GH_TOKEN: ${{ github.token }}   # read-only job token, to prove git through gh's credential helper works (manager push path)
         run: |
           set -u
           fail=0
@@ -43,6 +45,8 @@ jobs:
           if sudo -n true 2>/dev/null; then echo "::error::sudo works"; fail=1; fi
           curl -fsS -o /dev/null --max-time 20 https://registry.npmjs.org/ || { echo "::error::npm registry not reachable"; fail=1; }
           (cd "$(mktemp -d)" && corepack yarn@4.18.1 --version) || { echo "::error::corepack/yarn download failed"; fail=1; }
+          { gh auth setup-git && git ls-remote origin HEAD >/dev/null; } || { echo "::error::git through gh auth setup-git failed"; fail=1; }
+          bwrap --unshare-pid --ro-bind / / true || { echo "::error::bubblewrap does not start"; fail=1; }
           exit "$fail"
   break-on-purpose:
     runs-on: ubuntu-latest

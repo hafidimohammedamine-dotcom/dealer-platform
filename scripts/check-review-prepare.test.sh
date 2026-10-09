@@ -31,6 +31,18 @@ out=$(bash "$SCRIPT" 7 "$W/pr" 2>&1); rc=$?
 [ $rc != 0 ] && grep -qF "already exists" <<<"$out" && ok "refuses an existing destination" || bad "existing destination" "$out"
 out=$(bash "$SCRIPT" "7;rm" "$W/pr2" 2>&1); rc=$?
 [ $rc != 0 ] && grep -qF "bad PR number" <<<"$out" && ok "rejects a non-numeric PR number" || bad "non-numeric PR" "$out"
+out=$(bash "$SCRIPT" 7 "$W/pm" main 2>&1); rc=$?
+[ $rc = 0 ] && grep -qF "history written to $W/pm-meta" <<<"$out" && ok "writes the history files with a base ref" || bad "history files" "$out"
+grep -qx "A	src/b.ts" "$W/pm-meta/files.txt" 2>/dev/null && grep -q '^+new' "$W/pm-meta/diff.patch" && grep -q ' pr$' "$W/pm-meta/log.txt" \
+  && grep -q '^+evil' "$W/pm-meta/log-patch.txt" && grep -q 'b.ts' "$W/pm-meta/diff-stat.txt" && ok "history files hold the diff, files, log and patches" || bad "history content" "$(ls -la "$W/pm-meta" 2>&1)"
+out=$(bash "$SCRIPT" 7 "$W/pm" main 2>&1); rc=$?
+[ $rc != 0 ] && grep -qF "already exists" <<<"$out" && ok "refuses an existing destination (with meta)" || bad "existing meta" "$out"
+rm -rf "$W/pm"; git -C "$W/base" worktree prune; out=$(bash "$SCRIPT" 7 "$W/pm" main 2>&1); rc=$?
+[ $rc != 0 ] && grep -qF "$W/pm-meta already exists" <<<"$out" && ok "refuses an existing meta folder" || bad "existing meta folder" "$out"
+out=$(bash "$SCRIPT" 7 "$W/pn" 'main;rm' 2>&1); rc=$?
+[ $rc != 0 ] && grep -qF "bad base ref" <<<"$out" && ok "rejects a bad base ref" || bad "bad base ref" "$out"
+out=$(bash "$SCRIPT" 7 "$W/pq" nosuchbranch 2>&1); rc=$?
+[ $rc != 0 ] && grep -qF "base ref not found" <<<"$out" && ok "missing base ref fails" || bad "missing base ref" "$out"
 out=$(bash "$SCRIPT" 99 "$W/pr3" 2>&1); rc=$?
 [ $rc != 0 ] && [ ! -d "$W/pr3" ] && ok "missing PR ref fails" || bad "missing PR ref" "$out"
 echo "$pass passed, $failed failed"

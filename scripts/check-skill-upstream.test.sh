@@ -73,7 +73,11 @@ fresh; printf 'keep\nYou must never do this\n' > "$U/ref/W.md"; printf 'keep\n' 
 fresh; printf 'intro\n```ts\nconst a = 1\nconst b = 2\n```\nend\n' > "$U/ref/C.md"; printf 'intro\n```ts\nconst a = 1\n```\nend\n' > "$O/ref/C.md"; rec; expect fail "part of a code block removed" "upstream line 4: removed line is part of a code block"
 fresh; printf 'intro\n```ts\nconst a = 1\n```\nend\n' > "$U/ref/C.md"; printf 'intro\nend\n' > "$O/ref/C.md"; rec; expect ok "whole code block removed" "deletions only"
 fresh; printf 'intro\n```ts\nconst a = 1\n```\nend\n' > "$U/ref/C.md"; printf 'intro\nconst a = 1\nend\n' > "$O/ref/C.md"; rec; expect fail "only the fences removed" "removed line is part of a code block"
-fresh; rm "$U/ref/PLUG.md"; printf 'Never run this\n' > "$U/ref/PLUG.md"; rec; expect ok "whole file with warning words removed" "deletions only"
+fresh; printf 'Never run this\n' > "$U/ref/PLUG.md"; rec; expect fail "whole Markdown file with a warning word removed, not reviewed" "add 'ref/PLUG.md:0' to the reviewed list"
+fresh; printf 'Never run this\n' > "$U/ref/PLUG.md"; rec; printf 'ref/PLUG.md:0\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect ok "reviewed whole-file deletion is allowed and logged" "REVIEWED ref/PLUG.md:0"
+fresh; printf 'never run this\n' > "$U/ref/run.sh"; rec; expect ok "whole non-Markdown file removed (no review needed)" "deletions only (2 upstream file(s) removed)"
+fresh; printf 'ref/PLUG.md:0\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect fail "stale whole-file entry (file has no warning word)" "stale entry in demo.reviewed (no matching deletion): ref/PLUG.md:0"
+fresh; printf 'Never run this\n' > "$U/ref/PLUG.md"; cp "$U/ref/PLUG.md" "$O/ref/"; rec; printf 'ref/PLUG.md:0\n' > "$W/repo/.claude/skills-patches/demo.reviewed"; expect fail "stale whole-file entry (file kept)" "stale entry in demo.reviewed (no matching deletion): ref/PLUG.md:0"
 # Whole units only (scripts/check-skill-deletions.py)
 u() { printf "$1" > "$U/ref/M.md"; printf "$2" > "$O/ref/M.md"; rec; }
 fresh; u '# T\nintro\n## A\na1\n### A1\nsub\n## B\nb\n' '# T\nintro\n### A1\nsub\n## B\nb\n'; expect ok "a heading's own body removed, subsection kept" "deletions only"

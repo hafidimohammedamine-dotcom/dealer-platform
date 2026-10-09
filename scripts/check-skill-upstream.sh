@@ -10,7 +10,8 @@
 #     whole): a whole file, a heading's whole body, a whole fenced
 #     code block, or a single table row / list item without a warning or rule word. Partial prose or code fails. A removed
 #     section or block that contains a warning or rule word must be listed in .claude/skills-patches/<name>.reviewed
-#     ("<file>:<upstream line>", after a founder review); every listed entry must match a deletion.
+#     ("<file>:<upstream line>", after a founder review); so must a whole deleted Markdown file with such a word
+#     ("<file>:0"). Every listed entry must match a deletion.
 #  4. The record .claude/skills-patches/<skill-name>.diff equals today's `diff -ru` of upstream and ours (EXTRA files left
 #     out; `diff` command lines and header timestamps ignored), so the record cannot drift.
 set -euo pipefail
@@ -59,15 +60,22 @@ while IFS= read -r -d '' f; do
   used+=$(sed -n 's/^REVIEWED \([^ ]*\) .*/\1/p' <<<"$out")$'\n'
   [ "$rc" = 0 ] || { err "deletions in $rel are not whole units:"; grep -v '^REVIEWED ' <<<"$out" | head -5; }
 done < <(find "$OURS" -type f -print0)
+deleted=0
+while IFS= read -r -d '' f; do   # whole Markdown files deleted: one with a warning or rule word needs "<file>:0" reviewed
+  rel=${f#"$UP/"}; [ -f "$OURS/$rel" ] && continue
+  deleted=$((deleted+1))
+  case "$rel" in *.md) ;; *) continue;; esac
+  rv=(); [ -f "$REVIEWED" ] && rv=(--reviewed "$REVIEWED")
+  rc=0; out=$(python3 -I "$HERE/check-skill-deletions.py" "$f" --label "$rel" "${rv[@]}" --whole-file </dev/null 2>&1) || rc=$?
+  grep '^REVIEWED ' <<<"$out" || true
+  used+=$(sed -n 's/^REVIEWED \([^ ]*\) .*/\1/p' <<<"$out")$'\n'
+  [ "$rc" = 0 ] || { err "deleted file $rel needs a review:"; grep -v '^REVIEWED ' <<<"$out" | head -3; }
+done < <(find "$UP" -type f -print0)
 if [ -f "$REVIEWED" ]; then   # every reviewed entry must still match a deletion (no stale approvals)
   while IFS= read -r e; do
     grep -qxF -- "$e" <<<"$used" || err "stale entry in $NAME.reviewed (no matching deletion): $e"
   done < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$REVIEWED" | sed '/^$/d')
 fi
-deleted=0
-while IFS= read -r -d '' f; do
-  rel=${f#"$UP/"}; [ -f "$OURS/$rel" ] || deleted=$((deleted+1))
-done < <(find "$UP" -type f -print0)
 [ "$fail" = 0 ] || exit 1
 
 # The recorded patch must be exactly today's diff (deletions only, so it has no added lines either).

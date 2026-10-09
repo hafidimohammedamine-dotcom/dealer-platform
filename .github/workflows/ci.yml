@@ -22,21 +22,12 @@ jobs:
       - name: Secret scan of all history (pushes to main)
         if: github.event_name == 'push'
         run: /tmp/gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose
-      - name: Guard script tests
+      - name: Guard script tests and coverage (every guard script at least 90%)
+        env:
+          GITLEAKS: /tmp/gitleaks
         run: |
-          bash scripts/check-founder-files.test.sh
-          bash scripts/check-skills.test.sh
-          bash scripts/check-skill-upstream.test.sh
-          bash scripts/check-skill-deletions.test.sh
-          bash scripts/check-skills-upstream-all.test.sh
-          bash scripts/check-skills-vs-base.test.sh
           bash scripts/check-workflows.sh
-          bash scripts/check-workflows.test.sh
-          bash scripts/check-egress-lock.test.sh
-          bash scripts/check-review-prepare.test.sh
-          bash scripts/check-pr-ci-status.test.sh
-          bash scripts/check-review-post.test.sh
-          GITLEAKS=/tmp/gitleaks bash scripts/gitleaks-config.test.sh
+          bash scripts/check-coverage.sh 90
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: hashFiles('package.json') != ''
         with:
