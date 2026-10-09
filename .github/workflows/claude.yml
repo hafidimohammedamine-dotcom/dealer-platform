@@ -1,4 +1,6 @@
-# Founders can mention @claude in any issue or PR comment to ask questions or give an extra instruction.
+# Founders can mention @claude in an issue or PR comment to ask a question about the code or a PR.
+# Read-only answers: Claude can read the repo and the thread and reply in the thread; it cannot change code.
+# For code changes, founders open an issue for the agents or work in their own session. Founder-owned file.
 name: Claude on mention
 on:
   issue_comment:
@@ -8,19 +10,25 @@ on:
 
 jobs:
   claude:
-    if: contains(github.event.comment.body, '@claude')
+    # Only comments written by a founder (see .github/founders.txt) start a run.
+    if: contains(github.event.comment.body, '@claude') && github.event.comment.user.login == 'hafidimohammedamine-dotcom'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
-      id-token: write
-      actions: read
+      id-token: write          # claude-code-action signs in with GitHub OIDC for its comment token in this mode
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
-      - uses: anthropics/claude-code-action@v1
+          persist-credentials: false
+      - uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
+          claude_args: |
+            --model sonnet
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,TodoWrite,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*)"
+            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"

@@ -3,6 +3,9 @@ name: daily-report
 description: Write the founders' daily report - what merged, what's ready to merge, what's blocked, what the agents are working on, failures and risks - and post it to the Daily reports issue. Runs every morning from GitHub Actions.
 ---
 
+**This job runs with a short command allow-list:** one command per Bash call (no pipes, `&&`, `;` or redirection), no web access, no file edits, and you can't post anything: your **final message** is the report, which a fixed
+workflow step scans for secrets and posts on the "Daily reports" issue.
+
 Write the daily report for the two founders. Plain English, short, no jargon. Read `CLAUDE.md` first.
 
 ## Gather (last 24 hours)
@@ -15,8 +18,8 @@ Write the daily report for the two founders. Plain English, short, no jargon. Re
 - Manager log comments from the last 24 hours
 - Open security issues: `gh issue list --label area:security`
 
-## Post
-Comment on the open issue titled **"Daily reports"** (create it if missing). Format:
+## Final message (the report)
+Format:
 ```
 DAILY REPORT - <date>
 

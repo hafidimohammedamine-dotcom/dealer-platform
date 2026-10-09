@@ -1,0 +1,74 @@
+# Review team, base-defined: pull_request_target always runs THIS file, CLAUDE.md, .claude/ and the review skill from
+# the base branch. The PR is fetched as data into /tmp/pr (outside the project, rule files removed) and never built or
+# run - CI runs the tests. Claude only reads and answers; a fixed step below scans its answer for secrets, posts it and
+# sets labels. Uses Founder 2's Claude subscription. Founder-owned file.
+name: Agent - Review team
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+concurrency:
+  group: agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: write    # used only by the fixed "Post the result" step
+      issues: write
+      actions: read
+    env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out the base branch (rules, agents, skills)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch the PR as data into /tmp/pr
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
+      - name: Wait for CI and guards on the PR head (max 30 min)
+        id: status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "result=$(bash scripts/check-pr-ci-status.sh "$PR_NUMBER" "$HEAD_SHA" 1800 30)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/install-gitleaks
+      - name: Review (read-only)
+        id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          github_token: ${{ github.token }}
+          prompt: "/review-pr ${{ github.event.pull_request.number }} ${{ steps.status.outputs.result }}"
+          claude_args: |
+            --model sonnet
+            --max-turns 120
+            --add-dir /tmp/pr
+            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git -C /tmp/pr diff:*),Bash(git -C /tmp/pr log:*),Bash(git -C /tmp/pr show:*),Bash(git -C /tmp/pr ls-files:*),Bash(git -C /tmp/pr ls-tree:*),Bash(git -C /tmp/pr grep:*),Bash(git -C /tmp/pr status:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(find /tmp/pr:*),Bash(gh pr view:*),Bash(gh issue view:*)"
+            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+      - name: Show blocked tool calls (names and commands only)
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
+                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
+            "$EXEC_FILE" || true
+      - name: Post the result (secret-scanned) and set labels
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: bash scripts/check-review-post.sh pr "$PR_NUMBER" "$EXEC_FILE"

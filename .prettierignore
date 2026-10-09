@@ -5,6 +5,6 @@ coverage
 yarn.lock
 CLAUDE.md
 .claude
-.github/workflows/agent-*
 SETUP.md
-.github/ISSUE_TEMPLATE
+# Founder-only files (formatted by founders, never by agents)
+.github

@@ -9,3 +9,5 @@ coverage/
 !.yarn/releases
 !.yarn/plugins
 *.tsbuildinfo
+# Builder worktrees used by the manager
+.worktrees/
