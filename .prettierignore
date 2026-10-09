@@ -1,0 +1,8 @@
+.yarn
+.nx
+dist
+coverage
+yarn.lock
+CLAUDE.md
+.claude
+.github/workflows/agent-*
