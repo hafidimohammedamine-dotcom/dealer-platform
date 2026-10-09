@@ -1,6 +1,9 @@
 # Every folder in .claude/skills must be listed here: "<name> <ours|third-party>".
-# Third-party skills also need a NOTICE.md and a row in SKILLS-LOCK.md (enforced by scripts/check-skills.sh).
+# Optional: requires=<skill> (agents must load both). Third-party skills also need NOTICE.md, a license file and a SKILLS-LOCK.md
+# row with the same commit (all enforced by scripts/check-skills.sh).
 manager ours
 review-pr ours
 daily-report ours
 weekly-audit ours
+payload third-party requires=payload-dealer-overrides
+payload-dealer-overrides ours

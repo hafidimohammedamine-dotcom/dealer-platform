@@ -57,7 +57,7 @@ jobs:
             --max-turns 120
             --add-dir /tmp/pr
             --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git -C /tmp/pr diff:*),Bash(git -C /tmp/pr log:*),Bash(git -C /tmp/pr show:*),Bash(git -C /tmp/pr ls-files:*),Bash(git -C /tmp/pr ls-tree:*),Bash(git -C /tmp/pr grep:*),Bash(git -C /tmp/pr status:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(find /tmp/pr:*),Bash(gh pr view:*),Bash(gh issue view:*)"
-            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
       - name: Show blocked tool calls (names and commands only)
         if: always() && steps.claude.outputs.execution_file != ''
         env:
