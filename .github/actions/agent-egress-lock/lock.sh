@@ -15,11 +15,14 @@ die() { echo "::error::agent egress lock: $*"; exit 1; }
 [[ "${CLAUDE_CODE_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad CLAUDE_CODE_SHA256"
 
 # --- Allowed names (founder-owned list; no extras from workflows) ---------------------------------------------------------
+APPROVED_SUFFIXES=".actions.githubusercontent.com"
 mapfile -t NAMES < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$HERE/allow-domains.txt" | sed '/^$/d')
 [ "${#NAMES[@]}" -gt 0 ] || die "empty allow-list"
 for d in "${NAMES[@]}"; do
   [[ "$d" =~ ^\.?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "not a plain host name: '$d'"
-  [[ "$d" != .* ]] || [ "$(tr -cd . <<<"$d" | wc -c)" -ge 3 ] || die "suffix entry too broad (needs 3+ labels): '$d'"
+  if [[ "$d" == .* ]]; then   # subdomain wildcards only where GitHub uses many generated names
+    case " $APPROVED_SUFFIXES " in *" $d "*) ;; *) die "suffix entry not approved: '$d' (approved: $APPROVED_SUFFIXES)";; esac
+  fi
 done
 
 # --- 1. Install the pinned Claude Code binary, checked against its pinned sha256 (from Anthropic's release manifest) ------
@@ -33,8 +36,11 @@ echo "claude-path=$BIN" >> "$GITHUB_OUTPUT"
 { echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"; echo "DISABLE_AUTOUPDATER=1"; } >> "$GITHUB_ENV"
 
 # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream >/dev/null 2>&1 || {
-  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream >/dev/null; }
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream bubblewrap socat >/dev/null 2>&1 || {
+  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dnsmasq-base nginx libnginx-mod-stream bubblewrap socat >/dev/null; }
+# Claude Code's subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) needs bubblewrap; Ubuntu 24.04 restricts the
+# unprivileged user namespaces it uses unless this is off.
+[ ! -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] || sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
 UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' /run/systemd/resolve/resolv.conf 2>/dev/null || true)
 [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
 id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
@@ -111,12 +117,13 @@ sudo -k || true
 fail=0; bad() { echo "::error::agent egress lock self-test: $*"; fail=1; }
 blocked() { ! curl -sS -o /dev/null --max-time 8 "$@" 2>/dev/null; }
 if sudo -n true 2>/dev/null; then bad "sudo still works"; fi
-if [ -S /var/run/docker.sock ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
+DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point this at a temp path
+if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
 curl -fsS -o /dev/null --max-time 20 https://api.github.com/zen || bad "allowed host api.github.com not reachable"
 blocked https://example.com || bad "blocked host example.com reachable"
 blocked https://gist.github.com || bad "gist.github.com reachable"
 blocked https://uploads.github.com || bad "uploads.github.com reachable"
-NPM_IP=$(getent ahostsv4 registry.npmjs.org | awk 'NR==1{print $1}')
+NPM_IP=$(getent ahostsv4 registry.npmjs.org 2>/dev/null | awk 'NR==1{print $1}' || true)
 [ -n "$NPM_IP" ] || bad "DNS for an allowed name does not resolve"
 blocked --resolve "example.com:443:$NPM_IP" https://example.com || bad "allowed IP reachable under another name (SNI)"
 blocked -k "https://$NPM_IP" || bad "raw IP without a name reachable"

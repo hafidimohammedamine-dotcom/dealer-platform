@@ -23,13 +23,15 @@ Failure handling: `docs/runbooks/ci-guards.md`.
 - `scripts/check-skills.sh`: skill manifest, checksums, license, NOTICE and lock rows, and agent `skills:` lines (an agent that
   preloads a skill with `requires=<other>` must also list `<other>`).
 - `scripts/check-skills-vs-base.sh`: vendored (third-party) skills keep their kind and source repo compared with `main`.
-- `scripts/check-skills-upstream-all.sh`: each third-party skill equals its locked upstream commit minus whole units only, and its
-  `.claude/skills-patches/<name>.diff` record matches.
-- `scripts/check-workflows.sh`: Claude runs only through the pinned claude-code-action, after the agent network lock, with known
-  flags and a deny list that blocks loading any vendored skill on its own; Claude credentials reach no other step.
+- `scripts/check-skills-upstream-all.sh`: each third-party skill equals its locked upstream commit minus whole units only
+  (founder-reviewed when a removed unit holds a warning), and its `.claude/skills-patches/<name>.diff` record matches.
+- `scripts/check-workflows.sh`: Claude runs only through the pinned claude-code-action, on `main`'s code, after the agent network
+  lock, with known flags and a deny list that blocks loading any vendored skill on its own; Claude credentials reach no other
+  step; no workflow with a claude step runs on `pull_request`.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them.
 
 ### Agent network lock
-Agent jobs (manager, review, daily report, weekly audit, founder mentions) start with `.github/actions/agent-egress-lock`:
-outbound network only to an allow-list (GitHub, Anthropic API, npm/Yarn registries, the runner's log storage), no IPv6, no sudo,
-no Docker. Details and limits: `docs/runbooks/ci-guards.md`, "Agent network lock".
+Agent jobs (manager, review, daily report, weekly audit, founder mentions) check out `main` and then run
+`.github/actions/agent-egress-lock`: pinned, checksum-verified Claude Code; outbound HTTPS only to allow-listed host names
+through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. It narrows the routes out
+but is not a complete data boundary. Details and limits: `docs/runbooks/ci-guards.md`, "Agent network lock".

@@ -28,14 +28,17 @@ jobs:
           gh api zen 2>&1 | head -1 || true
           curl -sS -o /dev/null -w 'anthropic %{http_code}\n' https://api.anthropic.com/ || true
           sudo cat /var/log/agent-nginx.log 2>/dev/null | tail -5 || true
-      - name: Claude under the lock
+      - name: Claude under the lock with subprocess scrub
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
           CLAUDE: ${{ steps.lock.outputs.claude-path }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd "$(mktemp -d)"
-          "$CLAUDE" -p "Reply with EGRESS-OK" --model haiku --max-turns 2 --output-format json < /dev/null > out.json 2> err.txt || true
-          python3 -c 'import json; d=json.load(open("out.json")); print("RESULT:", d.get("result"))' || { cat out.json; cat err.txt; }
+          "$CLAUDE" -p "Run each Bash command separately and report each output in one line: (1) gh api zen  (2) env | cut -d= -f1 | grep -cE 'CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY'  (3) env | cut -d= -f1 | grep -c GH_TOKEN  (4) cd \$(mktemp -d) && corepack yarn@4.18.1 --version  (5) touch \$GITHUB_WORKSPACE/x && echo wrote-workspace" \
+            --model haiku --max-turns 8 --allowedTools Bash --output-format json < /dev/null > out.json 2> err.txt || true
+          python3 -c 'import json; d=json.load(open("out.json")); print("RESULT:", d.get("result"))' || { cat out.json; tail -20 err.txt; }
   broken:
     runs-on: ubuntu-latest
     timeout-minutes: 10

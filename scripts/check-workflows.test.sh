@@ -34,6 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          persist-credentials: false
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - id: claude
@@ -94,7 +97,7 @@ fresh; sed -i 's|allowed_bots: github-actions|allowed_bots: "*"|' "$T/$W/agent-m
 t; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\n          claude_args: "--model haiku"|' "$T/$W/t.yml"; expect fail "duplicate claude_args key" "duplicate key"
 t; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, then ./.github/actions/agent-egress-lock"
 t; sed -i 's|      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|      - run: echo first\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|' "$T/$W/t.yml"; expect fail "a step before checkout" "must start with actions/checkout"
-t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "lock that may fail silently" "may not have 'if' or 'continue-on-error'"
+t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "lock that may fail silently" "may only have id/uses/name (found continue-on-error)"
 t; sed -i 's|      - id: lock|      -|' "$T/$W/t.yml";        expect fail "lock without an id" "needs an id"
 t; sed -i '/path_to_claude_code_executable/d' "$T/$W/t.yml"; expect fail "claude step not using the pre-installed Claude" "path_to_claude_code_executable must be"
 t; sed -i 's|steps.lock.outputs.claude-path|steps.other.outputs.claude-path|' "$T/$W/t.yml"; expect fail "path from another step" "path_to_claude_code_executable must be"
@@ -108,13 +111,13 @@ done
 t; printf '      - uses: someone/claude-code-runner@v1\n' >> "$T/$W/t.yml"; expect fail "another claude-code action" "claude action must be one of"
 # Claude credentials go nowhere else
 for v in '${{ secrets.CLAUDE_TOKEN_BUILD }}' "\${{ secrets['CLAUDE_TOKEN_BUILD'] }}" '${{ toJSON(secrets) }}' '${{ secrets.anthropic_key }}'; do
-  t; printf '      - run: echo hi\n        env:\n          X: %s\n' "$v" >> "$T/$W/t.yml"; expect fail "credential in another step: $v" "credential outside a claude step"
+  t; printf '      - run: echo hi\n        env:\n          X: %s\n' "$v" >> "$T/$W/t.yml"; expect fail "credential in another step: $v" "outside a claude step's claude_code_oauth_token"
 done
-t; printf '      - uses: actions/github-script@v7\n        with:\n          script: x\n          github-token: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n' >> "$T/$W/t.yml"; expect fail "credential passed to another action" "credential outside"
+t; printf '      - uses: actions/github-script@v7\n        with:\n          script: x\n          github-token: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n' >> "$T/$W/t.yml"; expect fail "credential passed to another action" "secrets.CLAUDE_TOKEN_BUILD outside"
 t; sed -i 's|^jobs:|env:\n  CLAUDE_CODE_OAUTH_TOKEN: x\njobs:|' "$T/$W/t.yml"; expect fail "workflow-level credential env" "t.yml env: Claude/Anthropic credential"
 t; printf '  b:\n    runs-on: ubuntu-latest\n    env:\n      K: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n    steps:\n      - run: echo hi\n' >> "$T/$W/t.yml"; expect fail "credential in a later job's env" "t.yml job b env: Claude/Anthropic credential"
-t; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTHROPIC_API_KEY: x|' "$T/$W/t.yml"; expect fail "credential in the claude step's env" "credential in the claude step's env"
-t; sed -i 's|prompt: "Do the task."|prompt: "${{ toJSON(secrets) }}"|' "$T/$W/t.yml"; expect fail "credential in the prompt" "credential in input 'prompt'"
+t; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTHROPIC_API_KEY: x|' "$T/$W/t.yml"; expect fail "credential in the claude step's env" "in the claude step's env"
+t; sed -i 's|prompt: "Do the task."|prompt: "${{ toJSON(secrets) }}"|' "$T/$W/t.yml"; expect fail "credential in the prompt" "in input 'prompt'"
 # Actions and jobs
 t; printf '      - uses: "./.github/actions/evil"\n' >> "$T/$W/t.yml"; expect fail "quoted local action not on the allow-list" "local action not on the allow-list: ./.github/actions/evil"
 t; printf '      - uses: ./.github/actions/install-gitleaks\n' >> "$T/$W/t.yml"; expect ok "allow-listed local action" "Workflow denies OK"
@@ -137,5 +140,47 @@ fresh; sed -i 's|anthropics/claude-code-action@[0-9a-f]*|actions/checkout@d23441
 fresh; rm -f "$T/$W"/*;                                 expect fail "empty workflows folder" "no workflow files in"
 fresh; rm -rf "$T/$W";                                  expect fail "missing workflows folder" "no workflows folder"
 fresh;                                                  expect fail "unknown argument" "bad argument" --bogus
+# secrets only as secrets.<NAME>
+for v in "\${{ secrets[format('{0}_TOKEN_BUILD','CLAUDE')] }}" '${{ secrets[env.X] }}' '${{ secrets }}' '${{ join(secrets) }}'; do
+  t; printf '      - run: echo hi\n        env:\n          X: %s\n' "$v" >> "$T/$W/t.yml"; expect fail "dynamic secrets use: $v" "secrets used other than as secrets.<NAME>"
+done
+t; printf '      - run: echo hi\n        env:\n          X: ${{ secrets.OTHER_TOKEN }}\n' >> "$T/$W/t.yml"; expect ok "a non-Claude secret by name is fine" "Workflow denies OK"
+t; sed -i 's|^jobs:|permissions: "${{ secrets.CLAUDE_TOKEN_BUILD }}"\njobs:|' "$T/$W/t.yml"; expect fail "credential in workflow-level permissions" "t.yml permissions: Claude/Anthropic credential"
+# The pre-installed binary may only run through the action
+for cmd in '${{ steps.lock.outputs.claude-path }} -p hi' '$HOME/.local/bin/claude -p hi'; do
+  t; printf '      - run: %s\n' "$cmd" >> "$T/$W/t.yml"; expect fail "pre-installed Claude in a run step: $cmd" "runs Claude outside the pinned claude-code-action"
+done
+t; printf '      - run: echo hi\n        env:\n          B: ${{ steps.lock.outputs.claude-path }}\n' >> "$T/$W/t.yml"; expect ok "binary path in env alone does not run it" "Workflow denies OK"
+t; printf '      - uses: anthropics/other-action@v1\n' >> "$T/$W/t.yml"; expect fail "another anthropic action" "runs Claude outside the pinned claude-code-action (anthropics/other-action@v1)"
+t; printf '      - uses: org/repo/.github/workflows/w.yml@v1\n' >> "$T/$W/t.yml"; expect fail "reusable workflow as a step" "not allowed: org/repo/.github/workflows/w.yml@v1"
+# The checkout before the lock
+t; sed -i '/          ref: main/d' "$T/$W/t.yml";             expect fail "checkout without an explicit ref" "needs an explicit ref of the default branch"
+t; sed -i 's|          ref: main|          ref: ${{ github.event.pull_request.head.sha }}|' "$T/$W/t.yml"; expect fail "checkout of the PR head" "needs an explicit ref"
+t; sed -i 's|          ref: main|          ref: ${{ github.base_ref }}|' "$T/$W/t.yml"; expect fail "base_ref outside pull_request_target" "needs an explicit ref"
+t; sed -i 's|          ref: main|          ref: ${{ github.base_ref }}|; s|^on: workflow_dispatch|on: pull_request_target|' "$T/$W/t.yml"; expect ok "base_ref in a pull_request_target workflow" "Workflow denies OK"
+t; sed -i 's|          ref: main|          ref: ${{ github.event.repository.default_branch }}|' "$T/$W/t.yml"; expect ok "default-branch expression" "Workflow denies OK"
+t; sed -i '/          persist-credentials: false/d' "$T/$W/t.yml"; expect fail "checkout keeping credentials" "needs persist-credentials: false"
+t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        with:\n          extra-domains: blob.core.windows.net|' "$T/$W/t.yml"; expect fail "lock step with inputs" "may only have id/uses/name (found with)"
+t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        env:\n          AGENT_LOCK_SELFTEST_BREAK: "0"|' "$T/$W/t.yml"; expect fail "lock step with env" "(found env)"
+t; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        if: false|' "$T/$W/t.yml"; expect fail "lock step with if" "(found if)"
+t; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    env:\n      AGENT_LOCK_TEST_DOCKER_SOCK: /x|' "$T/$W/t.yml"; expect fail "lock test hook in a claude job" "AGENT_LOCK_* variables (lock test hooks) are not allowed in a job"
+t; sed -i 's|^jobs:|env:\n  AGENT_LOCK_SELFTEST_BREAK: "1"\njobs:|' "$T/$W/t.yml"; expect fail "lock test hook at workflow level" "not allowed at workflow level"
+# Claude never runs in a pull_request workflow
+t; sed -i 's|^on: workflow_dispatch|on:\n  pull_request:\n  workflow_dispatch:|' "$T/$W/t.yml"; expect fail "claude step in a pull_request workflow" "must not run on pull_request"
+t; sed -i 's|^on: workflow_dispatch|on: [push, pull_request]|' "$T/$W/t.yml"; expect fail "pull_request in a trigger list" "must not run on pull_request"
+# Malformed workflows
+t; sed -i 's|^          claude_code_oauth_token: .*|XX|' "$T/$W/t.yml"; sed -i '/^XX$/,/^      - name: After/{/^      - name: After/!d}' "$T/$W/t.yml"; sed -i 's|^        with:$|        with: just-a-string|' "$T/$W/t.yml"; sed -i '0,/        with: just-a-string/s||        with:|' "$T/$W/t.yml"
+                                                        expect fail "claude 'with' not a mapping" "'with' must be a mapping"
+fresh; printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps: "x"\n' > "$T/$W/s.yml"; expect fail "steps not a list" "steps must be a list"
+fresh; printf 'name: y\non: push\njobs:\n  a: "x"\n' > "$T/$W/s.yml"; expect fail "job not a mapping" "s.yml job a: not a mapping"
+fresh; printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - "echo"\n' > "$T/$W/s.yml"; expect fail "step not a mapping" "s.yml job a step 1: not a mapping"
+fresh; printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    services:\n      db: {image: postgres}\n    steps:\n      - run: echo\n' > "$T/$W/s.yml"; expect fail "services job" "'services' not allowed"
+fresh; printf -- '- a\n- b\n' > "$T/$W/s.yml";              expect fail "top level not a mapping" "s.yml: no jobs mapping"
+# Arguments
+fresh;                                                  expect fail "--manifest without a value" "--manifest needs a file" --manifest
+fresh;                                                  expect fail "explicit --manifest that does not exist" "manifest not found" --manifest /nonexistent/manifest.txt
+fresh;                                                  expect fail "two root arguments" "bad argument" "$REPO"
+fresh; out=$(python3 -I -S "$PY" "$T" 2>&1); rc=$?
+if [ $rc != 0 ] && grep -q "PyYAML is required" <<<"$out"; then pass=$((pass+1)); echo "PASS  fails closed without PyYAML"; else failed=$((failed+1)); echo "FAIL  without PyYAML"; echo "$out"; fi; rm -rf "$T"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

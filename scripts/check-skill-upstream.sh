@@ -7,18 +7,24 @@
 #  2. Every file in ours exists upstream and adds no line to it (deletions only). The only files ours may add are the
 #     top-level names in EXTRA below (at most one UPSTREAM-LICENSE*).
 #  3. Deletions are whole units only (scripts/check-skill-deletions.py): a whole file, a heading's whole body, a whole fenced
-#     code block, or a single table row / list item without a warning or rule word. Partial prose or code fails.
+#     code block, or a single table row / list item without a warning or rule word. Partial prose or code fails. A removed
+#     section or block that contains a warning or rule word must be listed in .claude/skills-patches/<name>.reviewed
+#     ("<file>:<upstream line>", after a founder review); every listed entry must match a deletion.
 #  4. The record .claude/skills-patches/<skill-name>.diff equals today's `diff -ru` of upstream and ours (EXTRA files left
 #     out; `diff` command lines and header timestamps ignored), so the record cannot drift.
 set -euo pipefail
 EXTRA=(NOTICE.md UPSTREAM-LICENSE UPSTREAM-LICENSE.md UPSTREAM-LICENSE.txt)
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/check-skills-lib.sh
+. "$HERE/check-skills-lib.sh"
 UP="${1:?upstream skill dir}"; NAME="${2:?skill name}"; ROOT="${3:-$(cd "$(dirname "$0")/.." && pwd)}"
-[[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "ERROR: bad skill name"; exit 1; }
+valid_skill_name "$NAME" || { echo "ERROR: bad skill name"; exit 1; }
 [ -d "$UP" ] || { echo "ERROR: upstream dir not found: $UP"; exit 1; }
 OURS="$ROOT/.claude/skills/$NAME"
 [ -d "$OURS" ] || { echo "ERROR: no skill folder $OURS"; exit 1; }
 fail=0; err() { echo "ERROR: $*"; fail=1; }
+REVIEWED="$ROOT/.claude/skills-patches/$NAME.reviewed"   # founder-reviewed deletions of sections/blocks with warning words
+used=""
 is_extra() { local x; for x in "${EXTRA[@]}"; do [ "$1" = "$x" ] && return 0; done; return 1; }
 
 for d in "$UP" "$OURS"; do
@@ -42,10 +48,17 @@ while IFS= read -r -d '' f; do
 ' "$UP/$rel" "$f") || rc=$?
   if [ "$rc" -gt 1 ]; then err "diff failed on $rel (exit $rc)"; continue; fi
   [ -n "$nums" ] || continue
-  if ! out=$(python3 -I "$HERE/check-skill-deletions.py" "$UP/$rel" <<<"$nums" 2>&1); then
-    err "deletions in $rel are not whole units:"; printf '%s\n' "$out" | head -5
-  fi
+  rv=(); [ -f "$REVIEWED" ] && rv=(--reviewed "$REVIEWED")
+  rc=0; out=$(python3 -I "$HERE/check-skill-deletions.py" "$UP/$rel" --label "$rel" "${rv[@]}" <<<"$nums" 2>&1) || rc=$?
+  grep '^REVIEWED ' <<<"$out" || true
+  used+=$(sed -n 's/^REVIEWED \([^ ]*\) .*/\1/p' <<<"$out")$'\n'
+  [ "$rc" = 0 ] || { err "deletions in $rel are not whole units:"; grep -v '^REVIEWED ' <<<"$out" | head -5; }
 done < <(find "$OURS" -type f -print0)
+if [ -f "$REVIEWED" ]; then   # every reviewed entry must still match a deletion (no stale approvals)
+  while IFS= read -r e; do
+    grep -qxF -- "$e" <<<"$used" || err "stale entry in $NAME.reviewed (no matching deletion): $e"
+  done < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$REVIEWED" | sed '/^$/d')
+fi
 deleted=0
 while IFS= read -r -d '' f; do
   rel=${f#"$UP/"}; [ -f "$OURS/$rel" ] || deleted=$((deleted+1))

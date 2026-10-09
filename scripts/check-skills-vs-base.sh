@@ -17,16 +17,13 @@ fail=0
 declare -A bkind=() pkind=()
 [ -f "$BM" ] && while read -r n k _; do bkind["$n"]=$k; done < <(manifest_entries "$BM")
 [ -f "$PM" ] && while read -r n k _; do pkind["$n"]=$k; done < <(manifest_entries "$PM")
-src() { # src <lock file> <name>: "repo path sha" or "?" when missing or malformed
-  local rows
-  [ -f "$1" ] || { echo "?"; return; }
-  rows=$(lock_rows "$1" "$2")
-  if [ "$(grep -c . <<<"$rows" || true)" = 1 ] && lock_parse "$rows"; then echo "$LOCK_REPO $LOCK_PATH $LOCK_SHA"; else echo "?"; fi
+src() { # src <lock file> <name>: "repo path sha" or "?" when missing, duplicated or malformed
+  if lock_row_one "$1" "$2"; then echo "$LOCK_REPO $LOCK_PATH $LOCK_SHA"; else echo "?"; fi
 }
 for n in "${!bkind[@]}"; do
   [ "${bkind[$n]}" = third-party ] || continue
   old=$(src "$BL" "$n")
-  if [ -z "${pkind[$n]:-}" ]; then
+  if [ -z "${pkind[$n]+listed}" ]; then
     if [ -e "$PR/.claude/skills/$n" ]; then echo "ERROR: third-party skill '$n' was removed from the manifest but its folder is still there"; fail=1
     else echo "REMOVED third-party skill '$n' (was: $old)"; fi
     continue
