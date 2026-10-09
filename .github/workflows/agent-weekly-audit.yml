@@ -33,4 +33,5 @@ jobs:
           claude_args: |
             --model opus
             --max-turns 150
-            --allowedTools "Skill,TodoWrite,Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(pwd),Agent,Task,Read,Glob,Grep,Write,WebFetch,WebSearch,Bash(git log:*),Bash(gh issue:*),Bash(gh run:*),Bash(yarn:*),Bash(npm audit:*),Bash(npm outdated:*),Bash(corepack:*),Bash(ls:*),Bash(cat:*)"
+            --permission-mode bypassPermissions
+          # Throwaway runner; checkout is read-only. Reviewers never edit code (rule in their instructions).

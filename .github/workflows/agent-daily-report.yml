@@ -27,4 +27,5 @@ jobs:
           claude_args: |
             --model haiku
             --max-turns 40
-            --allowedTools "Skill,TodoWrite,Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(pwd),Read,Glob,Grep,Write,Bash(gh:*),Bash(date:*)"
+            --permission-mode bypassPermissions
+          # Throwaway runner; checkout is read-only. Reviewers never edit code (rule in their instructions).
