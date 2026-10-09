@@ -1,0 +1,50 @@
+# TEMPORARY founder experiment on branch founder/egress-scratch only. Never merged.
+name: Egress lock scratch
+on:
+  push:
+    branches: [founder/egress-scratch]
+permissions:
+  contents: read
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+      - name: After the lock
+        run: |
+          set -x
+          python3 -c 'import yaml; print("pyyaml", yaml.__version__)' || true
+          corepack enable || true
+          cd "$(mktemp -d)" && corepack yarn@4.18.1 --version || true
+          getent hosts registry.yarnpkg.com || true
+          curl -sS -o /dev/null -w '%{http_code}\n' https://api.anthropic.com/ || true
+          curl -sS -o /dev/null -w '%{http_code}\n' --max-time 8 https://storage.googleapis.com/ || true
+          sudo -n true && echo SUDO-STILL-WORKS || echo sudo-blocked
+          sudo iptables -L OUTPUT -n 2>&1 | head -3 || true
+          cat /etc/resolv.conf
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          github_token: ${{ github.token }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          prompt: "Reply with exactly: EGRESS-OK. Then use the WebFetch tool on https://example.com and report whether it worked."
+          claude_args: |
+            --model haiku
+            --max-turns 4
+            --allowedTools "WebFetch"
+            --disallowedTools "Skill(payload),Bash,Write,Edit"
+      - name: Result
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          [ -f "$EXEC_FILE" ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=[x for x in d if x.get("type")=="result"]; print(r[-1].get("result") if r else d[-1])' "$EXEC_FILE" || echo "no execution file"
