@@ -58,7 +58,7 @@ MOD=$(ls /usr/lib/nginx/modules/ngx_stream_module.so 2>/dev/null || true)
 NG=$(mktemp)
 {
   echo "load_module $MOD;"
-  echo "user www-data; worker_processes 2; pid /run/agent-nginx.pid; error_log /var/log/agent-nginx.log warn;"
+  echo "user www-data; worker_processes 2; pid /run/agent-nginx.pid; error_log /var/log/agent-nginx.log info;"
   echo "events { worker_connections 1024; }"
   echo "stream {"
   echo "  resolver 127.0.0.1 ipv6=off valid=60s; resolver_timeout 10s;"
@@ -71,6 +71,7 @@ NG=$(mktemp)
   echo "}"
 } > "$NG"
 sudo install -m 0644 "$NG" /etc/nginx/agent-egress.conf
+sudo install -m 0644 /dev/null /var/log/agent-nginx.log
 sudo systemctl stop nginx.service 2>/dev/null || true
 sudo nginx -t -c /etc/nginx/agent-egress.conf >/dev/null 2>&1 || { sudo nginx -t -c /etc/nginx/agent-egress.conf; die "nginx config invalid"; }
 sudo nginx -c /etc/nginx/agent-egress.conf
@@ -123,5 +124,9 @@ if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolve
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
 [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
-[ "$fail" = 0 ] || die "self-test failed; see errors above"
+if [ "$fail" != 0 ]; then
+  echo "--- proxy log (last 20 lines) ---"; tail -n 20 /var/log/agent-nginx.log 2>/dev/null || true
+  curl -sv -o /dev/null --max-time 15 https://api.github.com/zen 2>&1 | tail -n 15 || true
+  die "self-test failed; see errors above"
+fi
 echo "Agent egress lock on: ${#NAMES[@]} allowed names, SNI proxy, sudo and Docker removed."
