@@ -32,7 +32,7 @@ and never print the environment.
    - Then push: `git -C .worktrees/wt-<pr> push origin <branch>`. The push re-runs the review automatically.
    - Remove label `changes-requested`, replace the round label with the next one.
 
-## Step 1b - Escalate to the Chief Engineer (Fable 5.1), at most ONE per shift
+## Step 1b - Escalate to the Chief Engineer, at most ONE per shift
 Escalate when any of these is true (pick the most important one this shift):
 - A PR failed 3 review rounds.
 - A builder said it can't complete the task, or produced nothing useful twice.
