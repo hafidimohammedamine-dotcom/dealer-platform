@@ -21,7 +21,7 @@ solution, and **do it yourself**, then hand it back through the normal review.
    - Task too big or unclear -> rewrite it as smaller, exact issues (`status:todo`, right `agent:*`), close the old PR with an explanation.
    - Reviewers disagree -> decide which rule wins based on CLAUDE.md; explain in a PR comment.
    - Flaky or wrong test -> fix the test only if it's really wrong; never weaken a test to pass.
-   - Needs a change to `packages/contracts`, `CLAUDE.md`, `.claude/` or agent workflows -> you may not change these.
+   - Needs a change to `CLAUDE.md`, `.claude/` or agent workflows -> you may not change these.
      Write the exact proposed change in the issue, label `agent:founder` and `blocked`.
 3. **Implement fully:** tests, lint, typecheck all green. Commit with message `#<issue> chief-engineer: <what>`.
 4. **Teach the team:** if the builder made a mistake a rule could prevent, propose the rule for CLAUDE.md

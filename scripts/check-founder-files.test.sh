@@ -36,7 +36,7 @@ setup; git rm -q scripts/gitleaks-config.test.sh; commit;  expect fail $A "gitle
 setup; echo b > .gitleaks.toml; commit;                    expect fail $A ".gitleaks.toml"
 setup; git mv .gitleaks.toml docs/gl.toml; commit;         expect fail $A ".gitleaks.toml renamed away" ".gitleaks.toml"
 setup; echo x > .gitleaksignore; commit;                   expect fail $A ".gitleaksignore"
-setup; mkdir -p packages/contracts; echo b > packages/contracts/a.ts; commit; expect fail $A "contracts"
+setup; mkdir -p packages/contracts; echo b > packages/contracts/a.ts; commit; expect ok   $A "contracts are agent-built (founder approves via CODEOWNERS)"
 setup; git mv .claude/agents/x.md src/moved.md; commit;    expect fail $A "rename out of .claude (old path listed)" ".claude/agents/x.md"
 setup; mkdir -p .claude/é; echo b > ".claude/é/a.md"; commit; expect fail $A "unicode path under .claude"
 setup; mkdir -p .claude/n; echo b > ".claude/n/new
