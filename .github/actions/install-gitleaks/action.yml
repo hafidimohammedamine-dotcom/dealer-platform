@@ -1,0 +1,16 @@
+# Installs gitleaks to /tmp/gitleaks, pinned by version and sha256. Founder-owned file.
+name: Install gitleaks
+description: Download the pinned gitleaks release and verify its checksum.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GITLEAKS_VERSION: 8.18.4
+        GITLEAKS_SHA256: ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d
+      run: |
+        set -euo pipefail
+        curl -sSfL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum --check
+        tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+        /tmp/gitleaks version

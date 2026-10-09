@@ -33,7 +33,7 @@ With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_T
 |---|---|
 | `CLAUDE_TOKEN_BUILD` | **Founder 1** (Max plan) runs `claude setup-token` on their computer, pastes the token. Runs the manager, weekly audit, @claude |
 | `CLAUDE_TOKEN_REVIEW` | **Founder 2** (Max plan) runs `claude setup-token`, pastes the token. Runs reviews and the daily report |
-| `AGENT_GH_TOKEN` | Create a free GitHub account for the bots (e.g. `itri-agents`), add it to the repo with Write access, make a **fine-grained token** for this repo only: Contents, Issues, Pull requests = Read and write. Needed so the agents' pushes start the review automatically |
+| `AGENT_GH_TOKEN` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
 
 On one plan, use the same token for both. With two plans, splitting the tokens spreads the work over both.
 
@@ -41,7 +41,8 @@ On one plan, use the same token for both. With two plans, splitting the tokens s
 
 ## 3. Protect `main` (Settings -> Branches -> Add rule for `main`)
 - Require a pull request before merging, **1 approval**
-- Require status checks: `CI / checks` and `Agent - Review team / review`
+- Require status checks: `checks` (workflow **CI**) and `guards` (workflow **Guards**), both from the **GitHub Actions** app.
+  The review team posts its result as a comment and the `ready-to-merge` label; a founder reads it before merging.
 - Block force pushes and deletions
 Agents can never merge. Only a founder can.
 

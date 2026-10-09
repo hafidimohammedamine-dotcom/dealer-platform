@@ -11,22 +11,37 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
+      issues: write   # used only by the fixed post step
       pull-requests: read
       actions: read
-      id-token: write
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
     steps:
-      - uses: actions/checkout@v6
-      - uses: anthropics/claude-code-action@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
-          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          github_token: ${{ github.token }}
           prompt: "/daily-report"
           claude_args: |
             --model haiku
             --max-turns 40
-            --permission-mode bypassPermissions
-          # Throwaway runner; checkout is read-only. Reviewers never edit code (rule in their instructions).
+            --allowedTools "Read,Grep,Glob,TodoWrite,Skill,Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh run list:*),Bash(date:*)"
+            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+          # Allow-list: read-only. The report is the final answer; the next step scans and posts it.
+      - uses: ./.github/actions/install-gitleaks
+        if: always()
+      - name: Post the report (secret-scanned) to the "Daily reports" issue
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
+          [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
+          bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"

@@ -1,0 +1,53 @@
+# Guard checks that a pull request cannot change: pull_request_target always runs THIS file and the scripts from the
+# base branch. The PR's files are fetched as data only and never executed. Founder-owned file.
+name: Guards
+run-name: Guards PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+concurrency:
+  group: guards-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read          # read-only token; nothing from the PR is run
+    env:
+      BASE_REF: ${{ github.base_ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      # Both come from the event, not from anything the PR controls: who opened the PR, and who triggered this run.
+      LOGINS: ${{ github.event.pull_request.user.login }},${{ github.event.sender.login }}
+    steps:
+      - name: Check out the base branch (rules, scripts, config)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch the PR as data into /tmp/pr
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
+      - name: Founder-only files (PR author and pusher must be founders)
+        run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$LOGINS" .github/founders.txt
+      - name: Skills match manifest and checksums
+        # /tmp/pr has rule files removed, so check the PR's own .claude/skills from git, not from that working copy.
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pr-skills && mkdir -p /tmp/pr-skills
+          if git cat-file -e refs/remotes/pr/head:.claude/skills 2>/dev/null; then
+            git archive refs/remotes/pr/head .claude/skills | tar -x -C /tmp/pr-skills
+          fi
+          bash scripts/check-skills.sh /tmp/pr-skills
+      - uses: ./.github/actions/install-gitleaks
+      - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/noignore
+          /tmp/gitleaks detect --source=. --config=.gitleaks.toml --gitleaks-ignore-path=/tmp/noignore \
+            --ignore-gitleaks-allow --redact --verbose --log-opts="origin/$BASE_REF..refs/remotes/pr/head"

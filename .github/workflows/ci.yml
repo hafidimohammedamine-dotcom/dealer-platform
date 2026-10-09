@@ -1,4 +1,5 @@
-# Normal checks on every PR. Branch protection should require this to pass.
+# Normal checks on every PR and on main: tests, lint, build. No secrets here; the guards that a PR must not be able
+# to change run in guards.yml (pull_request_target). Founder-owned file.
 name: CI
 on:
   pull_request:
@@ -13,12 +14,23 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - name: Secret scan (gitleaks, free CLI)
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --redact --verbose
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: ./.github/actions/install-gitleaks
+      - name: Secret scan of all history (pushes to main)
+        if: github.event_name == 'push'
+        run: /tmp/gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose
+      - name: Guard script tests
+        run: |
+          bash scripts/check-founder-files.test.sh
+          bash scripts/check-skills.test.sh
+          bash scripts/check-review-prepare.test.sh
+          bash scripts/check-pr-ci-status.test.sh
+          bash scripts/check-review-post.test.sh
+          GITLEAKS=/tmp/gitleaks bash scripts/gitleaks-config.test.sh
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: hashFiles('package.json') != ''
         with:
           node-version: 20
@@ -34,6 +46,9 @@ jobs:
       - name: Tests
         if: hashFiles('package.json') != ''
         run: yarn test
+      - name: Build
+        if: hashFiles('package.json') != ''
+        run: yarn build
       - name: Dependency audit
         if: hashFiles('package.json') != ''
         run: yarn npm audit --severity moderate --all --recursive

@@ -16,23 +16,24 @@ concurrency:
 
 jobs:
   shift:
+    # Manual runs only by a founder (the focus text goes into the manager's prompt).
+    if: github.event_name == 'schedule' || github.actor == 'hafidimohammedamine-dotcom'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
       GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}   # pushes/PRs with this token trigger the review workflow
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           token: ${{ secrets.AGENT_GH_TOKEN }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
       - run: corepack enable
@@ -40,16 +41,15 @@ jobs:
         run: |
           git config user.name "agent-manager"
           git config user.email "agents@users.noreply.github.com"
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
           github_token: ${{ secrets.AGENT_GH_TOKEN }}
-          show_full_output: true   # temporary: shows every step in the log while we tune permissions
           prompt: "/manager ${{ github.event.inputs.focus }}"
           claude_args: |
             --model opus
             --max-turns 200
-            --permission-mode bypassPermissions
-            --add-dir ${{ github.workspace }}/..
-          # Builders run on a throwaway GitHub runner with a token limited to this repo; inputs are only
-          # founders' issues. Rules in CLAUDE.md and the review team are the guardrails, not a command list.
+            --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,TodoWrite,Skill,WebFetch,WebSearch,Bash(git:*),Bash(gh:*),Bash(yarn:*),Bash(node:*),Bash(corepack:*),Bash(cd:*),Bash(pwd),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(printf:*),Bash(mkdir:*),Bash(test:*),Bash(true),Bash(rm -rf .worktrees/:*)"
+            --disallowedTools "Bash(npx:*),Bash(npm:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env),Bash(printenv:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+          # Builders work only inside the repo (worktrees in .worktrees/, git-ignored). Allow-list: git, gh, yarn and basic
+          # shell; no npx/npm/curl, no reading the runner's environment or credentials. Agents ask with REQUEST: when blocked.

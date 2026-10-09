@@ -11,28 +11,42 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
-      issues: write
+      issues: write   # used only by the fixed post step
       pull-requests: read
       actions: read
-      id-token: write
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
       - run: corepack enable
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
-          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          github_token: ${{ github.token }}
           prompt: "/weekly-audit"
           claude_args: |
             --model opus
             --max-turns 150
-            --permission-mode bypassPermissions
-          # Throwaway runner; checkout is read-only. Reviewers never edit code (rule in their instructions).
+            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git log:*),Bash(git ls-files:*),Bash(git show:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
+            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+          # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
+      - uses: ./.github/actions/install-gitleaks
+        if: always()
+      - name: Post the report (secret-scanned) to the "Daily reports" issue
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
+          [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
+          bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"
