@@ -23,9 +23,10 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 
 ## Payload rules (dealer safety, never break these)
 Agents that work on Payload load the official `payload` skill (how Payload works) together with `payload-dealer-overrides`
-(what we allow). **If any skill example disagrees with this file or the overrides, this file and the overrides win.**
+(what we allow). **Order of authority: CLAUDE.md > payload-dealer-overrides > payload skill.**
 1. **All data access goes through `packages/data`** (the tenant-safe helper). It always passes the logged-in `user`
-   and `overrideAccess: false` and the dealer's tenant. Calling `payload.find/create/update/delete` anywhere else is
+   and `overrideAccess: false` and the dealer's tenant. Only exception: a short, security-reviewed allow-list of system
+   jobs (migrations, fixture seeding, system jobs) listed in `packages/data` with the reason; Postgres row-level security still applies. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
 2. **Second lock in the database:** Postgres row-level security on `tenant` (dealer) for every CRM table, with
    `FORCE ROW LEVEL SECURITY`; the app sets the dealer per transaction. The app's database user is not the table owner.

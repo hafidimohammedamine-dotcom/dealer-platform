@@ -2,7 +2,8 @@
 # Checks .claude/skills against its manifest and checksums.
 #   .claude/skills/manifest.txt     one skill folder per line: "<name> <ours|third-party>"
 #   .claude/skills/checksums.sha256 sha256 of every file under the skill folders
-# Fails on: third-party skills without NOTICE.md or a SKILLS-LOCK.md row, folders not in the manifest, manifest entries with no folder, symlinks, special files, empty folders,
+# Fails on: third-party skills without NOTICE.md, a license file, or a SKILLS-LOCK.md row with the same commit;
+# front matter names that don't match the folder; agents preloading unknown skills or a skill without its required override; folders not in the manifest, manifest entries with no folder, symlinks, special files, empty folders,
 # file names with newline/backslash/control characters, added / removed / renamed / changed files.
 # Usage: scripts/check-skills.sh [--write] [repo-root]     (--write: founders only, in a skills PR)
 set -euo pipefail
@@ -20,13 +21,16 @@ err() { echo "ERROR: $*"; fail=1; }
 [ -d "$DIR" ] || { echo "ERROR: missing $DIR"; exit 1; }
 [ -f "$MANIFEST" ] || { echo "ERROR: missing $MANIFEST"; exit 1; }
 
-declare -A listed=() third=()
+declare -A listed=() third=() requires=()
 while read -r name kind rest; do
   [ -z "${name:-}" ] && continue
   case "$name" in \#*) continue;; esac
   case "$kind" in ours|third-party) ;; *) err "manifest line for '$name' needs kind 'ours' or 'third-party'";; esac
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || err "bad skill name in manifest: '$name'"
   listed["$name"]=1
+  for opt in $rest; do
+    case "$opt" in requires=*) requires["$name"]="${opt#requires=}";; *) err "unknown option '$opt' for '$name' in manifest";; esac
+  done
   [ "$kind" = third-party ] && third["$name"]=1
 done < "$MANIFEST"
 
@@ -42,12 +46,43 @@ while IFS= read -r -d '' entry; do
 done < <(find "$DIR" -mindepth 1 -maxdepth 1 -print0)
 
 for name in "${!listed[@]}"; do [ -d "$DIR/$name" ] || err "manifest lists '$name' but the folder is missing"; done
-# Third-party skills need a NOTICE.md and a row in SKILLS-LOCK.md.
+# Third-party skills need a NOTICE.md, a license file, and a row in SKILLS-LOCK.md whose commit matches NOTICE.md.
 for name in "${!third[@]}"; do
   [ -d "$DIR/$name" ] || continue
   [ -f "$DIR/$name/NOTICE.md" ] || err "third-party skill '$name' has no NOTICE.md"
-  { [ -f "$DIR/SKILLS-LOCK.md" ] && grep -qE "^\| *([^|]*[ ,])?$name([ ,][^|]*)? *\|" "$DIR/SKILLS-LOCK.md"; } || err "third-party skill '$name' has no row in SKILLS-LOCK.md"
+  ls "$DIR/$name" | grep -qiE '^(upstream-)?licen[cs]e' || err "third-party skill '$name' has no license file"
+  row=""
+  [ -f "$DIR/SKILLS-LOCK.md" ] && row=$(grep -E "^\| *([^|]*[ ,])?$name([ ,][^|]*)? *\|" "$DIR/SKILLS-LOCK.md" | head -n1 || true)
+  if [ -z "$row" ]; then err "third-party skill '$name' has no row in SKILLS-LOCK.md"; continue; fi
+  lock_sha=$(grep -oE '\b[0-9a-f]{40}\b' <<<"$row" | head -n1 || true)
+  notice_sha=$( [ -f "$DIR/$name/NOTICE.md" ] && grep -oE '\b[0-9a-f]{40}\b' "$DIR/$name/NOTICE.md" | head -n1 || true)
+  [ -n "$lock_sha" ] || err "SKILLS-LOCK.md row for '$name' has no full 40-character commit"
+  [ -z "$lock_sha" ] || [ "$lock_sha" = "$notice_sha" ] || err "commit for '$name' differs between SKILLS-LOCK.md and NOTICE.md"
 done
+# Each skill's front matter name matches its folder.
+for name in "${!listed[@]}"; do
+  [ -f "$DIR/$name/SKILL.md" ] || { [ -d "$DIR/$name" ] && err "skill '$name' has no SKILL.md"; continue; }
+  fm=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1 && /^name:/{sub(/^name:[ ]*/,""); gsub(/["'\'' ]/,""); print; exit}' "$DIR/$name/SKILL.md")
+  [ "$fm" = "$name" ] || err "skill '$name': SKILL.md front matter name is '$fm'"
+done
+# A skill with requires=<other> needs <other> in the manifest.
+for name in "${!requires[@]}"; do
+  [ -n "${listed[${requires[$name]}]:-}" ] || err "skill '$name' requires '${requires[$name]}', which is not in the manifest"
+done
+# Agents may only preload skills from the manifest, and always together with what they require.
+if [ -d .claude/agents ]; then
+  for agent in .claude/agents/*.md; do
+    line=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1 && /^skills:/{sub(/^skills:[ ]*/,""); print; exit}' "$agent")
+    [ -n "$line" ] || continue
+    IFS=',' read -r -a sk <<< "$line"
+    have=" "; for x in "${sk[@]}"; do x="${x//[[:space:]]/}"; have+="$x "; done
+    for x in $have; do
+      [ -n "${listed[$x]:-}" ] || err "$(basename "$agent"): skill '$x' is not in the manifest"
+      r="${requires[$x]:-}"
+      [ -z "$r" ] || [[ "$have" == *" $r "* ]] || err "$(basename "$agent"): '$x' must be loaded together with '$r'"
+    done
+  done
+fi
 
 while IFS= read -r -d '' p; do err "symlink not allowed: $p"; done < <(find "$DIR" -mindepth 2 -type l -print0)
 while IFS= read -r -d '' p; do err "special file not allowed: $p"; done < <(find "$DIR" -mindepth 2 ! -type f ! -type d ! -type l -print0)

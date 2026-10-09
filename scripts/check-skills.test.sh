@@ -6,11 +6,16 @@ TMPROOT="${TMPDIR:-/tmp}"
 pass=0; failed=0
 fresh() {
   T=$(mktemp -d "$TMPROOT/cs.XXXXXX") || { echo "mktemp failed"; exit 2; }
-  S="$T/.claude/skills"; mkdir -p "$S/alpha/reference" "$S/beta"
-  printf 'alpha third-party\nbeta ours\n' > "$S/manifest.txt"
-  printf '| Skill | Source |\n|---|---|\n| alpha | example/repo |\n' > "$S/SKILLS-LOCK.md"
-  echo a > "$S/alpha/SKILL.md"; echo r > "$S/alpha/reference/R.md"; echo n > "$S/alpha/NOTICE.md"; echo b > "$S/beta/SKILL.md"
-  bash "$SCRIPT" --write "$T" >/dev/null || { echo "fixture --write failed"; exit 2; }
+  S="$T/.claude/skills"; A="$T/.claude/agents"; mkdir -p "$S/alpha/reference" "$S/beta" "$A"
+  SHA=0123456789abcdef0123456789abcdef01234567
+  printf 'alpha third-party requires=beta\nbeta ours\n' > "$S/manifest.txt"
+  printf '| Skill | Source | Commit |\n|---|---|---|\n| alpha | example/repo | %s |\n' "$SHA" > "$S/SKILLS-LOCK.md"
+  printf -- '---\nname: alpha\n---\na\n' > "$S/alpha/SKILL.md"; echo r > "$S/alpha/reference/R.md"
+  printf 'Upstream commit: %s\n' "$SHA" > "$S/alpha/NOTICE.md"; echo MIT > "$S/alpha/UPSTREAM-LICENSE"
+  printf -- '---\nname: "beta"\n---\nb\n' > "$S/beta/SKILL.md"
+  printf -- '---\nname: builder\nskills: alpha, beta\n---\nx\n' > "$A/builder.md"
+  printf -- '---\nname: other\n---\nno skills\n' > "$A/other.md"
+  bash "$SCRIPT" --write "$T" >/dev/null || { echo "fixture --write failed"; bash "$SCRIPT" --write "$T"; exit 2; }
 }
 expect() { # expect <ok|fail> <name> <message-substring>
   out=$(bash "$SCRIPT" "$T" 2>&1); rc=$?
@@ -19,8 +24,8 @@ expect() { # expect <ok|fail> <name> <message-substring>
   else failed=$((failed+1)); echo "FAIL  $2 (expected $1 with '$3', got $got)"; echo "$out"; fi
   rm -rf "$T"
 }
-fresh;                                                       expect ok   "clean fixture passes" "Skills OK (4 files)"
-fresh; echo x >> "$S/alpha/SKILL.md";                        expect fail "changed file" "changed files"
+fresh;                                                       expect ok   "clean fixture passes" "Skills OK (5 files)"
+fresh; echo x >> "$S/alpha/reference/R.md";                 expect fail "changed file" "changed files"
 fresh; echo x >> "$S/alpha/NOTICE.md";                       expect fail "changed NOTICE.md" "changed files"
 fresh; echo x > "$S/alpha/reference/NOTICE.md";              expect fail "added NOTICE.md deeper" "files added"
 fresh; echo x > "$S/alpha/.hidden";                          expect fail "added dotfile in a skill" "files added"
@@ -38,12 +43,21 @@ fresh; echo x > "$S/alpha/new
 line.md";                                                    expect fail "newline in name" "newline"
 fresh; rm "$S/checksums.sha256";                             expect fail "missing checksums" "missing"
 fresh; rm "$S/manifest.txt";                                 expect fail "missing manifest" "missing"
-fresh; echo "gamma maybe" >> "$S/manifest.txt"; mkdir "$S/gamma"; echo x > "$S/gamma/SKILL.md"; expect fail "bad kind" "needs kind"
-fresh; echo x > "$S/alpha/with space.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "space in name after --write" "Skills OK (5 files)"
-fresh; echo x >> "$S/alpha/SKILL.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "--write then check" "Skills OK"
+fresh; echo "gamma maybe" >> "$S/manifest.txt"; mkdir "$S/gamma"; printf -- '---\nname: gamma\n---\n' > "$S/gamma/SKILL.md"; expect fail "bad kind" "needs kind"
+fresh; echo x > "$S/alpha/with space.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "space in name after --write" "Skills OK (6 files)"
+fresh; echo x >> "$S/alpha/reference/R.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "--write then check" "Skills OK"
 fresh; rm "$S/alpha/NOTICE.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "third-party without NOTICE.md" "has no NOTICE.md"
-fresh; printf '| Skill | Source |\n|---|---|\n| alphabet | x |\n' > "$S/SKILLS-LOCK.md"; expect fail "third-party without lock row (no prefix match)" "no row in SKILLS-LOCK.md"
+fresh; printf '| Skill | Source |\n|---|---|\n| alphabet | x | %s |\n' "$SHA" > "$S/SKILLS-LOCK.md"; expect fail "third-party without lock row (no prefix match)" "no row in SKILLS-LOCK.md"
 fresh; rm "$S/SKILLS-LOCK.md"; expect fail "third-party with no SKILLS-LOCK.md" "no row in SKILLS-LOCK.md"
-fresh; printf '| Skill | Source |\n|---|---|\n| gamma, alpha | x |\n' > "$S/SKILLS-LOCK.md"; expect ok "lock row listing several skills" "Skills OK"
+fresh; printf '| Skill | Source |\n|---|---|\n| gamma, alpha | x | %s |\n' "$SHA" > "$S/SKILLS-LOCK.md"; expect ok "lock row listing several skills" "Skills OK"
+fresh; rm "$S/alpha/UPSTREAM-LICENSE"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "third-party without license file" "no license file"
+fresh; printf 'Upstream commit: %s\n' fedcba9876543210fedcba9876543210fedcba98 > "$S/alpha/NOTICE.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "NOTICE commit differs from lock" "differs between SKILLS-LOCK.md and NOTICE.md"
+fresh; printf '| Skill | Source |\n|---|---|\n| alpha | x | abc123 |\n' > "$S/SKILLS-LOCK.md"; expect fail "lock row with a short commit" "no full 40-character commit"
+fresh; printf -- '---\nname: alfa\n---\na\n' > "$S/alpha/SKILL.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect fail "front matter name differs from folder" "front matter name is 'alfa'"
+fresh; printf -- '---\nname: builder\nskills: alpha, beta, gama\n---\n' > "$A/builder.md"; expect fail "agent preloads a misspelled skill" "skill 'gama' is not in the manifest"
+fresh; printf -- '---\nname: builder\nskills: alpha\n---\n' > "$A/builder.md"; expect fail "agent loads a skill without its required override" "'alpha' must be loaded together with 'beta'"
+fresh; printf -- '---\nname: builder\nskills: beta\n---\n' > "$A/builder.md"; expect ok "agent loads only the override" "Skills OK"
+fresh; sed -i 's/requires=beta/requires=delta/' "$S/manifest.txt"; expect fail "requires names an unknown skill" "requires 'delta'"
+fresh; sed -i 's/requires=beta/needs=beta/' "$S/manifest.txt"; expect fail "unknown manifest option" "unknown option"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]
