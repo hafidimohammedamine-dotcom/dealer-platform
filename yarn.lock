@@ -115,6 +115,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@dealer/contracts@workspace:packages/contracts":
+  version: 0.0.0-use.local
+  resolution: "@dealer/contracts@workspace:packages/contracts"
+  languageName: unknown
+  linkType: soft
+
 "@dealer/data@workspace:packages/data":
   version: 0.0.0-use.local
   resolution: "@dealer/data@workspace:packages/data"
@@ -136,6 +142,8 @@ __metadata:
 "@dealer/infra-checks@workspace:infra/checks":
   version: 0.0.0-use.local
   resolution: "@dealer/infra-checks@workspace:infra/checks"
+  dependencies:
+    yaml: "npm:2.9.1"
   languageName: unknown
   linkType: soft
 
@@ -1200,6 +1208,7 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:10.0.1"
     "@types/node": "npm:20.19.43"
+    "@typescript-eslint/utils": "npm:8.71.1"
     "@vitest/coverage-v8": "npm:4.1.11"
     eslint: "npm:10.12.0"
     globals: "npm:17.13.0"
@@ -3162,6 +3171,15 @@ __metadata:
   bin:
     yaml: bin.mjs
   checksum: 10c0/f340718df45e97a9551b9bf9dac61c80050bc464513b710debfb5067c380c8472e3b67809cffacb4ab5ffb5e66ef9310816c88b05f371cec60abfedd8c88e0a2
+  languageName: node
+  linkType: hard
+
+"yaml@npm:2.9.1":
+  version: 2.9.1
+  resolution: "yaml@npm:2.9.1"
+  bin:
+    yaml: bin.mjs
+  checksum: 10c0/9d06676ef02b89559a8b10a71882bd2cdae81e8393dc8dbc871615c3259475d9609ad973d19cb3c9e71e72d6206e3d1e7aa241c7e55f3d16fd2e77db305827d6
   languageName: node
   linkType: hard
 

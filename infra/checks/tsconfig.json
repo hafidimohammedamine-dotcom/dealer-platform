@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"] },
-  "include": ["src"]
+  "compilerOptions": { "types": ["node"], "allowJs": true, "checkJs": true },
+  "include": ["src", "../../eslint.payload-ban.mjs", "../../eslint-rules"]
 }
