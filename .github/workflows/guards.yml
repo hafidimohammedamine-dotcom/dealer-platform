@@ -36,12 +36,12 @@ jobs:
       - name: Founder-only files (PR author and pusher must be founders)
         run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$LOGINS" .github/founders.txt
       - name: Skills match manifest and checksums
-        # /tmp/pr has rule files removed, so check the PR's own .claude/skills from git, not from that working copy.
+        # /tmp/pr has rule files removed, so check the PR's own .claude/ (skills and agents) from git, not from that copy.
         run: |
           set -euo pipefail
           rm -rf /tmp/pr-skills && mkdir -p /tmp/pr-skills
-          if git cat-file -e refs/remotes/pr/head:.claude/skills 2>/dev/null; then
-            git archive refs/remotes/pr/head .claude/skills | tar -x -C /tmp/pr-skills
+          if git cat-file -e refs/remotes/pr/head:.claude 2>/dev/null; then
+            git archive refs/remotes/pr/head .claude | tar -x -C /tmp/pr-skills
           fi
           bash scripts/check-skills.sh /tmp/pr-skills
       - uses: ./.github/actions/install-gitleaks
