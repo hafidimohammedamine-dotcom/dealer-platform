@@ -63,7 +63,7 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 | `services/ai/`, `services/voice/`, `services/messaging/` | AI replies, ElevenLabs voice, Telnyx texting, consent rules engine | builder-ai |
 | `services/inventory/` | VIN/recalls (NHTSA), listing feeds, AI inventory tools | builder-inventory |
 | `services/desking/`, `services/lenders/`, `services/callbacks/`, `services/documents/`, `services/accounting/` | Deals, encrypted credit data, lender adapters, bank callbacks, contracts/title, accounting | builder-finance |
-| `packages/contracts/` | Shared data shapes: Lead, Customer, Vehicle, Deal, CreditApp, LenderDecision | **founders only** |
+| `packages/contracts/` | Shared data shapes: Lead, Customer, Vehicle, Deal, CreditApp, LenderDecision | devops builds; a founder approves every change (CODEOWNERS); other agents ask with `REQUEST:` |
 | `packages/platform/` | Encryption, audit log, queues, config | devops builds, security must approve |
 | `packages/ui/` | Design system and Payload admin theme | designer |
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |

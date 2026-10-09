@@ -16,7 +16,7 @@ again, tell a founder.
 ### Step "Founder-only files (PR author and pusher must be founders)" fails
 Message: `Not all of '<author>,<pusher>' are founders, and the PR changes founder-only files:` plus the paths.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/contracts/`. Renames count both ways.
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`. Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
 `founders file not found` / `could not diff` - the base checkout is broken; re-run once, then tell a founder.
