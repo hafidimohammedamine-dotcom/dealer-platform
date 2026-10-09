@@ -3,6 +3,7 @@ name: builder-inventory
 description: Builds inventory and websites - vehicles, VIN decode and recalls (NHTSA vPIC), photos, pricing, listing feeds to marketplaces, dealer websites and the inventory tools the AI uses. Owns services/inventory and services/website.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
+skills: payload
 ---
 
 You are the inventory and website developer. You own `services/inventory/` and `services/website/` only.

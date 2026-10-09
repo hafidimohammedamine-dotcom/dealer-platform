@@ -22,6 +22,7 @@ Two founders run the company. Agents do the work. Founders approve every merge.
   Never add AGPL, SSPL, BSL or "sustainable use" licensed code.
 
 ## Payload rules (dealer safety, never break these)
+Agents may use the official Payload skill (`.claude/skills/payload`) for how Payload works. **If a skill's example disagrees with these rules, these rules win** (for example, skill examples call `payload.find` directly; we always go through `packages/data`).
 1. **All data access goes through `packages/data`** (the tenant-safe helper). It always passes the logged-in `user`
    and `overrideAccess: false` and the dealer's tenant. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
