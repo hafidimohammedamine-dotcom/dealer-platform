@@ -1,8 +1,8 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { payloadBanConfigs } from '../../../eslint.payload-ban.mjs';
-import { listWorkspaces } from './repo.js';
+import { payloadBanConfigs, payloadDbAllowedPaths } from '../../../eslint.payload-ban.mjs';
+import { findFiles, listWorkspaces } from './repo.js';
 import {
   ACCESS,
   CASTS,
@@ -11,6 +11,7 @@ import {
   allErrors,
   errors,
   eslint,
+  flatConfigOf,
   outside,
   root,
 } from './test-helpers/lint.js';
@@ -36,32 +37,27 @@ describe('the bans cannot be switched off from inside the repo', () => {
   });
 
   it('has no eslint config outside the repo root', () => {
-    const skip = new Set([
-      'node_modules',
-      '.git',
-      '.yarn',
-      '.nx',
-      'dist',
-      'coverage',
-      '.worktrees',
-    ]);
-    const found: string[] = [];
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-        const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
-        if (entry.isDirectory()) {
-          if (!skip.has(entry.name)) walk(relative);
-        } else if (
-          dir !== '' &&
-          /^(eslint\.config\.[cm]?[jt]s|\.eslintrc(\..+)?)$/.test(entry.name)
-        ) {
-          found.push(relative);
-        }
-      }
-    };
-    walk('');
-    expect(found).toEqual([]);
-    expect(existsSync(join(root, 'eslint.config.mjs'))).toBe(true);
+    const configs = findFiles(root, (name) =>
+      /^(eslint\.config\.[cm]?[jt]s|\.eslintrc(\..+)?)$/.test(name),
+    );
+    expect(configs).toEqual(['eslint.config.mjs']);
+  });
+
+  it.each(['js', 'jsx'])('runs the bans on .%s files', async (ext) => {
+    expect(await errors('void req.payload;\n', `x.${ext}`)).toEqual([ACCESS]);
+    expect(await errors('void req.payload;\n', `services/intake/src/x.${ext}`)).toEqual([ACCESS]);
+  });
+
+  it('lints every source extension', async () => {
+    for (const ext of ['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts']) {
+      expect(await eslint.isPathIgnored(join(root, `services/intake/src/x.${ext}`)), ext).toBe(
+        false,
+      );
+      const config = await eslint.calculateConfigForFile(
+        join(root, `services/intake/src/x.${ext}`),
+      );
+      expect(severity(config?.rules?.[ACCESS]), ext).toBeOneOf([2, 'error']);
+    }
   });
 
   it('turns every ban on with error severity for every workspace', async () => {
@@ -85,18 +81,73 @@ describe('the bans cannot be switched off from inside the repo', () => {
   });
 });
 
+describe('the tests lint with the same config as `yarn lint`', () => {
+  it('reports the same problems as eslint.config.mjs loaded from disk', async () => {
+    const samples: [string, string][] = [
+      ['void req.payload;\nf({ overrideAccess: true });\n', outside],
+      ['void req.payload;\n', 'x.jsx'],
+      [
+        'const { find } = payload; void payload.db; Reflect.ownKeys(x);\n',
+        'packages/data/src/x.ts',
+      ],
+      [
+        'payload.db.drizzle.execute(sql);\nconst { find } = payload;\n',
+        'packages/data/src/tenant-transaction.ts',
+      ],
+      ["import pg from 'pg';\nexport const x = y as Foo;\n", 'services/desking/src/db/x.ts'],
+    ];
+    // ESLint loads eslint.config.mjs itself, in its own process, exactly as `yarn lint` does.
+    const script = [
+      "import { ESLint } from 'eslint';",
+      'const eslint = new ESLint({ cwd: process.argv[1] });',
+      'const out = [];',
+      'for (const [code, file] of JSON.parse(process.argv[2])) {',
+      "  const [r] = await eslint.lintText(code, { filePath: process.argv[1] + '/' + file });",
+      "  out.push(r.messages.map((m) => m.line + ':' + (m.ruleId ?? '')));",
+      '}',
+      'console.log(JSON.stringify(out));',
+    ].join('\n');
+    const run = spawnSync(
+      process.execPath,
+      ['--input-type=module', '-e', script, root, JSON.stringify(samples)],
+      { cwd: root, encoding: 'utf8' },
+    );
+    expect(run.status, run.stderr).toBe(0);
+    const fromDisk: unknown = JSON.parse(run.stdout);
+    const inProcess: string[][] = [];
+    for (const [code, file] of samples) {
+      const [result] = await eslint.lintText(code, { filePath: join(root, file) });
+      const messages = result?.messages ?? [];
+      expect(messages.length, file).toBeGreaterThan(0);
+      inProcess.push(messages.map((message) => `${message.line}:${message.ruleId ?? ''}`));
+    }
+    expect(inProcess).toEqual(fromDisk);
+  }, 60_000);
+
+  it('rejects an eslint.config.mjs that does not export a flat config array', () => {
+    expect(flatConfigOf({ default: [{ rules: {} }] })).toEqual([{ rules: {} }]);
+    for (const module of [undefined, {}, { default: { rules: {} } }, { default: [1] }]) {
+      expect(() => flatConfigOf(module)).toThrow('must export a flat config array');
+    }
+  });
+});
+
 describe('allow-lists apply only to their own paths', () => {
   const blockFor = (glob: string, configs: ReturnType<typeof payloadBanConfigs>) =>
     configs.filter((config) => config.files?.includes(glob));
 
   it('builds one block per non-empty list', () => {
-    expect(payloadBanConfigs({ dbClientAllowed: [] })).toHaveLength(2);
+    expect(payloadBanConfigs({ dbClientAllowed: [], payloadDbAllowed: [] })).toHaveLength(2);
     const configs = payloadBanConfigs({
       overrideAccessAllowed: ['services/jobs/**'],
       payloadNameAllowed: ['services/messaging/src/telnyx/body.ts'],
       dbClientAllowed: ['services/desking/src/db/**'],
+      payloadDbAllowed: ['packages/data/src/tenant-transaction.ts'],
     });
-    expect(configs).toHaveLength(5);
+    expect(configs).toHaveLength(6);
+    expect(blockFor('packages/data/src/tenant-transaction.ts', configs)[0]?.rules).toEqual({
+      [OVERRIDE]: ['error', { requireOptions: true, allowDb: true }],
+    });
     expect(blockFor('services/jobs/**', configs)[0]?.rules).toEqual({ [OVERRIDE]: 'off' });
     expect(blockFor('services/messaging/src/telnyx/body.ts', configs)[0]?.rules).toEqual({
       [ACCESS]: ['error', { allowNames: true }],
@@ -113,6 +164,10 @@ describe('allow-lists apply only to their own paths', () => {
       [MODULES]: ['error', { allowPayload: true, allowDbClients: true }],
       [OVERRIDE]: ['error', { requireOptions: true }],
     });
+  });
+
+  it('allows payload.db in one reviewed file inside packages/data only', () => {
+    expect(payloadDbAllowedPaths).toEqual(['packages/data/src/tenant-transaction.ts']);
   });
 });
 

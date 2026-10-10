@@ -42,7 +42,7 @@ For engineers and builder agents. Dealers do not need this page.
    `.env` is git-ignored. Nothing in the code reads it yet, so you do not need it to run the checks.
 
 **Install scripts:** `.yarnrc.yml` sets `enableScripts: false`, so dependency install scripts do not run. A config test
-in `infra/checks` (`keeps dependency install scripts off`) fails if that line is removed or changed.
+in `infra/checks` (`holds exactly the allowed settings, with install scripts off`) fails if that line is removed or changed.
 
 ## Root scripts
 
@@ -56,7 +56,7 @@ in `infra/checks` (`keeps dependency install scripts off`) fails if that line is
 
 Notes:
 
-- `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file, including Markdown in `docs/`.
+- `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file not in `.prettierignore`, including Markdown in `docs/`.
 - ESLint also enforces the Payload data rules. All data access goes through `packages/data`. `eslint.payload-ban.mjs`
   wires them up; the rules are in `eslint-rules/`, and the reviewed allow-lists in `eslint-rules/payload-lists.mjs`.
   The rules ban where the Payload instance comes from and every name it goes by, instead of listing bad uses. Expect
@@ -72,11 +72,19 @@ Notes:
     for the encrypted credit schema. `import()` and `require()` take fixed names only.
   - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`. In `packages/data`, every
     Local API call passes one object literal with `overrideAccess: false`, `depth` and `versions`, with no spreads and no
-    computed keys. The system-job allow-list is empty.
+    computed keys. The system-job allow-list is empty. Also in `packages/data`: a Local API method (`find`, `create`, ...)
+    may only be read to call it directly (`payload.find({...})` or `payload.find.call(payload, {...})`), so no destructured
+    `find`, no `[payload.find][0](...)`, no `.apply` or `.bind`. No dynamic or numeric key (`obj[k]`, `rows[0]`; use a fixed
+    name, `.at()` or a Map), no `Reflect`, and no `.values()`, `.entries()`, `.getOwnPropertyDescriptor()` or
+    `.getOwnPropertyDescriptors()` (use `for...of` on a Map instead). Raw database access through `payload.db` is allowed
+    in one reviewed file only, `packages/data/src/tenant-transaction.ts` (`payloadDbAllowedPaths`), where the dealer is
+    set for each transaction (Payload rule 2).
   - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on, so code cannot be built from strings.
   - Inline `eslint-disable` comments are off, so a file cannot switch these rules off.
   - Limit: a lint rule without type information cannot follow a value read by a dynamic key into a variable, or a value
-    found with `Object.values(req)`. A type-aware rule is planned for when `payload` is installed. Until then, and after,
+    found with `Object.values(req)`. The type-aware rule is issue
+    [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36); it blocks the PR that adds `payload`,
+    which may not merge before #36 is done. Until then, and after,
     Postgres row-level security and the cross-dealer leak tests are the locks that hold (`CLAUDE.md`, Payload rules 2-3).
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
 - `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
@@ -102,6 +110,9 @@ Notes:
 - The shared `vitest.config.ts` sets a **90%** minimum for lines, functions, branches and statements (v8 provider).
   Below 90%, `yarn test` fails.
 - Tests live in `src/**/*.test.ts`. A workspace with no test file fails the config tests in `infra/checks`.
+- `infra/checks` also counts the Payload lint rules (`eslint.payload-ban.mjs` and `eslint-rules/*.mjs`) toward its gate.
+  Its tests lint with the repo's `eslint.config.mjs` loaded through Vitest, and one test checks in a separate process that
+  ESLint loading the file from disk (as `yarn lint` does) gives the same result.
 
 ## Pinned overrides
 

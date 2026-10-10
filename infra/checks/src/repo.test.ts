@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  findFiles,
   findRepoRoot,
   isRecord,
   listWorkspaces,
@@ -57,6 +58,30 @@ describe('repo helpers', () => {
     expect(() => listWorkspaces(root)).toThrow('Unsupported workspace pattern');
   });
 
+  it('finds matching files at any depth, skipping installs, caches and build output', () => {
+    const root = makeTemp();
+    for (const dir of [
+      'a/b',
+      'node_modules/x',
+      '.git',
+      'dist',
+      'coverage',
+      '.worktrees/w',
+      'a/.nx',
+    ]) {
+      mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(join(root, dir, 'target.txt'), '');
+    }
+    writeFileSync(join(root, 'target.txt'), '');
+    writeFileSync(join(root, 'a', 'other.txt'), '');
+    mkdirSync(join(root, 'a', 'target.txt.d'));
+    expect(findFiles(root, (name) => name === 'target.txt')).toEqual([
+      'a/b/target.txt',
+      'target.txt',
+    ]);
+    expect(findFiles(root, () => false)).toEqual([]);
+  });
+
   it('parses env templates and skips comments and blank lines', () => {
     const vars = parseEnvTemplate('# note\n\nA=1\nB=\nC=x=y\n');
     expect([...vars]).toEqual([
@@ -64,6 +89,15 @@ describe('repo helpers', () => {
       ['B', ''],
       ['C', 'x=y'],
     ]);
+  });
+
+  it('keeps every = after the first in the value, with CRLF line endings', () => {
+    expect([...parseEnvTemplate('A=x=y=\r\nB=postgres://u:change-me@localhost/x?a=b\r\n')]).toEqual(
+      [
+        ['A', 'x=y='],
+        ['B', 'postgres://u:change-me@localhost/x?a=b'],
+      ],
+    );
   });
 
   it('rejects malformed env lines', () => {

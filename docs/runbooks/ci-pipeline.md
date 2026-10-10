@@ -50,20 +50,22 @@ corepack yarn npm audit --severity moderate --all --recursive
 
 ## Secret scan on your machine
 
-Use gitleaks **8.18.4**, the same version CI installs. CI downloads the release file and checks its sha256 before it
-runs. Install the same release, or use the Docker image with the same tag. The image is the same version, but it is a
-different file, so CI's checksum check does not cover it.
+Use gitleaks **8.18.4**, the same release file CI installs, and check its sha256 before you run it. The version and the
+checksum are in `.github/actions/install-gitleaks/action.yml` (`GITLEAKS_VERSION`, `GITLEAKS_SHA256`). On Linux x64:
+
+```bash
+curl -sSfL -o gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz
+echo "<GITLEAKS_SHA256 from action.yml>  gitleaks.tgz" | sha256sum --check
+tar -xzf gitleaks.tgz gitleaks
+```
+
+If `sha256sum --check` does not print `OK`, delete the file and do not run it. Use only this checksum-verified binary:
+no Docker image, no package manager build, no other release file. Run it as `./gitleaks`, or move it onto your `PATH`.
 
 The full-history scan, the same command and flags as CI step 3:
 
 ```bash
 gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose
-```
-
-Docker version of the same scan:
-
-```bash
-docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source=/repo --config=/repo/.gitleaks.toml --redact --verbose
 ```
 
 To check a pull request's commits the way the `guards` job does, run this after `origin/main` is fetched. It ignores

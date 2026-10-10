@@ -14,7 +14,9 @@
 //   local/no-override-access          everywhere: `overrideAccess` is only ever the literal `false`. In
 //                                     packages/data every Local API call passes one object literal with
 //                                     `overrideAccess: false`, `depth` and `versions`, no spreads and no
-//                                     computed keys.
+//                                     computed keys, and a Local API method is only read to call it directly:
+//                                     no dynamic or numeric keys, no `Reflect`, no `.values()`/`.entries()`/
+//                                     property descriptors, and no `.db` outside payloadDbAllowedPaths.
 //
 // Inline eslint comments are off (see eslint.config.mjs), so none of these can be disabled in a file.
 // The last locks are Postgres row-level security and the cross-dealer leak tests.
@@ -28,6 +30,7 @@ import { noRestrictedModules } from './eslint-rules/no-restricted-modules.mjs';
 import {
   dbClientAllowedPaths,
   overrideAccessAllowedPaths,
+  payloadDbAllowedPaths,
   payloadNameAllowedPaths,
 } from './eslint-rules/payload-lists.mjs';
 
@@ -38,7 +41,10 @@ export {
   isDbClientModule,
   localApiMethods,
   overrideAccessAllowedPaths,
+  payloadDbAllowedPaths,
   payloadNameAllowedPaths,
+  rawDbMember,
+  reflectiveMembers,
   requiredLocalApiOptions,
 } from './eslint-rules/payload-lists.mjs';
 
@@ -57,14 +63,15 @@ export const localPlugin = {
 /**
  * Flat-config blocks for the Payload bans. The options exist so tests can prove each allow-list
  * applies only to its own paths.
- * @param {{ overrideAccessAllowed?: string[], payloadNameAllowed?: string[], dbClientAllowed?: string[] }} [lists]
+ * @param {{ overrideAccessAllowed?: string[], payloadNameAllowed?: string[], dbClientAllowed?: string[], payloadDbAllowed?: string[] }} [lists]
  */
 export function payloadBanConfigs({
   overrideAccessAllowed = overrideAccessAllowedPaths,
   payloadNameAllowed = payloadNameAllowedPaths,
   dbClientAllowed = dbClientAllowedPaths,
+  payloadDbAllowed = payloadDbAllowedPaths,
 } = {}) {
-  /** @type {{ files?: string[], plugins?: Record<string, unknown>, rules: Record<string, unknown> }[]} */
+  /** @type {import('@typescript-eslint/utils').TSESLint.FlatConfig.Config[]} */
   const configs = [
     {
       plugins: { local: localPlugin },
@@ -99,6 +106,12 @@ export function payloadBanConfigs({
       'local/no-override-access': ['error', { requireOptions: true }],
     },
   });
+  if (payloadDbAllowed.length > 0) {
+    configs.push({
+      files: payloadDbAllowed,
+      rules: { 'local/no-override-access': ['error', { requireOptions: true, allowDb: true }] },
+    });
+  }
   if (overrideAccessAllowed.length > 0) {
     configs.push({ files: overrideAccessAllowed, rules: { 'local/no-override-access': 'off' } });
   }

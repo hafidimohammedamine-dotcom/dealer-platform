@@ -3,7 +3,6 @@
 
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
- * @typedef {import('@typescript-eslint/utils').TSESTree.CallExpression} CallExpression
  * @typedef {import('@typescript-eslint/utils').TSESTree.MemberExpression} MemberExpression
  */
 

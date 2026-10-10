@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseEnvTemplate } from './repo.js';
 import {
   dependenciesMetaProblems,
   envValueProblems,
@@ -115,8 +116,46 @@ describe('envValueProblems', () => {
   });
 
   it('flags a plain value that is not APP_ENV=dev', () => {
-    expect(envValueProblems(new Map([['SENTRY_DSN', fake]]))).toHaveLength(1);
+    expect(envValueProblems(new Map([['SENTRY_DSN', fake]]))).toEqual([
+      'SENTRY_DSN: unexpected value (only APP_ENV=dev or a localhost URL)',
+    ]);
     expect(envValueProblems(new Map([['APP_ENV', 'production']]))).toHaveLength(1);
+  });
+
+  it('flags every non-empty KEY, SECRET and TOKEN, even one that looks like a URL', () => {
+    const vars = new Map([
+      ['FIELD_ENCRYPTION_KEY', fake],
+      ['PAYLOAD_SECRET', fake],
+      ['META_PAGE_ACCESS_TOKEN', fake],
+      ['ROUTEONE_CLIENT_SECRET', 'postgres://u:change-me@localhost:5432/x'],
+    ]);
+    expect(envValueProblems(vars)).toEqual([
+      'FIELD_ENCRYPTION_KEY: must be empty',
+      'PAYLOAD_SECRET: must be empty',
+      'META_PAGE_ACCESS_TOKEN: must be empty',
+      'ROUTEONE_CLIENT_SECRET: must be empty',
+    ]);
+  });
+
+  it('checks URLs whatever the case of the scheme', () => {
+    const url = ['POSTGRES://u:', fake, '@db.example.com:5432/x'].join('');
+    const problems = envValueProblems(new Map([['DATABASE_URL', url]]));
+    expect(problems).toEqual([
+      'DATABASE_URL: host must be localhost',
+      'DATABASE_URL: password must be empty or change-me',
+    ]);
+    expect(problems.join('\n')).not.toContain(fake);
+    expect(envValueProblems(new Map([['REDIS_URL', 'Redis://LOCALHOST:6379']]))).toEqual([]);
+  });
+
+  it('checks a value with = inside, read from a CRLF template', () => {
+    const text = `DATABASE_URL=postgres://u:change-me@db.example.com/x?sslmode=require\r\nSENTRY_DSN=a=b\r\n`;
+    expect(envValueProblems(parseEnvTemplate(text))).toEqual([
+      'DATABASE_URL: host must be localhost',
+      'SENTRY_DSN: unexpected value (only APP_ENV=dev or a localhost URL)',
+    ]);
+    const ok = 'DATABASE_URL=postgres://u:change-me@localhost:5432/x?a=b\r\nAPP_ENV=dev\r\n';
+    expect(envValueProblems(parseEnvTemplate(ok))).toEqual([]);
   });
 
   it('accepts the allowed shapes', () => {

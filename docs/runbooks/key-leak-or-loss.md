@@ -22,7 +22,10 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 
 ## What the two keys protect
 
-- **`PAYLOAD_SECRET`** signs Payload logins. Anyone who has it may be able to forge a login.
+- **`PAYLOAD_SECRET`** signs Payload logins and encrypts the Payload API keys stored in the database. Anyone who has it may
+  be able to forge a login, and with a copy of the database can read the stored API keys. If it changes, every Payload
+  API key must be regenerated (Payload v3 docs: "If you change your PAYLOAD_SECRET, you will need to regenerate your API
+  keys").
 - **`FIELD_ENCRYPTION_KEY`** encrypts sensitive fields at rest (`CLAUDE.md`, non-negotiable rule 7). Someone with the key
   and a copy of the database can read those fields. If the key is lost, the fields cannot be read at all.
 
@@ -57,12 +60,15 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 5. Set the new value on **production**. Restart production. Everyone signs out. This is expected.
 6. Sessions made with the old value stop working when the new value is read. There is no tool to list or end sessions one
    by one (not built).
-7. Look at the admin log for logins from the time of the leak until the rotation. This is a manual check for now.
-8. Count the customer records that were read during the exposure window, per dealer, from the admin and database logs.
+7. Re-issue all Payload API keys; treat stored API keys as exposed. Every key stored under the old value is unusable after
+   the rotation and must be regenerated anyway. There is no tool to list or re-issue them (not built).
+8. Look at the admin log for logins and API-key use from the time of the leak until the rotation. This is a manual check
+   for now.
+9. Count the customer records that were read during the exposure window, per dealer, from the admin and database logs.
    Note how many consumers that is and in which states. Compliance and the lawyer need the count to decide on notice,
    for example the FTC's 500-consumer line (lawyer to confirm). There is no tool for this yet (not built).
-9. Write a short note for the founders: what leaked, where, when, and who could see it. Do not include the key value.
-   The security reviewer checks the note before the incident is closed.
+10. Write a short note for the founders: what leaked, where, when, and who could see it. Do not include the key value.
+    The security reviewer checks the note before the incident is closed.
 
 ## Leak: FIELD_ENCRYPTION_KEY
 
@@ -95,8 +101,9 @@ This one is harder. Data encrypted under the old key stays readable to anyone wh
 
 ## Loss: PAYLOAD_SECRET
 
-Less serious. A new value signs everyone out, but no data is lost. Follow the steps in "Leak: PAYLOAD_SECRET" without the
-note in step 9. Keep the backup in the same password manager entry as the rest of the secrets.
+A new value signs everyone out, and every Payload API key stored under the old value can no longer be read: re-issue all
+Payload API keys; treat stored API keys as exposed (the old value may still exist somewhere you cannot see). Customer
+records are not lost. Follow the steps in "Leak: PAYLOAD_SECRET", including step 7, without the note in step 10. Keep the backup in the same password manager entry as the rest of the secrets.
 
 ## What not to do
 

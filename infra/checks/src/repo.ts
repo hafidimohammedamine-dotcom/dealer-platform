@@ -55,6 +55,37 @@ export function listWorkspaces(root: string): string[] {
   return folders.sort();
 }
 
+/** Folders a repo walk never enters: installs, git data, caches, build output and worktrees. */
+export const walkSkip: ReadonlySet<string> = new Set([
+  'node_modules',
+  '.git',
+  '.yarn',
+  '.nx',
+  'dist',
+  'coverage',
+  '.worktrees',
+]);
+
+/**
+ * Repo-relative paths (with `/`) of every file under `root` whose name matches, skipping the
+ * folders in `walkSkip`. Sorted.
+ */
+export function findFiles(root: string, match: (name: string) => boolean): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+      const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (!walkSkip.has(entry.name)) walk(relative);
+      } else if (match(entry.name)) {
+        found.push(relative);
+      }
+    }
+  };
+  walk('');
+  return found.sort();
+}
+
 /** Parses KEY=value lines of an env template. Comments and blank lines are skipped. */
 export function parseEnvTemplate(text: string): Map<string, string> {
   const vars = new Map<string, string>();

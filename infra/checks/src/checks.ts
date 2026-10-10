@@ -58,16 +58,20 @@ function urlProblems(key: string, value: string): string[] {
     return [`${key}: invalid URL`];
   }
   const problems: string[] = [];
-  if (url.hostname !== 'localhost') problems.push(`${key}: host must be localhost`);
+  if (url.hostname.toLowerCase() !== 'localhost') problems.push(`${key}: host must be localhost`);
   if (url.password !== '' && url.password !== 'change-me') {
     problems.push(`${key}: password must be empty or change-me`);
   }
   return problems;
 }
 
+/** A value that starts with a URL scheme and `//`, in any case (`postgres://`, `POSTGRES://`, `redis+tls://`). */
+const urlScheme = /^[a-z][a-z0-9+.-]*:\/\//i;
+
 /**
  * Problems found in the values of an env template. Only localhost URLs with a
- * placeholder password are allowed, plus APP_ENV=dev. Keys, tokens and secrets stay empty.
+ * placeholder password are allowed, plus APP_ENV=dev. Keys, tokens and secrets stay empty,
+ * even when the value looks like a URL. Never repeats a value.
  */
 export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
   const problems: string[] = [];
@@ -75,10 +79,10 @@ export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
     if (value === '') continue;
     if (/(SECRET|KEY|TOKEN)/.test(key)) {
       problems.push(`${key}: must be empty`);
-    } else if (/^[a-z]+:\/\//.test(value)) {
+    } else if (urlScheme.test(value)) {
       problems.push(...urlProblems(key, value));
     } else if (key !== 'APP_ENV' || value !== 'dev') {
-      problems.push(`${key}: unexpected plain value`);
+      problems.push(`${key}: unexpected value (only APP_ENV=dev or a localhost URL)`);
     }
   }
   return problems;

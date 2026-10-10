@@ -30,6 +30,12 @@ export const dbClientAllowedPaths = ['services/desking/src/db/**'];
  */
 export const overrideAccessAllowedPaths = [];
 
+/**
+ * The one reviewed file in packages/data that may use the raw database adapter (`payload.db`): it sets the dealer for
+ * each transaction (CLAUDE.md, Payload rule 2). Everywhere else in packages/data, `.db` is banned.
+ */
+export const payloadDbAllowedPaths = ['packages/data/src/tenant-transaction.ts'];
+
 /** Options every Local API call in packages/data must spell out (CLAUDE.md, Payload rules 1 and 4). */
 export const requiredLocalApiOptions = ['overrideAccess', 'depth', 'versions'];
 
@@ -69,6 +75,15 @@ export const localApiMethods = [
 export const instanceName = /^(?:payload|getPayload\w*|Payload|BasePayload)$/;
 /** The one name that may be read for an allowed member (`payload.logger`). */
 export const memberOwnerName = /^payload$/;
+/** Members that hand out an object's values without naming them. Banned in packages/data. */
+export const reflectiveMembers = [
+  'values',
+  'entries',
+  'getOwnPropertyDescriptor',
+  'getOwnPropertyDescriptors',
+];
+/** The raw database adapter member of the Payload instance (`payload.db`). */
+export const rawDbMember = 'db';
 /** Reflection reaches any property by a computed name. */
 export const reflectionName = /^Reflect$/;
 /** The `payload` package and its subpaths. */

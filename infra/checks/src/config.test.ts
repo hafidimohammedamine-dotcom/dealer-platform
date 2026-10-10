@@ -3,9 +3,10 @@ import { mkdtempSync, readdirSync, rmSync, symlinkSync, mkdirSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import rootVitestConfig from '../../../vitest.config.js';
+import rootVitestConfig, { lintRuleFiles } from '../../../vitest.config.js';
 import { dependenciesMetaProblems, envValueProblems, yarnrcProblems } from './checks.js';
 import {
+  findFiles,
   findRepoRoot,
   isRecord,
   listWorkspaces,
@@ -127,6 +128,16 @@ describe('shared vitest config', () => {
       statements: 90,
     });
   });
+
+  it('counts the Payload lint rules toward the infra/checks coverage gate', () => {
+    // These tests run from infra/checks, so the config adds the rule files outside src/.
+    expect(lintRuleFiles).toEqual([
+      join(root, 'eslint-rules/**/*.mjs'),
+      join(root, 'eslint.payload-ban.mjs'),
+    ]);
+    expect(rootVitestConfig.test?.coverage?.include).toEqual(['src/**/*.ts', ...lintRuleFiles]);
+    expect(rootVitestConfig.test?.coverage?.allowExternal).toBe(true);
+  });
 });
 
 describe('shared vitest config, failure case', () => {
@@ -180,25 +191,7 @@ describe('.yarnrc.yml and install scripts', () => {
   });
 
   it('is the only .yarnrc.yml in the repo', () => {
-    const skip = new Set([
-      'node_modules',
-      '.git',
-      '.yarn',
-      '.nx',
-      'dist',
-      'coverage',
-      '.worktrees',
-    ]);
-    const found: string[] = [];
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-        const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
-        if (entry.isDirectory() && !skip.has(entry.name)) walk(relative);
-        else if (entry.name === '.yarnrc.yml' && dir !== '') found.push(relative);
-      }
-    };
-    walk('');
-    expect(found).toEqual([]);
+    expect(findFiles(root, (name) => name === '.yarnrc.yml')).toEqual(['.yarnrc.yml']);
   });
 
   it('lets no package build a dependency (dependenciesMeta built: true)', () => {

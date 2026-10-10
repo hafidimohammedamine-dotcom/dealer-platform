@@ -9,7 +9,6 @@ import { moduleNameParents, outermostWrapper, staticString, unwrap } from './ast
 
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
- * @typedef {import('@typescript-eslint/utils').TSESTree.CallExpression} CallExpression
  * @typedef {import('@typescript-eslint/utils').TSESTree.MemberExpression} MemberExpression
  * @typedef {{ allowNames?: boolean }} InstanceOptions
  * @typedef {'named' | 'dynamic'} InstanceMessage

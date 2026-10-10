@@ -4,8 +4,6 @@ import { outermostWrapper, staticString, unwrap } from './ast.mjs';
 
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
- * @typedef {import('@typescript-eslint/utils').TSESTree.CallExpression} CallExpression
- * @typedef {import('@typescript-eslint/utils').TSESTree.MemberExpression} MemberExpression
  * @typedef {{ allowPayload?: boolean, allowDbClients?: boolean }} ModuleOptions
  * @typedef {'payloadValue' | 'dbClient' | 'dynamicLoad'} ModuleMessage
  */
