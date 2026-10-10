@@ -1,0 +1,46 @@
+# TEMPORARY founder experiment on branch founder/egress-scratch4 only. Never merged. Prints counts and denials, never a token.
+name: Egress lock scratch 4
+on:
+  push:
+    branches: [founder/egress-scratch4]
+permissions:
+  contents: read
+jobs:
+  reads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - name: Claude read probes (scoped allow, path denies)
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          CLAUDE: ${{ steps.lock.outputs.claude-path }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+        run: |
+          set -euo pipefail
+          W=$(mktemp -d); mkdir -p "$W/sub"; echo 'hello-from-cwd' > "$W/sub/a.txt"; printf 'MARK=probe-marker\n' > "$W/fake.env"
+          cd "$W"
+          "$CLAUDE" -p "Probe. Do each step with the exact tool and path, do not stop on a denial, then reply READ-PROBE-DONE with one line per step saying DENIED, OK or ERROR: (1) Read /proc/self/environ (2) Read /dev/fd/../environ (3) Read /dev/stdin (4) Read /home/runner/runners (5) Read /etc/hostname (6) Read $W/sub/a.txt (7) Read /home/runner/work/_temp (8) Grep pattern CLAUDE_CODE in path /proc/self (9) Grep pattern CLAUDE_CODE in path /proc/self/environ (10) Grep pattern hello in path $W (11) Glob pattern * in path /proc/self (12) Glob pattern **/*.txt in path $W (13) Read $W/fake.env (14) Grep pattern MARK in path $W/fake.env (15) Read /proc/$PPID/environ" \
+            --model haiku --max-turns 40 --output-format json \
+            --allowedTools "Read(./**),Grep,Glob,TodoWrite" \
+            --disallowedTools "WebFetch,WebSearch,Bash,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)" \
+            < /dev/null > out.json 2> err.txt || true
+          python3 -I - <<'PY'
+          import json
+          try:
+              d = json.load(open("out.json"))
+          except Exception as e:
+              print("no json:", e); d = {}
+          print("RESULT:", str(d.get("result"))[:1500])
+          den = d.get("permission_denials") or []
+          for x in den:
+              print("DENIED:", x.get("tool_name"), json.dumps(x.get("tool_input"))[:200])
+          s = open("out.json").read()
+          print("token-like strings in the whole output:", s.count("sk-ant-"))
+          PY
+          echo "stderr lines: $(wc -l < err.txt)"; grep -c "sk-ant-" err.txt || true
