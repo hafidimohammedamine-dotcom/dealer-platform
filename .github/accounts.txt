@@ -1,0 +1,8 @@
+# GitHub accounts by numeric user ID (founder-owned). One "<id> <login> <role>" per line; role is founder or agent.
+# IDs, not logins, decide who is who: a login can be renamed and re-registered by someone else, an ID cannot.
+# Read by: scripts/check-founder-files.sh (guards: who may change founder-only files), scripts/check-agent-token.sh (the
+# agents' token must belong to the agent account), scripts/check-workflows.py (every user ID a workflow compares must be
+# listed here). Add a founder or agent account here (with its numeric ID from https://api.github.com/users/<login>) and,
+# for a founder, in .github/CODEOWNERS.
+238822878 hafidimohammedamine-dotcom founder
+250452267 mohammedaminehafidi-ctrl agent

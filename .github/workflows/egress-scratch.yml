@@ -1,0 +1,22 @@
+# TEMPORARY founder experiment on branch founder/egress-scratch3 only. Never merged. No secrets.
+name: Egress lock scratch
+on:
+  push:
+    branches: [founder/egress-scratch3]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  oidc-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - name: OIDC token under the lock (length only)
+        run: |
+          body=$(curl -sS --max-time 20 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=lock-test")
+          python3 -c 'import json, sys; print("len", len(json.load(sys.stdin).get("value") or ""))' <<<"$body"

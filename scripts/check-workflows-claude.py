@@ -196,10 +196,6 @@ def check_job(fname, jw, job, steps, required, triggers):
     check_job_settings(fname, jw, job)
     claude_at = next((i for i, s in enumerate(steps, 1) if isinstance(s, dict) and core.is_claude(s)), 0)
     check_other_steps(jw, steps, claude_at, ok_refs)
-    if fname == P["manager"] or "AGENT_GH_TOKEN" in json.dumps(job):  # every job that holds the agents' token
-        guard = [i for i, s in enumerate(steps, 1) if isinstance(s, dict) and str(s.get("run", "")).startswith(P["manager_token_guard"])]
-        if not guard or guard[0] > claude_at:
-            core.err(f"{jw}: needs a step running '{P['manager_token_guard']} ...' before the claude step")
     count = 0
     for i, step in enumerate(steps, 1):
         if isinstance(step, dict) and core.is_claude(step):

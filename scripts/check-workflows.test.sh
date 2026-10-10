@@ -1,62 +1,9 @@
 #!/usr/bin/env bash
 # Tests scripts/check-workflows.sh (YAML-based) on the real workflows, broken copies and small fixture workflows.
+# Identity and token rules are in scripts/check-workflows-people.test.sh.
 set -uo pipefail
-SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-workflows.sh"
-PY="$(cd "$(dirname "$0")" && pwd)/check-workflows.py"
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-TMPROOT="${TMPDIR:-/tmp}"
-W=.github/workflows
-pass=0; failed=0
-fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github"; cp -r "$REPO/$W" "$T/.github/"; cp "$REPO/.github/founder-ids.txt" "$T/.github/"; }
-expect() { # expect <ok|fail> <name> <message> [extra args]
-  local want=$1 name=$2 msg=$3; shift 3
-  out=$(bash "$SCRIPT" "$T" "$@" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"
-  else failed=$((failed+1)); echo "FAIL  $name ($got)"; echo "$out"; fi; rm -rf "$T"; }
-drop() { python3 - "$T/$W/$1" "$2" <<'EOF'
-import sys
-p, item = sys.argv[1], sys.argv[2]
-s = open(p).read()
-for a, b in ((item + ",", ""), ("," + item + '"', '"')):
-    if a in s:
-        s = s.replace(a, b, 1); break
-else:
-    sys.exit("item not found: " + item)
-open(p, "w").write(s)
-EOF
-}
-# A small valid workflow; tests edit it with sed.
-mk() { cat > "$T/$W/t.yml" <<'EOF'
-name: t
-on: workflow_dispatch
-jobs:
-  a:
-    runs-on: ubuntu-latest
-    env:
-      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: main
-          persist-credentials: false
-      - id: lock
-        uses: ./.github/actions/agent-egress-lock
-      - id: claude
-        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
-          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
-          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
-          prompt: "Do the task."
-          claude_args: |
-            --model haiku
-            --disallowedTools "Skill(payload),Write"
-      - name: After
-        if: always() && steps.claude.outputs.execution_file != ''
-        run: echo "steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude"
-EOF
-}
-t() { fresh; mk; }   # fresh copy of the real workflows plus the small fixture
+# shellcheck source=scripts/check-workflows-testlib.sh
+. "$(cd "$(dirname "$0")" && pwd)/check-workflows-testlib.sh"
 
 fresh;                                                  expect ok   "current workflows pass" "Workflow denies OK"
 t;                                                      expect ok   "fixture workflow passes (harmless mentions of claude)" "Workflow denies OK"
@@ -200,11 +147,6 @@ for cmd in 'cd /tmp/pr && yarn install' 'yarn --cwd /tmp/pr install' 'bash /tmp/
 done
 t; printf '      - if: startsWith(github.event.pull_request.head.ref, %s)\n        run: echo ok\n' "'agent/'" >> "$T/$W/t.yml"; expect ok "reading the PR branch name in an if is fine" "Workflow denies OK"
 # Round 4: checkouts, pins, PR data, post steps, job settings, manager token guard, composite actions
-before() { python3 - "$T/$W/t.yml" "$1" <<'PYEOF'
-import sys; p, add = sys.argv[1], sys.argv[2]; s = open(p).read()
-s = s.replace("      - id: claude\n", add.replace("\\n", "\n") + "\n      - id: claude\n", 1); open(p, "w").write(s)
-PYEOF
-}
 t; before '      - uses: ./.github/actions/install-gitleaks'; expect ok "allow-listed local action before the claude step" "Workflow denies OK"
 t; sed -i 's|          persist-credentials: false|          persist-credentials: false\n          repository: evil/fork|' "$T/$W/t.yml"; expect fail "first checkout from another repository" "checkout input(s) repository not allowed"
 t; sed -i 's|          persist-credentials: false|          persist-credentials: false\n          token: x|' "$T/$W/t.yml"; expect fail "first checkout with a token" "checkout input(s) token not allowed"
@@ -226,7 +168,7 @@ t; printf '      - env:\n          PINS: x\n        run: |\n          printf "%%
 t; printf '      - run: /tmp/gitleaks detect\n' >> "$T/$W/t.yml"; expect fail "gitleaks after the claude step without the pin check" "must check its pinned files"
 t; sed -i 's|      - id: claude|      - id: claude\n        if: always()|' "$T/$W/t.yml"; expect fail "claude step running after a failure" "may not run after a failure"
 t; sed -i 's|      - id: claude|      - id: claude\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "claude step with continue-on-error" "key 'continue-on-error' not allowed"
-fresh; sed -i '/check-agent-token.sh/d' "$T/$W/agent-manager.yml"; sed -i '/Agents must run on their own GitHub token/d' "$T/$W/agent-manager.yml"; expect fail "manager without the founder-token guard" "needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step"
+fresh; sed -i '/check-agent-token.sh/d' "$T/$W/agent-manager.yml"; sed -i '/Agents must run on their own GitHub token/d' "$T/$W/agent-manager.yml"; expect fail "manager without the founder-token guard" "holds the agents' token, so its first step after checkout and the lock must run"
 fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$T/.github/actions/x/action.yml"; expect fail "unpinned action inside a composite action" ".github/actions/x/action.yml step 1: action must be pinned"
 fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ secrets.CLAUDE_TOKEN_BUILD }}\n      shell: bash\n' > "$T/.github/actions/x/action.yml"; expect fail "Claude credential inside a composite action" ".github/actions/x/action.yml step 1: Claude/Anthropic credential"
 fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: node20\n  main: index.js\n' > "$T/.github/actions/x/action.yml"; expect fail "non-composite local action" "not a composite action with steps"
@@ -269,12 +211,5 @@ if [ $rc != 0 ] && grep -q "cannot read check-workflows-policy.json" <<<"$out"; 
 echo '{not json' > "$P2/check-workflows-policy.json"; out=$(python3 -I "$P2/check-workflows.py" "$REPO" 2>&1); rc=$?
 if [ $rc != 0 ] && grep -q "cannot read check-workflows-policy.json" <<<"$out"; then pass=$((pass+1)); echo "PASS  broken policy file fails closed"; else failed=$((failed+1)); echo "FAIL  broken policy file"; echo "$out"; fi
 rm -rf "$P0"
-# Founders by numeric ID; the agents' token always behind the token check
-fresh; sed -i "s/github.event.comment.user.id == 238822878/github.event.comment.user.login == 'someone'/" "$T/$W/claude.yml"; expect fail "founder matched by login" "compares a login in 'if' (logins can be re-registered)"
-fresh; sed -i "s/github.actor_id == '238822878'/github.actor == 'someone'/" "$T/$W/agent-manager.yml"; expect fail "manual run matched by github.actor" "compares a login in 'if'"
-fresh; sed -i "s/github.event.comment.user.id == 238822878/github.event.comment.user.id == 12345/" "$T/$W/claude.yml"; expect fail "unknown user ID" "user ID 12345 is not in .github/founder-ids.txt"
-fresh; rm "$T/.github/founder-ids.txt"; expect fail "no founder-ids file" "user ID 238822878 is not in .github/founder-ids.txt"
-fresh; grep -q "github-actions\[bot\]" "$T/$W/agent-manager.yml" && expect ok "a bot name may be compared" "Workflow denies OK"
-t; sed -i 's|^    runs-on: ubuntu-latest$|    runs-on: ubuntu-latest\n    if: github.event_name == '"'"'x'"'"'|' "$T/$W/t.yml"; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}|' "$T/$W/t.yml"; expect fail "agents' token without the token check" "needs a step running 'bash scripts/check-agent-token.sh ...' before the claude step"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

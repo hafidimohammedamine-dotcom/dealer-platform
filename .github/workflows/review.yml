@@ -88,12 +88,12 @@ jobs:
           bash scripts/check-review-post.sh pr "$PR_NUMBER" "$EXEC_FILE"
       - name: Start a fix round now (agent PRs that failed review)
         # Instead of waiting for the next hourly shift, start the manager as soon as an agent's PR fails review.
-        # Only for PRs from this repo opened by the agents' own account (repository variable AGENT_GH_LOGIN, set by a founder
-        # once that account exists). Until then this step never runs and agent PRs wait for the hourly shift.
+        # Only for PRs from this repo opened by the agents' own account: its numeric user ID from .github/accounts.txt
+        # (an ID cannot be re-registered the way a login can).
         if: >-
-          always() && vars.AGENT_GH_LOGIN != '' &&
+          always() &&
           github.event.pull_request.head.repo.full_name == github.repository &&
-          github.event.pull_request.user.login == vars.AGENT_GH_LOGIN &&
+          github.event.pull_request.user.id == 250452267 &&
           startsWith(github.event.pull_request.head.ref, 'agent/')
         env:
           GH_TOKEN: ${{ github.token }}

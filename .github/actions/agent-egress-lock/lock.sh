@@ -26,9 +26,9 @@ done
 # token service of a job with `id-token: write` (claude.yml): its generated host name is read from the runner's variable and
 # allowed exactly, for this run only.
 if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-  OIDC_HOST=$(sed -E 's#^https://([^/:]+)/.*$#\1#' <<<"$ACTIONS_ID_TOKEN_REQUEST_URL")
-  [[ "$OIDC_HOST" =~ ^[a-z0-9-]+\.actions\.githubusercontent\.com$ ]] || die "unexpected OIDC host: '$OIDC_HOST'"
-  NAMES+=("$OIDC_HOST")
+  [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" =~ ^https://([a-z0-9-]+\.actions\.githubusercontent\.com)/ ]] \
+    || die "unexpected OIDC host: '$(sed -E 's#^[a-z]+://([^/]*).*#\1#' <<<"$ACTIONS_ID_TOKEN_REQUEST_URL")'"
+  NAMES+=("${BASH_REMATCH[1]}")
 fi
 
 # --- 1. Install the pinned Claude Code binary, checked against its pinned sha256 (from Anthropic's release manifest) ------
@@ -81,7 +81,7 @@ CONF=$(mktemp)
 {
   echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"
   echo "user=dnsmasq"; echo "cache-size=1000"; echo "filter-AAAA"
-  for d in "${NAMES[@]}"; do echo "server=/${d#.}/$UPSTREAM"; done
+  for d in "${NAMES[@]}"; do echo "server=/$d/$UPSTREAM"; done
 } > "$CONF"
 sudo install -m 0644 "$CONF" /etc/agent-dnsmasq.conf
 sudo systemctl stop systemd-resolved.service 2>/dev/null || true
@@ -97,6 +97,7 @@ NG=$(mktemp)
   echo "user www-data; worker_processes 2; pid /run/agent-nginx.pid; error_log /var/log/agent-nginx.log info;"
   echo "events { worker_connections 1024; }"
   echo "stream {"
+  echo "  map_hash_bucket_size 128;   # room for long generated names such as this run's OIDC host"
   echo "  resolver 127.0.0.1 ipv6=off valid=60s; resolver_timeout 10s;"
   echo "  map \$ssl_preread_server_name \$agent_upstream {"
   echo "    hostnames;"
@@ -155,7 +156,7 @@ if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still 
 # The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
 RUN_DIRS="${AGENT_LOCK_TEST_RUN_DIRS:-/run /var/run}"
 GROUP_SOCKS=""
-for g in ${AGENT_LOCK_ADMIN_GROUPS:-docker lxd containerd}; do
+for g in ${AGENT_LOCK_TEST_ADMIN_GROUPS:-docker lxd containerd}; do
   grep -q "^$g:" /etc/group || continue
   # shellcheck disable=SC2086
   GROUP_SOCKS+=$(find $RUN_DIRS -maxdepth 3 -type s -group "$g" -writable 2>/dev/null | head -3 || true)
@@ -174,23 +175,23 @@ if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolve
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
 bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
-[ -z "${UNS_LEFT:-}" ] || bad "AppArmor profiles that allow user namespaces are still loaded: $(echo $UNS_LEFT)"
-if [ -f "$USERNS" ] && unshare -U true 2>/dev/null; then bad "a program outside bubblewrap can create user namespaces"; fi
-if [ -f "$USERNS" ] && command -v podman >/dev/null && podman unshare true >/dev/null 2>&1; then
-  bad "podman can still create user namespaces"
+if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (set up in step 2)
+  [ "$(cat "$USERNS")" = 1 ] || bad "unprivileged user namespaces are not restricted"
+  [ -z "${UNS_LEFT:-}" ] || bad "AppArmor profiles that allow user namespaces are still loaded: $(echo $UNS_LEFT)"
+  if unshare -U true 2>/dev/null; then bad "a program outside bubblewrap can create user namespaces"; fi
+  if command -v podman >/dev/null && podman unshare true >/dev/null 2>&1; then bad "podman can still create user namespaces"; fi
+  if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
+    bad "a program started by bubblewrap can create user namespaces"
+  fi
 fi
-if [ -f "$USERNS" ] && bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
-  bad "a program started by bubblewrap can create user namespaces"
-fi
-if [ -f "$USERNS" ] && [ "$(cat "$USERNS")" != 1 ]; then
-  bad "unprivileged user namespaces are not restricted"
-fi
-# Domain fronting: each exact allowed name, asked for another site in the HTTP Host header, must not answer with content
-# (2xx) or send us to another host (3xx).
+# Every allowed name answers through the lock (a typo in the list shows up here, not in an agent run), and none of them,
+# asked for another site in the HTTP Host header, answers with content (2xx) or sends us to another host (3xx).
 for d in "${NAMES[@]}"; do
-  read -r code loc < <(curl -sS -o /dev/null --max-time 10 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
+  read -r code loc < <(curl -sS -o /dev/null --max-time 10 --retry 2 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
   lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
-  if [[ "${code:-000}" == 2* ]] || { [[ "${code:-000}" == 3* ]] && [ "$lh" != "$d" ]; }; then
+  if [ "${code:-000}" = 000 ]; then
+    bad "allowed name $d not reachable through the lock"
+  elif [[ "$code" == 2* ]] || { [[ "$code" == 3* ]] && [ "$lh" != "$d" ]; }; then
     bad "domain fronting through $d answers for another host (HTTP ${code} ${loc:-})"
   fi
 done

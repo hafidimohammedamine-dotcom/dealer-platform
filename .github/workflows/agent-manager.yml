@@ -43,7 +43,7 @@ jobs:
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
       - name: Agents must run on their own GitHub token, never a founder's
-        run: bash scripts/check-agent-token.sh .github/founder-ids.txt
+        run: bash scripts/check-agent-token.sh .github/accounts.txt
       - run: corepack enable
       - name: Git identity
         run: |

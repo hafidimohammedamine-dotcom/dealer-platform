@@ -1,4 +1,0 @@
-# Founders by numeric GitHub user ID (founder-owned). A login can be renamed and re-registered by someone else; an ID
-# cannot. Workflows that let only a founder start them compare github.actor_id / user.id against these IDs, and
-# scripts/check-workflows.py checks that every ID compared in a workflow is listed here. One "<id> <login>" per line.
-238822878 hafidimohammedamine-dotcom
