@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests scripts/check-github-lib.sh (gh_context, token_account, main_guard_runs, main_guard_floor, main_guard_passed) with a
+# Tests scripts/check-github-lib.sh (gh_context, token_account, main_guard_runs, main_guard_passed, main_head_passed) with a
 # stubbed gh; the scripts that use them have their own tests.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,8 +14,8 @@ cat > "$D/bin/gh" <<'STUB'
 case "$*" in
   'api user --jq "\(.id) \(.login)"') printf '%s\n' "${STUB_WHO-333 agents-bot}"; exit "${STUB_RC:-0}";;
   "api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha="*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}";;
-  "api --paginate repos/owner/repo/actions/workflows/main-guard.yml/runs?status=success&per_page=100 --jq .workflow_runs[].head_sha") [ "${STUB_FLOOR_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_FLOOR-ffffffffffffffffffffffffffffffffffffffff}";;
-  "api repos/owner/repo/compare/"*) [ "${STUB_REL_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_REL:-behind}";;
+  "api repos/owner/repo/compare/"*) [ -z "${STUB_LOG:-}" ] || echo "$*" >> "$STUB_LOG"; [ "${STUB_REL_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_REL:-behind}";;
+  "api repos/owner/repo/commits/HEAD --jq .sha") printf '%s\n' "${STUB_HEAD-cccccccccccccccccccccccccccccccccccccccc}"; exit "${STUB_HEAD_RC:-0}";;
   *) exit 9;;
 esac
 STUB
@@ -38,13 +38,19 @@ check "main_guard_passed: a successful run" test "$(mgp "$S40")" = "ok $S40 pass
 check "main_guard_passed: no run after the guard existed" test "$(STUB_RUNS= mgp "$S40")" = "missing $S40 (runs: none)"
 check "main_guard_passed: a cancelled run" test "$(STUB_RUNS=completed/cancelled mgp "$S40")" = "missing $S40 (runs: completed/cancelled)"
 mgp2() { ( GH="$D/bin/gh"; REPO=owner/repo; export "${@:2}"; main_guard_passed "$1" 0 ) 2>&1; }
-case "$(mgp2 "$S40" STUB_RUNS= STUB_REL=ahead)" in "ok $S40 is on the default branch before the main guard's first passed commit"*) t PASS "main_guard_passed: older than the first passed commit (compare: ahead)";; *) t FAIL "main_guard_passed: before the floor";; esac
-case "$(mgp2 "$S40" STUB_RUNS= STUB_REL=identical)" in "ok $S40 is on the default branch before"*) t PASS "main_guard_passed: the first passed commit itself";; *) t FAIL "main_guard_passed: identical";; esac
+FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28
+check "MAIN_GUARD_FLOOR is main's head when the guard was written" test "$MAIN_GUARD_FLOOR" = "$FLOOR"
+case "$(mgp2 "$S40" STUB_RUNS= STUB_REL=ahead)" in "ok $S40 is on the default branch before the main guard existed (floor $FLOOR)") t PASS "main_guard_passed: older than the floor (compare: ahead)";; *) t FAIL "main_guard_passed: before the floor";; esac
+case "$(mgp2 "$S40" STUB_RUNS= STUB_REL=identical)" in "ok $S40 is on the default branch before"*) t PASS "main_guard_passed: the floor commit itself";; *) t FAIL "main_guard_passed: identical";; esac
 check "main_guard_passed: diverged history is missing" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL=diverged)" = "missing $S40 (runs: none)"
-case "$(mgp2 "$S40" STUB_RUNS= STUB_FLOOR=)" in "ok $S40: the main guard has not passed any run yet"*) t PASS "main_guard_passed: no passed run yet (the guard's first run)";; *) t FAIL "main_guard_passed: no floor";; esac
-check "main_guard_passed: the successful runs cannot be listed" test "$(mgp2 "$S40" STUB_RUNS= STUB_FLOOR_RC=1)" = "ERROR: could not list the successful main-guard runs."
-check "main_guard_passed: the compare call fails" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL_RC=1)" = "ERROR: could not compare $S40 with the main guard's first passed commit ffffffffffffffffffffffffffffffffffffffff."
-check "main_guard_floor: the oldest successful run's head" test "$( (GH="$D/bin/gh"; REPO=owner/repo; STUB_FLOOR=$'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' main_guard_floor) )" = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+check "main_guard_passed: behind the floor with no run is missing" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL=behind)" = "missing $S40 (runs: none)"
+check "main_guard_passed: the compare call fails" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL_RC=1)" = "ERROR: could not compare $S40 with the main guard's floor commit $FLOOR."
+check "main_guard_passed: the compare asks for <sha>...<floor>" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; STUB_RUNS=; STUB_REL=ahead; export STUB_RUNS STUB_REL; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_LOG="$1/log" main_guard_passed "$3" 0 >/dev/null ); grep -q "compare/$3...$4" "$1/log"' _ "$D" "$HERE" "$S40" "$FLOOR"
+mhp() { ( GH="$D/bin/gh"; REPO=owner/repo; [ $# -lt 2 ] || export "${@:2}"; main_head_passed 0 "$1" ) 2>&1; }
+check "main_head_passed: the head passed" test "$(mhp 'anything runs')" = "ok $S40 passed the main guard"
+check "main_head_passed: names who must not run" test "$(mhp 'any agent runs' STUB_RUNS=)" = "ERROR: the default branch's head ($S40) has no successful main-guard run (missing $S40 (runs: none)). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before any agent runs."
+check "main_head_passed: the head cannot be read" test "$(mhp x STUB_HEAD_RC=1)" = "ERROR: could not read the default branch's head commit."
+check "main_head_passed: odd head text" test "$(mhp x 'STUB_HEAD=not a sha')" = "ERROR: could not read the default branch's head commit."
 mgr() { ( GH="$D/bin/gh"; REPO=owner/repo; export "${@:2}"; main_guard_runs "$1" ) 2>&1; }
 check "main_guard_runs: the runs of a head sha" test "$(mgr "$S40" 'STUB_RUNS=completed/failure completed/success')" = "completed/failure completed/success"
 check "main_guard_runs: an API error returns 1" bash -c '! ( GH="$1/bin/gh"; REPO=owner/repo; STUB_RUNS_RC=1; export STUB_RUNS_RC; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; main_guard_runs "$3" )' _ "$D" "$HERE" "$S40"

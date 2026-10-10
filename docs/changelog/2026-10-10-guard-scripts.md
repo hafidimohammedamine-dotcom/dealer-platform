@@ -1,6 +1,7 @@
-# 2026-10-09 - Guard checks for skills and agent workflows, and the agent network lock (#22 split, #31)
+# 2026-10-10 - Guard checks for skills and agent workflows, and the agent network lock (#22 split, #31)
 
-- **Agent network lock** (`.github/actions/agent-egress-lock`, right after the checkout of `main` in every agent job):
+- **Agent network lock** (`.github/actions/agent-egress-lock`, after the checkout of `main`, the pin step and the main-head
+  check in every agent job):
   installs gitleaks and the pinned Claude Code and Bun binaries, each checked against a pinned sha256 (the action's own Bun
   download is not used); DNS answers only allow-listed names (since round 10 with a fixed sink address, forwarding nothing);
   a local
@@ -27,7 +28,7 @@
   they run; claude steps cannot run after a failure; workflows with a claude step cannot run on `pull_request`. The manager's git
   pushes now authenticate through `gh auth setup-git`, and the manager stops unless its GitHub token belongs to the agents'
   account (`scripts/check-agent-token.sh`). The instant fix round starts only for a same-repository PR whose author has the
-  agents' account ID.
+  agents' account ID and whose branch starts with `agent/`.
 - **`guards` runs these checks from `main`** on every PR (the PR's files are data):
   - `scripts/check-skills-vs-base.sh`: a base third-party skill may not become anything else or move to another source repo;
     every commit/path change, new and removed skill is logged.
@@ -55,7 +56,8 @@
   together with the lint rule that reads it.
 - CI runs every guard script test through `scripts/check-coverage.sh`, which fails below 90% line coverage for any guard script.
 - `scripts/check-scrub-probe.sh`: run by Claude as a tool in the `scrub` job of `egress-lock-claude.yml` (from `main`); prints
-  `SCRUB-PROBE env-tokens=<n> proc-tokens=<n> pid=<n>`, and the job fails unless both counts are 0.
+  `SCRUB-PROBE env-tokens=<n> proc-tokens=<n> file-tokens=<n> pid=<n>` (environment, other processes, text files under the
+  home, temp and runner folders), and the job fails unless all three counts are 0.
 - `claude.yml` (founder @claude mentions) answers on issues only: without a prompt the action checks out an open PR's code
   itself, and nested rule files from the PR would load.
 - Messages and fixes for every check: `docs/runbooks/ci-guards.md` (overview, guards, review job, CI), with
@@ -160,12 +162,21 @@
   setup, the audit's history files and the probe skill became pinned scripts); the weekly audit's `yarn npm audit` runs in
   its own job without a secret and arrives as an artifact; the manager's installs run with lifecycle scripts off
   (`YARN_ENABLE_SCRIPTS: "false"`, checked; founder-owned `.yarnrc.yml`, pinned, `.yarn/` founder-only); the scrub probe
-  also counts tokens in files under the home, temp and runner folders; the main guard's floor is the oldest passed run
-  plus GitHub's compare API, never a commit date; GitHub helpers in `scripts/check-github-lib.sh` (own tests), git
+  also counts tokens in files under the home, temp and runner folders; the main guard's floor is checked through
+  GitHub's compare API, never a commit date (round 16 makes it a constant); GitHub helpers in `scripts/check-github-lib.sh` (own tests), git
   filter settings in `scripts/check-git-lib.sh`, the ledger through `gh_context`; `stop_workflows` lives once in the
   policy (checker rule); the pushers file is a required argument of `check-founder-files.sh`; `check-pr-ci-status.sh`
   writes its own step output; checker clean-ups (`LOCK_OUTPUTS`, `check_job_start` signature, docstring); docs (24-hour
   window wording, the allow-list, founder decision 1 names the install-script route).
+- **Round 16:** every PR tree the guards read is unpacked with the tree's own `.gitattributes` switched off
+  (`scripts/check-pr-archive.sh`, `git_no_attributes` in `check-git-lib.sh`, also for the review worktree; `.gitattributes`
+  founder-only); the review prepare step fails when the PR moved since the event (`expected-head-sha`); the manager's
+  `after` job and the probe workflow's `oidc` job carry the actor and first-attempt gates, `oidc` the main-head check
+  (checker rule for every `id-token: write` job); the main guard's floor is the constant `MAIN_GUARD_FLOOR` (main's head
+  when the guard was written) checked through the compare API; one `main_head_passed` helper; the GitHub App token path
+  (repository-scoped, no organization needed) added to founder issue #35; CODEOWNERS, the manifest's license wording, comments
+  and docs brought in line (pinned-file and founder-only lists with `.yarnrc.yml`, `.yarn/`, `.gitattributes`; the lock's
+  place in the job; the scrub line; the `agent/` branch condition; this entry dated by its merge day).
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
@@ -180,5 +191,5 @@
    change on such a branch, rebase or squash it into new commits of your own and push; the ledger records those.
 5. Whenever a founder PR changes a pinned file (`pins_required` in `scripts/check-workflows-policy.json`: anything under
    `.github/actions/`, a `scripts/check-*` script except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`,
-   `CLAUDE.md`, any `CLAUDE.local.md` or `.mcp.json`, anything under a `.claude/` folder), run
+   `.yarnrc.yml`, `CLAUDE.md`, any `CLAUDE.local.md` or `.mcp.json`, anything under a `.claude/` folder), run
    `bash scripts/check-pins.sh update` in that PR.

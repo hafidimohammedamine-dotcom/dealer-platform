@@ -123,6 +123,11 @@ def check_job(fname, jname, job, required, triggers):
     return 0
 
 
+def read_text(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
 def check_stop_list(root, files):
     """The workflows the main guard cancels and disables after a bad push (policy `stop_workflows`) are every workflow
     but main-guard.yml that holds a secret or a write scope, and both copies of that list - the `for w in ...` line of
@@ -130,21 +135,19 @@ def check_stop_list(root, files):
     want = P["stop_workflows"]
     skip = {"main-guard.yml", *P["checker_test_fixtures"]}   # the fixtures scripts/check-workflows*.test.sh add next to the real files
     holding = sorted(os.path.basename(f) for f in files if os.path.basename(f) not in skip
-                     and re.search(r"secrets\.|:\s*write\b", open(f, encoding="utf-8").read()))
+                     and re.search(r"secrets\.|:\s*write\b", read_text(f)))
     if sorted(want) != holding:
         err(f"stop_workflows in the policy must be every workflow holding a secret or a write scope (except main-guard.yml): "
             f"policy {sorted(want)}, workflows {holding}")
     joined = " ".join(want)
     wf = os.path.join(root, ".github", "workflows", "main-guard.yml")
     if os.path.isfile(wf):
-        with open(wf, encoding="utf-8") as fh:
-            m = re.search(r"for w in ([^;\n]+); do", fh.read())
+        m = re.search(r"for w in ([^;\n]+); do", read_text(wf))
         if not m or m.group(1).split() != want:
             err(f"main-guard.yml: the fallback step's 'for w in ...' list must be exactly the policy's stop_workflows ({joined})")
     sc = os.path.join(root, "scripts", "check-main-push.sh")
     if os.path.isfile(sc):
-        with open(sc, encoding="utf-8") as fh:
-            m = re.search(r"MAIN_GUARD_WORKFLOWS:-([^}]+)\}", fh.read())
+        m = re.search(r"MAIN_GUARD_WORKFLOWS:-([^}]+)\}", read_text(sc))
         if not m or m.group(1).split() != want:
             err(f"scripts/check-main-push.sh: the MAIN_GUARD_WORKFLOWS default must be exactly the policy's stop_workflows ({joined})")
 
@@ -199,6 +202,7 @@ def check_file(path, required, accounts):
     PEOPLE.check_file_ifs(name, doc, accounts)
     PEOPLE.check_after_shift(name, doc)
     PEOPLE.check_rerun_guard(name, doc)
+    PEOPLE.check_id_token_jobs(name, doc)
     triggers = triggers_of(doc)
     LIB.check_permissions(name, name, doc.get("permissions"), triggers)
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())

@@ -192,7 +192,8 @@ fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    permiss
 for cmd in 'cd "/tmp/pr" \&\& make' 'pushd /tmp/pr' 'make -C /tmp/pr' 'yarn --cwd=/tmp/pr install' 'bash -c "$(cat /tmp/pr/x)"' 'source /tmp/pr/env.sh' 'gh pr checkout ${{ github.event.pull_request.head.ref }}'; do
   fx; before "      - run: $cmd"; expect fail "PR data in a run step: $cmd" "only the reviewed prepare step may touch /tmp/pr"
 done
-fx; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"'; expect ok "the reviewed prepare step may use /tmp/pr" "Workflow denies OK"
+fx; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF" origin "$HEAD_SHA"'; expect ok "the reviewed prepare step may use /tmp/pr" "Workflow denies OK"
+fx; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"'; expect fail "the prepare step without the expected head is not the reviewed one" "only the reviewed prepare step may touch /tmp/pr"
 fx; printf '      - run: |\n          printf x | sha256sum --check --strict\n          echo /tmp/pr-meta/log.txt\n' >> "$T/$W/t.yml"; expect ok "/tmp/pr-meta is not PR code (after the claude step)" "Workflow denies OK"
 fx; before '      - run: echo /tmp/pr-meta/log.txt'; expect fail "a free-form run before the claude step" "must be one line 'bash scripts/check-<name>.sh ...'"
 fx; printf '      - run: bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect fail "post step without the pin check" "must check its pinned files"

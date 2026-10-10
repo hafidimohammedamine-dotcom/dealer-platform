@@ -34,8 +34,12 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-skills.sh`: skill manifest, checksums, license, NOTICE and lock rows, and agent `skills:` lines (an agent that
   preloads a skill with `requires=<other>` must also list `<other>`).
 - `scripts/check-skills-vs-base.sh`: vendored (third-party) skills keep their kind and source repo compared with `main`.
-- `scripts/check-skills-upstream-all.sh`: each third-party skill equals its locked upstream commit minus whole units only
-  (founder-reviewed when a removed unit holds a warning), and its `.claude/skills-patches/<name>.diff` record matches.
+- `scripts/check-skills-upstream-all.sh` (with `scripts/check-skill-upstream.sh` for one skill and `scripts/check-skill-deletions.py`
+  for the unit rule): each third-party skill equals its locked upstream commit minus whole units only (founder-reviewed when a
+  removed unit holds a warning), and its `.claude/skills-patches/<name>.diff` record matches. `scripts/check-skills-lib.sh`:
+  the manifest and lock-row parsing every skill guard shares.
+- `scripts/check-pr-archive.sh` (guards): a PR's tree, or one folder of it, unpacked as data with the tree's own `.gitattributes`
+  switched off (an `export-ignore` there would hide a file from the checks that the merge still brings).
 - `scripts/check-workflows.sh` (`check-workflows.py`, general rules for every workflow and local action;
   `check-workflows-claude.py`, the rules for jobs with a claude step; `check-workflows-people.py`, who may start what, the
   agents' token check, the manager's after-shift job and the first-attempt rule for every secret-holding job;
@@ -73,8 +77,8 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   requirements file into a private venv.
 - `scripts/check-pins.sh` (`update`: founders and the tests; `verify`: every pin step): regenerates `.github/pins.txt` (sha256
   of every file in `pins_required`, `scripts/check-workflows-policy.json`: `.github/actions/`, the `scripts/check-*` scripts
-  except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`, and every `CLAUDE.md`, `CLAUDE.local.md`,
-  `.mcp.json` and `.claude/` file anywhere) and the `PINS_SHA256` every workflow checks before running any of them; `verify`
+  except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`, `.yarnrc.yml`, and every `CLAUDE.md`,
+  `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere) and the `PINS_SHA256` every workflow checks before running any of them; `verify`
   fails a job whose tree holds such a file that is not listed.
 - `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
   answer to the post job as a job output.

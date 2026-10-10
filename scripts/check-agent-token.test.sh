@@ -12,7 +12,6 @@ case "$*" in
   'api user --jq "\(.id) \(.login)"') printf '%s\n' "$STUB_WHO"; exit "${STUB_RC:-0}";;
   'api -i user') printf 'HTTP/2.0 200 OK\r\n'; [ -n "${STUB_SCOPES:-}" ] && printf '%s: %s\r\n' "${STUB_HDR:-X-Oauth-Scopes}" "$STUB_SCOPES"; printf '\r\n{}\n';;
   'api user/repos?type=owner&per_page=100 --jq [.[].full_name] | join(", ")') printf '%s\n' "${STUB_OWNED:-}"; exit "${STUB_OWNED_RC:-0}";;
-  'api --paginate repos/owner/repo/actions/workflows/main-guard.yml/runs?status=success&per_page=100 --jq .workflow_runs[].head_sha') [ "${STUB_FLOOR_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_FLOOR-ffffffffffffffffffffffffffffffffffffffff}"; exit 0;;
   'api repos/owner/repo/compare/'*' --jq .status') printf '%s\n' "${STUB_REL:-behind}"; exit "${STUB_REL_RC:-0}";;
   'api repos/owner/repo/actions/workflows/'*'.yml --jq .state')
     w=${2##*/}; [ "$w" = "${STUB_DISABLED:-}" ] && echo disabled_manually && exit 0; [ "${STUB_STATE_RC:-0}" = 0 ] && echo active; exit "${STUB_STATE_RC:-0}";;
@@ -31,7 +30,7 @@ expect() { # expect <ok|fail> <name> <message> [env...]
   out=$(env -u GITHUB_ACTIONS GH_BIN="$T/gh" GH_TOKEN="$FG" ACC="$T/accounts" GH_REPO=owner/repo STUB_COUNT="$T/count" AGENT_TOKEN_WAIT=10 "$@" bash -c 'bash "$0" "$ACC"' "$SCRIPT" 2>&1); rc=$?
   assert_result "$want" "$rc" "$name" "$msg" "$out"
   check "no token in the output of: $name" bash -c '! grep -qe "$1" -e "$2" -e gho_oauth_test <<<"$3"' _ "$FG" "$CL" "$out"; }
-expect ok   "agents' fine-grained token"       "Agent token OK: fine-grained, runs as agent account 'agents-bot', owns no repositories; guard workflows active, main-guard passed on cccc" "STUB_WHO=333 agents-bot"
+expect ok   "agents' fine-grained token"       "Agent token OK: fine-grained, runs as agent account 'agents-bot', owns no repositories; guard workflows active, main head: ok cccc" "STUB_WHO=333 agents-bot"
 expect ok   "agents' classic token, only repo" "Agent token OK: classic, runs as agent account 'agents-bot', owns no repositories" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo
 expect ok   "lower-case scopes header"         "Agent token OK: classic" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo STUB_HDR=x-oauth-scopes
 expect fail "a founder's token (by ID)"        "belongs to founder 'new-name'" "STUB_WHO=222 new-name"
@@ -58,23 +57,22 @@ expect fail "main-guard runs unreadable"       "could not list the main-guard ru
 expect fail "main-guard run cancelled"         "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: completed/cancelled))" "$OK" STUB_RUNS=completed/cancelled
 expect fail "main-guard run failed"            "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: completed/failure))" "$OK" STUB_RUNS=completed/failure
 expect fail "no main-guard run at all"         "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: none))" "$OK" STUB_RUNS=
-expect ok   "a later success among older runs" "main-guard passed" "$OK" "STUB_RUNS=completed/failure completed/success"
-expect ok   "run in progress, then success"    "main-guard passed" "$OK" STUB_RUNS=in_progress/ STUB_RUNS_LATER=completed/success
+expect ok   "a later success among older runs" "main head: ok" "$OK" "STUB_RUNS=completed/failure completed/success"
+expect ok   "run in progress, then success"    "main head: ok" "$OK" STUB_RUNS=in_progress/ STUB_RUNS_LATER=completed/success
 expect fail "run still queued after the wait"  "has not finished after 10s; re-run this job later" "$OK" STUB_RUNS=queued/
-expect ok   "a head older than the main guard's first passed commit passes (compare: ahead)" "main-guard passed on cccc" "$OK" STUB_RUNS= STUB_REL=ahead
-expect ok   "the first passed commit itself (compare: identical)" "main-guard passed on cccc" "$OK" STUB_RUNS= STUB_REL=identical
-expect fail "a head after the first passed commit with no run (a skip-ci push)" "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: none))" "$OK" STUB_RUNS= STUB_REL=behind
+expect ok   "a head older than the main guard's floor passes (compare: ahead)" "main head: ok cccc" "$OK" STUB_RUNS= STUB_REL=ahead
+expect ok   "the floor commit itself (compare: identical)" "main head: ok cccc" "$OK" STUB_RUNS= STUB_REL=identical
+expect fail "a head after the floor with no run (a skip-ci push)" "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: none))" "$OK" STUB_RUNS= STUB_REL=behind
 expect fail "a head on another line of history (compare: diverged)" "missing cccc" "$OK" STUB_RUNS= STUB_REL=diverged
-expect ok   "no passed run yet at all (the guard's first run)" "main-guard passed on cccc" "$OK" STUB_RUNS= STUB_FLOOR=
-expect fail "the successful runs cannot be listed" "could not list the successful main-guard runs" "$OK" STUB_RUNS= STUB_FLOOR_RC=1
 expect fail "the compare call fails"             "could not compare cccc" "$OK" STUB_RUNS= STUB_REL_RC=1
-expect ok   "GITHUB_REPOSITORY as the fallback"  "main-guard passed" "$OK" GH_REPO= GITHUB_REPOSITORY=owner/repo
+check "the compare is against the floor constant of check-github-lib.sh" bash -c 'grep -q "^MAIN_GUARD_FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28$" "$1"' _ "$(dirname "$SCRIPT")/check-github-lib.sh"
+expect ok   "GITHUB_REPOSITORY as the fallback"  "main head: ok" "$OK" GH_REPO= GITHUB_REPOSITORY=owner/repo
 expect fail "no repository name"               "GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set" "$OK" GH_REPO= GITHUB_REPOSITORY=
 expect fail "bad GH_REPO"                      "bad GH_REPO" "$OK" "GH_REPO=owner/re po"
 # Inside GitHub Actions the environment overrides are ignored (a Claude step before could have written $GITHUB_ENV):
 # gh comes from PATH, the repository from GITHUB_REPOSITORY, the workflow list and the wait are fixed.
 mkdir -p "$T/path"; cp "$T/gh" "$T/path/gh"
-expect ok   "in Actions: gh from PATH, repo from GITHUB_REPOSITORY" "main-guard passed" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GH_REPO=other/repo "PATH=$T/path:$PATH"
+expect ok   "in Actions: gh from PATH, repo from GITHUB_REPOSITORY" "main head: ok" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GH_REPO=other/repo "PATH=$T/path:$PATH"
 expect fail "in Actions: GH_BIN is ignored (a stub there does not count)" "could not read the token's GitHub login" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo "PATH=$T/nowhere:/usr/bin:/bin"
 expect fail "in Actions: GUARD_WORKFLOWS cannot drop a workflow" "workflow main-guard.yml is 'disabled_manually'" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo "PATH=$T/path:$PATH" GUARD_WORKFLOWS=review.yml STUB_DISABLED=main-guard.yml
 expect fail "in Actions: no GITHUB_REPOSITORY is an error even with GH_REPO" "GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY= "PATH=$T/path:$PATH"

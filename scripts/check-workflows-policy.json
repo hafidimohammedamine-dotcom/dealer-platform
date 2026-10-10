@@ -148,7 +148,7 @@
   ]
  },
  "pr_data_runs": [
-  "bash scripts/check-review-prepare.sh \"$PR_NUMBER\" /tmp/pr \"origin/$BASE_REF\""
+  "bash scripts/check-review-prepare.sh \"$PR_NUMBER\" /tmp/pr \"origin/$BASE_REF\" origin \"$HEAD_SHA\""
  ],
  "runs_on": "ubuntu-latest",
  "permission_scopes": [
@@ -201,7 +201,7 @@
   "agent-manager.yml": {
    "job": "after",
    "needs": "shift",
-   "if": "always() && github.run_attempt == '1'",
+   "if": "always() && needs.shift.result != 'skipped' && github.run_attempt == '1'",
    "runs": [
     "bash scripts/check-agent-token.sh .github/accounts.txt",
     "bash scripts/check-agent-events.sh .github/accounts.txt \"$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)\""

@@ -17,7 +17,7 @@ reach)`. It checks `.github/pins.txt` against the sha256 written in the workflow
 file against `pins.txt`, then (`bash scripts/check-pins.sh verify`, a script the second line just proved) that the tree holds
 no pinned-kind file `pins.txt` does not list. The pinned files are `pins_required` in `scripts/check-workflows-policy.json`:
 all of `.github/actions/`, every `scripts/check-*` script except `*.test.sh` and `*testlib.sh`, `.gitleaks.toml`,
-`.github/accounts.txt`, and - anywhere in the tree outside `.git`, `.worktrees` and `node_modules` - every `CLAUDE.md`,
+`.github/accounts.txt`, `.yarnrc.yml`, and - anywhere in the tree outside `.git`, `.worktrees` and `node_modules` - every `CLAUDE.md`,
 `CLAUDE.local.md`, `.mcp.json` and every file under a `.claude/` folder (the files Claude loads from a checkout). The agents'
 token cannot change workflow files, so a push that changes a pinned file, or adds an agent-instruction file, without a
 founder's workflow change fails every job before any secret, sudo or Claude is used. `the pinned files do not match
@@ -90,8 +90,10 @@ in the PR was pushed by someone else, or has no record (pushed before the ledger
 founder rebases those commits out and re-creates the changes in commits of their own, then pushes. `pushers file not found` -
 the previous step did not run; re-run the job.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, and `packages/data/override-allowlist.txt` (reserved, not
-created yet: the reviewed system jobs that may use `overrideAccess: true`, see CLAUDE.md Payload rule 1). Renames count both ways.
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt` (reserved, not
+created yet: the reviewed system jobs that may use `overrideAccess: true`, see CLAUDE.md Payload rule 1), `.yarnrc.yml` and
+`.yarn/` (lifecycle scripts stay off) and `.gitattributes` (in any folder: the guards read every PR tree with attributes off,
+and an `export-ignore` must not hide a file from them). Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
 `accounts file not found`, `bad line <n> in <file>`, `no founder listed in <file>` / `could not diff` - the base checkout or
@@ -188,7 +190,8 @@ change takes effect only after it merges, so the **next** PR's guards log must s
 ## Workflow "Main guard" (job `guard`)
 Runs on every push to `main` and hourly (`schedule`). First, every run checks the chain: the previous push's head (hourly:
 `main`'s head) must have passed the main guard itself (`Chain: ok <sha> passed the main guard`, or `... was committed
-before the main guard existed`). `commit <sha> reached main without passing the main guard (missing <sha> (runs: ...))`
+before the main guard existed (floor <sha>)`: the floor is `MAIN_GUARD_FLOOR` in `scripts/check-github-lib.sh`, main's head
+when the guard was written, and a commit passes without a run only if GitHub's compare API says it is an ancestor of it). `commit <sha> reached main without passing the main guard (missing <sha> (runs: ...))`
 means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or the workflow disabled at the
 time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to main passed no main-guard
 run (commit <sha>)` without reverting anything (it cannot tell what that push contained); founders read that commit and

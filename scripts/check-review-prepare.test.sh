@@ -73,4 +73,16 @@ out=$(bash "$SCRIPT" 10 "$W/p10b" 2>&1); rc=$?
 cd "$W/base" && git checkout -q pr && mkdir -p docs && ln -s /proc/self/environ docs/x.md && git add -A && git commit -qm link && git push -q origin "HEAD:refs/pull/9/head" 2>/dev/null && git checkout -q main && git fetch -q origin
 out=$(bash "$SCRIPT" 9 "$W/pr9" 2>&1); rc=$?
 [ $rc != 0 ] && grep -q "symlinks or special files in the PR" <<<"$out" && grep -q "docs/x.md" <<<"$out" && ok "a PR with a symlink is refused" || bad "symlink refused" "$out"
+# The expected head: a PR that moved since the event fails instead of being reviewed against older results
+H7=$(git -C "$W/base" ls-remote "$W/remote.git" refs/pull/7/head | cut -c1-40)
+out=$(cd "$W/base" && bash "$SCRIPT" 7 "$W/p11" "" origin "$H7" 2>&1); rc=$?
+[ $rc = 0 ] && grep -qF "ready in $W/p11" <<<"$out" && ok "the expected head matches the fetched head" || bad "expected head ok" "$out"
+out=$(cd "$W/base" && bash "$SCRIPT" 7 "$W/p12" "" origin "$(printf 'd%.0s' {1..40})" 2>&1); rc=$?
+[ $rc != 0 ] && grep -q "the fetched PR head is $H7, not this event's dddd" <<<"$out" && [ ! -d "$W/p12" ] && ok "a PR that moved since the event is refused" || bad "moved PR" "$out"
+out=$(cd "$W/base" && bash "$SCRIPT" 7 "$W/p13" "" origin notasha 2>&1); rc=$?
+[ $rc != 0 ] && grep -q "bad expected head sha" <<<"$out" && ok "a bad expected head is rejected" || bad "bad expected head" "$out"
+# The PR's own .gitattributes cannot rewrite what the reviewers see (export-subst, ident, eol are off in the worktree)
+cd "$W/base" && git checkout -q -b attrs main && mkdir -p docs && printf '*.txt ident export-subst\n' > .gitattributes && printf '$Id$ and $Format:%%H$\n' > docs/k.txt && git add -A && git commit -qm attrs && git push -q origin "HEAD:refs/pull/11/head" 2>/dev/null && git checkout -q main
+out=$(bash "$SCRIPT" 11 "$W/p14" 2>&1); rc=$?
+[ $rc = 0 ] && [ "$(cat "$W/p14/docs/k.txt")" = '$Id$ and $Format:%H$' ] && ok "ident and export-subst in the PR's .gitattributes do not rewrite files" || bad "attributes off" "$out $(cat "$W/p14/docs/k.txt" 2>&1)"
 summary

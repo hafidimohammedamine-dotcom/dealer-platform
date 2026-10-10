@@ -1,7 +1,7 @@
 # Runbook: agent network lock (`.github/actions/agent-egress-lock`)
 
-Founder-owned action. Every job with a Claude step runs it right after checking out `main` (`scripts/check-workflows.sh`
-enforces that). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
+Founder-owned action. Every job with a Claude step runs it after checking out `main`, the pin step and the main-head check
+(`scripts/check-workflows.sh` enforces that order). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
 
 ## What it does
 1. Installs Node 20 (`actions/setup-node`, the runner image no longer caches it), gitleaks
@@ -151,8 +151,9 @@ checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the j
 **What the agents' own token can do, and what catches it.** A classic `repo` token on a collaborator account can push to any
 branch of this repository, `main` included, and the free plan cannot block that with a ruleset. So `main` is guarded after
 the fact: `main-guard.yml` runs on every push to `main` (`scripts/check-main-push.sh`); when the pusher's user ID is not a
-`founder` row of `.github/accounts.txt` it reverts the pushed commits with new commits (never a force push), disables the
-manager workflow and opens an `area:security` + `blocked` issue for the founders (`docs/runbooks/ci-guards.md`). The agents'
+`founder` row of `.github/accounts.txt` it reverts the pushed commits with new commits (never a force push), cancels and
+disables every workflow that holds a secret or write scope and opens an `area:security` + `blocked` issue for the founders
+(`docs/runbooks/ci-guards.md`). The agents'
 token cannot change that workflow (no `workflow` scope), and pushes made with the workflow's own token start no workflow.
 A push of founder-only files onto a founder's branch is caught by the pusher ledger in `guards` (every commit of a PR that
 changes founder-only files must have been pushed by a founder). Pushing our code to another repository is caught by the

@@ -2,7 +2,7 @@
 # Posts an agent's final answer from a fixed workflow step (the agent itself cannot post or label): scans the answer for
 # secrets with the repo's .gitleaks.toml, then posts it.
 #   pr mode:    the answer must start with "REVIEW TEAM RESULT: PASS|FAIL"; labels are set from that line.
-#   issue mode: the answer is posted as a comment on the issue (daily report, weekly audit); no labels.
+#   issue mode: the answer is posted as a comment on the issue (a founder's @claude answer, claude.yml); no labels.
 #   daily-reports mode: like issue mode on the open issue titled "Daily reports" (created if missing); no number argument.
 # The answer comes from the ANSWER environment variable: the text a Claude job handed over as a job output
 # (scripts/check-claude-answer.sh); the post job runs no Claude and has no execution file.

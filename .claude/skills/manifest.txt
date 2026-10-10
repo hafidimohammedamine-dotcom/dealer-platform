@@ -1,6 +1,6 @@
 # Every folder in .claude/skills is listed here once: "<name> <ours|third-party> [requires=<skill>]" (blank and # lines ignored).
-# Third-party skills also need: requires=<one of our own override skills>, NOTICE.md, an UPSTREAM-LICENSE file, and a
-# SKILLS-LOCK.md row whose commit matches NOTICE.md. Enforced by scripts/check-skills.sh and the guards workflow.
+# Third-party skills also need: requires=<one of our own override skills>, NOTICE.md, a license file at the top of the folder
+# (UPSTREAM-LICENSE, or upstream's own LICENSE, plain/.md/.txt), and a SKILLS-LOCK.md row whose commit matches NOTICE.md. Enforced by scripts/check-skills.sh and the guards workflow.
 manager ours
 review-pr ours
 daily-report ours

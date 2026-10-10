@@ -32,6 +32,8 @@ setup; echo 'enableScripts: true' > .yarnrc.yml; commit;   expect fail $A ".yarn
 setup; mkdir -p apps/admin; echo 'x' > apps/admin/.yarnrc.yml; commit; expect fail $A "a nested .yarnrc.yml" "apps/admin/.yarnrc.yml"
 setup; mkdir -p .yarn/plugins; echo 'x' > .yarn/plugins/p.cjs; commit; expect fail $A "a yarn plugin (.yarn/)" ".yarn/plugins/p.cjs"
 setup; echo b > yarn.lock; commit;                         expect ok   $A "yarn.lock is not founder-only"
+setup; echo '* export-ignore' > .gitattributes; commit;    expect fail $A ".gitattributes (archives and worktrees read attributes off)" ".gitattributes"
+setup; mkdir -p src; echo 'x' > src/.gitattributes; commit; expect fail $A "a nested .gitattributes" "src/.gitattributes"
 setup; mkdir -p .github/workflows; echo b > .github/workflows/ci.yml; commit; expect fail $A "any workflow (ci.yml)"
 setup; echo b > scripts/check-skills.sh; commit;           expect fail $A "check script"
 setup; echo b > scripts/gitleaks-config.test.sh; commit;   expect fail $A "gitleaks-config test changed"

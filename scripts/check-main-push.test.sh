@@ -16,7 +16,6 @@ case "$1 $2" in
   "run list") [ "$4" = agent-manager.yml ] && [ "$6" = in_progress ] && echo "${STUB_RUNNING_ID:-}"; exit 0;;   # one running manager shift
   "run cancel") exit "${STUB_CANCEL_RC:-0}";;
   "api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha="*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}"; exit 0;;
-  "api --paginate") case "$3" in "repos/owner/repo/actions/workflows/main-guard.yml/runs?status=success&per_page=100") printf '%s\n' "${STUB_FLOOR-ffffffffffffffffffffffffffffffffffffffff}"; exit 0;; esac; exit 9;;
   "api repos/owner/repo/compare/"*) printf '%s\n' "${STUB_REL:-behind}"; exit 0;;
 esac
 exit 9
@@ -42,8 +41,7 @@ check "founder push: nothing reverted, nothing disabled, no issue (only the chai
 fresh; push_commits 1; run fail "a founder's push after an unchecked push: the agents are stopped, an issue opened, nothing reverted" "reached main without passing the main guard (missing $BASE (runs: none))" 111 "$BASE" "$HEAD" STUB_RUNS=
 check "unchecked push: 8 workflows disabled, the issue names the commit, main untouched" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run (commit $3)" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
 fresh; push_commits 1; run fail "a cancelled run on the previous head counts as unchecked" "missing $BASE (runs: completed/cancelled)" 111 "$BASE" "$HEAD" STUB_RUNS=completed/cancelled
-fresh; push_commits 1; run ok "a previous head older than the guard's first passed commit is fine" "is on the default branch before the main guard's first passed commit" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_REL=ahead
-fresh; push_commits 1; run ok "the guard's very first run (no passed run yet) accepts the previous head" "has not passed any run yet" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_FLOOR=
+fresh; push_commits 1; run ok "a previous head older than the guard's floor is fine" "is on the default branch before the main guard existed (floor 596905e54f7ae8385c90f6d334db5f18a4427e28)" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_REL=ahead
 fresh; push_commits 1; run ok "a previous head whose run is still going: waited, then passed" "passed the main guard" 111 "$BASE" "$HEAD" "STUB_RUNS=completed/success in_progress/" MAIN_GUARD_WAIT=10
 fresh; push_commits 1; run fail "the previous head's runs cannot be listed: an error, not a pass" "could not list the main-guard runs of $BASE" 111 "$BASE" "$HEAD" STUB_RUNS_RC=1
 check "API error: nothing disabled, no issue" bash -c '! grep -q "gh workflow disable" "$1" && ! grep -q "gh issue create" "$1"' _ "$W/gh.log"

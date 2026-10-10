@@ -6,7 +6,8 @@
 #  - The token must be fine-grained (github_pat_..., no classic scopes) or classic (ghp_...) with exactly the scope `repo`:
 #    no `workflow` (it cannot change .github/workflows), no admin, gist or other scopes. Fine-grained tokens cannot cover
 #    a personal account's repository for a collaborator, so the agents' account uses a classic `repo` token until the
-#    repository moves to an organization.
+#    agents run on a GitHub App installation token limited to this repository (founder issue #35: then this check learns
+#    the app's identity and rejects `ghp_` tokens).
 #  - The guard workflows must be active and the default branch's head must have passed the main guard: the agents' token
 #    (classic `repo` covers the Actions API) could disable `main-guard.yml` or cancel its run and then push to the default
 #    branch; this check, run at the start and end of every shift, turns that into a stopped shift and a visible failure.
@@ -14,7 +15,7 @@
 # Outside GitHub Actions (tests) the environment may override: GH_BIN (a stub gh), GH_REPO (owner/repo), GUARD_WORKFLOWS,
 # AGENT_TOKEN_WAIT (seconds to wait for a main-guard run still in progress). Inside Actions (GITHUB_ACTIONS set) none of
 # these is read - a Claude step that ran before could have written $GITHUB_ENV - and the repository is GITHUB_REPOSITORY
-# (gh_context and the other helpers in scripts/check-accounts-lib.sh).
+# (gh_context and the other helpers in scripts/check-github-lib.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
@@ -55,10 +56,5 @@ for w in $WFS; do
   state=$("$GH" api "repos/$REPO/actions/workflows/$w" --jq .state 2>/dev/null) || { echo "ERROR: could not read the state of workflow $w."; exit 1; }
   [ "$state" = active ] || { echo "ERROR: workflow $w is '$state', not active. A founder checks who disabled it (the repository's audit log) and re-enables it; agents must not run until then."; exit 1; }
 done
-head=$("$GH" api "repos/$REPO/commits/HEAD" --jq .sha 2>/dev/null) || { echo "ERROR: could not read the default branch's head commit."; exit 1; }
-[[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: could not read the default branch's head commit."; exit 1; }
-if ! out=$(main_guard_passed "$head" "$WAIT"); then
-  case "$out" in ERROR:*) echo "$out";; *) echo "ERROR: the default branch's head ($head) has no successful main-guard run ($out). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before any agent runs.";; esac
-  exit 1
-fi
-echo "Agent token OK: $kind, runs as agent account '$login', owns no repositories; guard workflows active, main-guard passed on $head"
+out=$(main_head_passed "$WAIT" "any agent runs") || { echo "$out"; exit 1; }
+echo "Agent token OK: $kind, runs as agent account '$login', owns no repositories; guard workflows active, main head: $out"

@@ -71,7 +71,7 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |
 | `infra/`, `Dockerfile*` | Deploy, migrations job, monitoring, backups | devops |
 | `docs/` | API docs, dealer help center, runbooks | docs |
-| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), `.github/` (CI, guards, agent workflows, CODEOWNERS, accounts.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt`, `.yarnrc.yml` and `.yarn/` (in any folder: lifecycle scripts stay off; a package that needs its build script is allowed one by one by a founder) | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
+| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), `.github/` (CI, guards, agent workflows, CODEOWNERS, accounts.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt`, `.yarnrc.yml` and `.yarn/` (in any folder: lifecycle scripts stay off; a package that needs its build script is allowed one by one by a founder), `.gitattributes` (in any folder: the guards read every PR tree with attributes off) | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
 
 **Never edit a folder you don't own.** If you need a change elsewhere, comment on the GitHub
 issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes it.

@@ -13,10 +13,5 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/check-github-lib.sh"
 gh_context || exit 1
 if [ -n "${GITHUB_ACTIONS:-}" ]; then WAIT=120; else WAIT="${MAIN_HEAD_WAIT:-120}"; fi
-head=$("$GH" api "repos/$REPO/commits/HEAD" --jq .sha 2>/dev/null) || { echo "ERROR: could not read the default branch's head commit."; exit 1; }
-[[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: could not read the default branch's head commit."; exit 1; }
-if ! out=$(main_guard_passed "$head" "$WAIT"); then
-  case "$out" in ERROR:*) echo "$out";; *) echo "ERROR: the default branch's head ($head) has no successful main-guard run ($out). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before any Claude job runs.";; esac
-  exit 1
-fi
+out=$(main_head_passed "$WAIT" "any Claude job runs") || { echo "$out"; exit 1; }
 echo "Main head OK: $out"

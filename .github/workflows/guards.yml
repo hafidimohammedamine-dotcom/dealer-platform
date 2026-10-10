@@ -21,6 +21,7 @@ jobs:
     env:
       BASE_REF: ${{ github.base_ref }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       # Both come from the event, not from anything the PR controls: who opened the PR, and who triggered this run.
       # Numeric IDs, not logins (a login can be renamed and re-registered).
       USER_IDS: ${{ github.event.pull_request.user.id }},${{ github.event.sender.id }}
@@ -33,7 +34,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -41,18 +42,16 @@ jobs:
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
-        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "" origin "$HEAD_SHA"
       - name: Pinned Python packages for the guard scripts (hash-checked)
         run: bash scripts/check-python-deps.sh >> "$GITHUB_PATH"
       - name: Who pushed each commit (from the ledger written by pusher-ledger.yml)
         env:
           GH_TOKEN: ${{ github.token }}
           GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # This run judges the head the event names; a branch that moved since gets its own run.
-          [ "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" ] || { echo "ERROR: the fetched PR head is not this event's head sha ($HEAD_SHA); the PR moved, see the newer run"; exit 1; }
+          # The prepare step proved the fetched head is the event's; this run judges that head.
           bash scripts/check-pushers.sh verify "origin/$BASE_REF" "$HEAD_SHA" .github/accounts.txt | tee /tmp/pushers.txt
       - name: Founder-only files (PR author and every pusher must be founders)
         run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$USER_IDS" .github/accounts.txt /tmp/pushers.txt
@@ -60,10 +59,7 @@ jobs:
         # /tmp/pr has rule files removed, so check the PR's own .claude/ (skills and agents) from git, not from that copy.
         run: |
           set -euo pipefail
-          rm -rf /tmp/pr-skills && mkdir -p /tmp/pr-skills
-          if git cat-file -e refs/remotes/pr/head:.claude 2>/dev/null; then
-            git archive refs/remotes/pr/head .claude | tar -x -C /tmp/pr-skills
-          fi
+          bash scripts/check-pr-archive.sh refs/remotes/pr/head /tmp/pr-skills .claude
           bash scripts/check-skills.sh /tmp/pr-skills
       - name: Third-party skills compared with the base branch (no quiet switch to 'ours' or to another repo)
         run: bash scripts/check-skills-vs-base.sh . /tmp/pr-skills
@@ -75,7 +71,7 @@ jobs:
           # The PR's whole tree unpacked as data (never run; /tmp/pr has the rule files removed, but the pins cover them):
           # its workflows, local actions, pins.txt and every pinned file. The accounts list comes from the base branch (a PR
           # cannot add itself). Skill denies are required for every third-party skill named in the base or the PR manifest.
-          rm -rf /tmp/pr-wf && mkdir -p /tmp/pr-wf && git archive refs/remotes/pr/head | tar -x -C /tmp/pr-wf
+          bash scripts/check-pr-archive.sh refs/remotes/pr/head /tmp/pr-wf
           bash scripts/check-workflows.sh /tmp/pr-wf --accounts .github/accounts.txt \
             --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
       - uses: ./.github/actions/install-gitleaks

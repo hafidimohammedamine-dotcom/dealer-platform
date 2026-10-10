@@ -32,8 +32,8 @@ Any workflow or composite action
 - `.github/pins.txt is missing`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is not
   a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly `pins_required` from the policy: all
   of `.github/actions/`, every `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml`,
-  `.github/accounts.txt`, and every `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere outside `.git`,
-  `.worktrees` and `node_modules`, with their current sha256 (`bash scripts/check-pins.sh verify` applies the same rule in
+  `.github/accounts.txt`, `.yarnrc.yml`, and every `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere
+  outside `.git`, `.worktrees` and `node_modules`, with their current sha256 (`bash scripts/check-pins.sh verify` applies the same rule in
   every pin step): `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
   the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
   <x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
@@ -91,8 +91,9 @@ Who may start what, and the agents' token (any workflow)
   `'github-actions[bot]'` (bot names cannot be registered).
 - `<where>: user ID <n> is not in .github/accounts.txt` - every user ID an `if` compares must be listed (founder or agent).
 - `<where>: compare user IDs only as '<user id> == <number>' (no contains/fromJSON/variables)`.
-- `<file>: must let only a founder account start it` / `... an agent account ...` - `claude.yml` and `agent-manager.yml` keep
-  an `if` comparing a founder's ID, `review.yml` (fix rounds) one comparing the agents' ID (policy `id_gated`).
+- `<file>: must let only a founder account start it` / `... an agent account ...` - the workflows in `id_gated` keep an `if`
+  comparing a founder's ID (`agent-manager.yml`, `claude.yml`, `agent-daily-report.yml`, `agent-weekly-audit.yml`,
+  `egress-lock-claude.yml`) or the agents' ID (`review.yml`, fix rounds).
 - `<job>: holds the agents' token, so its first step after checkout and the lock must run 'bash scripts/check-agent-token.sh
   .github/accounts.txt'` - every job that mentions `AGENT_GH_TOKEN_V2` (any case), and the manager always, checks the token
   first (`docs/runbooks/agent-network-lock.md`, "The agents' GitHub token"). `the agents' token check step may only have name
@@ -132,7 +133,9 @@ Jobs with a claude step
 - `permissions must be a mapping of scopes (no read-all/write-all)`; `permission <scope>: <value> not allowed (...)` - for
   every job and the workflow level: only the scopes in `permission_scopes` (`actions`, `contents`, `issues`,
   `pull-requests`, `statuses`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
-  `claude.yml` and `egress-lock-claude.yml`), each read, write or none. `id-token: write is not allowed in a workflow that
+  `egress-lock-claude.yml`, for its `oidc` job), each read, write or none. `id-token: write, so its 'if' must contain
+  github.run_attempt == '1'` / `... must run 'bash scripts/check-main-head.sh' before the lock` - a job that can mint an
+  OIDC token runs only on a first attempt and only after the main-head check. `id-token: write is not allowed in a workflow that
   runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access. `permission <scope>: write
   is not allowed in <file> (its job token is read-only; the agents act with their own token)` - a workflow in
   `read_only_workflows` (`agent-manager.yml`) may hold no write scope at any level.
@@ -175,7 +178,7 @@ Claude steps
   Read rules, so the process that holds the Claude token cannot be made to read `/proc`, `/dev` or the runner's folders;
   measured, see `docs/runbooks/agent-network-lock.md`) and the fixed `read_only_bash` commands (`gh` views and lists, and
   exactly `date -u`: `date:*` would allow `date -f <file>`, which echoes a file's lines; yarn commands are gone from the
-  Claude steps because yarn runs code from `.yarnrc.yml` and `.yarn/plugins`, so the weekly audit takes `yarn npm audit`
-  in a fixed step before Claude and the auditors read `/tmp/audit-meta/npm-audit.json`), plus any `extra_tools` listed for that file (`Read(//tmp/pr/**)` and
+  Claude steps because yarn runs code from `.yarnrc.yml` and `.yarn/plugins`, so the weekly audit's `deps` job (no secret)
+  runs `yarn npm audit` and the `audit` job downloads `npm-audit.json` as an artifact into `/tmp/audit-meta`), plus any `extra_tools` listed for that file (`Read(//tmp/pr/**)` and
   `Read(//tmp/pr-meta/**)` for the review, `Read(//tmp/audit-meta/**)` for the audit, the scrub probe's one command). No `git`, `find`, `sort`, `cat` or anything that can write a file: the PR's history
   is written as plain files before Claude starts (`/tmp/pr-meta`, `/tmp/audit-meta`).

@@ -42,7 +42,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -55,7 +55,7 @@ jobs:
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
-        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF" origin "$HEAD_SHA"
       - name: Wait for CI and guards on the PR head (max 30 min)
         id: status
         run: bash scripts/check-pr-ci-status.sh "$PR_NUMBER" "$HEAD_SHA" 1800 30
@@ -80,7 +80,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -109,7 +109,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

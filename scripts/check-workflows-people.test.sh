@@ -79,8 +79,21 @@ fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p = sys.argv[1]; s = open(p).read(); open(p, "w").write(s[:s.index("  after:\n")])
 PYEOF
 expect fail "manager without the after job" "needs a job 'after' that runs the after-shift checks on a fresh runner"
-fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && github.run_attempt == \'1\'\n' $'    needs: shift\n    if: success() && github.run_attempt == \'1\'\n'; expect fail "after job that skips failed shifts" "must have needs: shift and if: always() && github.run_attempt == '1'"
-fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && github.run_attempt == \'1\'\n' $'    if: always() && github.run_attempt == \'1\'\n'; expect fail "after job without needs" "must have needs: shift and if: always()"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && needs.shift.result != \'skipped\' && github.run_attempt == \'1\'\n' $'    needs: shift\n    if: success() && github.run_attempt == \'1\'\n'; expect fail "after job that skips failed shifts" "must have needs: shift and if: always() && needs.shift.result != 'skipped' && github.run_attempt == '1'"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && needs.shift.result != \'skipped\' && github.run_attempt == \'1\'\n' $'    needs: shift\n    if: always() && github.run_attempt == \'1\'\n'; expect fail "after job without the skipped-shift gate (a non-founder dispatch would reach the token)" "must have needs: shift and if: always() && needs.shift.result != 'skipped'"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && needs.shift.result != \'skipped\' && github.run_attempt == \'1\'\n' $'    if: always() && github.run_attempt == \'1\'\n'; expect fail "after job without needs" "must have needs: shift and if: always()"
+# A job that can mint an OIDC token runs only on a first attempt and only after the main-head check
+fresh; swap egress-lock-claude.yml "    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15" "    if: (github.event_name == 'schedule' || github.actor_id == '238822878')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15"; expect fail "oidc job without the first-attempt gate" "job oidc: id-token: write, so its 'if' must contain github.run_attempt == '1'"
+fresh; python3 - "$T/$W/egress-lock-claude.yml" <<'PYEOF'
+import sys; p = sys.argv[1]; s = open(p).read(); i = s.index("  oidc:\n"); tail = s[i:]
+tail = tail.replace("      - name: The default branch's head passed the main guard (no unchecked push mints a token)\n        run: bash scripts/check-main-head.sh\n", "", 1)
+open(p, "w").write(s[:i] + tail)
+PYEOF
+expect fail "oidc job without the main-head check" "job oidc: id-token: write, so it must run 'bash scripts/check-main-head.sh' before the lock"
 fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p = sys.argv[1]; s = open(p).read()
 i = s.index("  after:\n"); after = s[i:]

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Reads .github/accounts.txt for the guard scripts (founder-owned): the one parser of that file. Sourced by
-# check-founder-files.sh, check-agent-token.sh, check-agent-events.sh, check-pushers.sh, check-main-push.sh and
-# check-workflows.sh (which hands the rows to Python); the GitHub API helpers those guards share are in check-github-lib.sh. Format: "<id> <login> <role>" per line, role founder or agent; '#' starts a comment; blank lines skipped.
+# check-founder-files.sh, check-agent-token.sh, check-agent-events.sh, check-main-head.sh, check-pushers.sh,
+# check-main-push.sh and check-workflows.sh (which hands the rows to Python); the GitHub API helpers those guards share are
+# in check-github-lib.sh. Format: "<id> <login> <role>" per line, role founder or agent; '#' starts a comment; blank lines skipped.
 # Pinned in .github/pins.txt: a change here needs `bash scripts/check-pins.sh update` in the same founder PR.
 
 # accounts_rows <file>: prints "<id> <login> <role>" for every entry. Returns 1 (with a message) on a missing file, a bad

@@ -11,7 +11,6 @@ cat > "$T/gh" <<'STUB'
 case "$*" in
   'api repos/owner/repo/commits/HEAD --jq .sha') printf '%s\n' "${STUB_HEAD-cccccccccccccccccccccccccccccccccccccccc}"; exit "${STUB_HEAD_RC:-0}";;
   'api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha='*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}";;
-  'api --paginate repos/owner/repo/actions/workflows/main-guard.yml/runs?status=success&per_page=100 --jq .workflow_runs[].head_sha') printf '%s\n' "${STUB_FLOOR-ffffffffffffffffffffffffffffffffffffffff}";;
   'api repos/owner/repo/compare/'*' --jq .status') printf '%s\n' "${STUB_REL:-behind}";;
   *) exit 9;;
 esac
@@ -25,8 +24,7 @@ expect() { # expect <ok|fail> <name> <message> [env...]
 expect ok   "main's head passed the main guard"         "Main head OK: ok $H passed the main guard"
 expect fail "main's head has no run (a skip-ci push)"   "has no successful main-guard run (missing $H (runs: none))" STUB_RUNS=
 expect fail "main's head's run was cancelled"           "missing $H (runs: completed/cancelled)" STUB_RUNS=completed/cancelled
-expect ok   "a head older than the first passed commit" "is on the default branch before the main guard's first passed commit" STUB_RUNS= STUB_REL=ahead
-expect ok   "the guard's first run ever (no passed run)" "has not passed any run yet" STUB_RUNS= STUB_FLOOR=
+expect ok   "a head older than the floor"            "is on the default branch before the main guard existed" STUB_RUNS= STUB_REL=ahead
 expect fail "a run still going after the wait"          "has not finished after 10s" STUB_RUNS=in_progress/
 expect fail "the runs cannot be listed"                 "could not list the main-guard runs" STUB_RUNS_RC=1
 expect fail "the head cannot be read"                   "could not read the default branch's head commit" STUB_HEAD_RC=1

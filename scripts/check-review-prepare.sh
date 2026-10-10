@@ -5,9 +5,12 @@
 # so reviewers still see those files in 'git diff'.
 # With <base-ref>, it also writes the PR's history as plain files to <dest>-meta (diff-stat.txt, diff.patch, files.txt,
 # log.txt, log-patch.txt), so reviewers read them instead of running git (whose --output= could write files).
-# Usage: GIT_TOKEN=<token or empty> scripts/check-review-prepare.sh <pr-number> <dest> [base-ref] [remote]
+# Usage: GIT_TOKEN=<token or empty> scripts/check-review-prepare.sh <pr-number> <dest> [base-ref] [remote] [expected-head-sha]
+# With <expected-head-sha> (the event's head), a PR that moved since the event fails instead of being reviewed against
+# older CI and guards results.
 set -euo pipefail
-PR="${1:?pr number}"; DEST="${2:?destination}"; BASE="${3:-}"; REMOTE="${4:-origin}"
+PR="${1:?pr number}"; DEST="${2:?destination}"; BASE="${3:-}"; REMOTE="${4:-origin}"; EXPECT="${5:-}"
+[ -z "$EXPECT" ] || [[ "$EXPECT" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: bad expected head sha: $EXPECT"; exit 1; }
 [[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: bad PR number: $PR"; exit 1; }
 [ ! -e "$DEST" ] || { echo "ERROR: $DEST already exists"; exit 1; }
 META="$DEST-meta"
@@ -22,6 +25,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-git-lib.sh
 . "$HERE/check-git-lib.sh"
 git "${auth[@]}" "${NOFILTER[@]}" fetch -q "$REMOTE" "+refs/pull/$PR/head:refs/remotes/pr/head"
+if [ -n "$EXPECT" ]; then   # the fetched head must be the event's: a newer push must not be reviewed against older results
+  got=$(git rev-parse refs/remotes/pr/head)
+  [ "$got" = "$EXPECT" ] || { echo "ERROR: the fetched PR head is $got, not this event's $EXPECT; the PR moved, see the newer run"; exit 1; }
+fi
+git_no_attributes "$(git rev-parse --git-dir)"   # the PR's .gitattributes must not rewrite or hide what the reviewers see
 git "${NOFILTER[@]}" worktree add -q --detach "$DEST" refs/remotes/pr/head
 find "$DEST" -path "$DEST/.git" -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json \) -print0 | xargs -0 -r rm -rf
 find "$DEST" -path "$DEST/.git" -prune -o -type d -name .claude -print0 | xargs -0 -r rm -rf

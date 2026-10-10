@@ -27,7 +27,7 @@ read_allow_list() {
   # worker streams results to results-receiver and reports the finished job to the run service, whose generated name
   # (run-actions-<n>-azure-<region>) a job without `id-token: write` cannot read. Without these the job hangs after its last
   # step until its timeout. They answer only a bare "OK" or 400 for a foreign Host header (no fronting), so the run service is
-  # allowed as that one name pattern; the OIDC host of a job with `id-token: write` (claude.yml) is the same service.
+  # allowed as that one name pattern; the OIDC host of a job with `id-token: write` (the probe workflow's oidc job) is the same service.
   RUNNER_NAMES=(broker.actions.githubusercontent.com results-receiver.actions.githubusercontent.com)
   RUNNER_PATTERN='run-actions-[0-9]+-azure-[a-z0-9]+\.actions\.githubusercontent\.com'
   if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then

@@ -15,3 +15,6 @@ CLAUDE.local.md                  @hafidimohammedamine-dotcom
 /.gitleaksignore                 @hafidimohammedamine-dotcom
 /packages/contracts/             @hafidimohammedamine-dotcom
 /packages/data/override-allowlist.txt @hafidimohammedamine-dotcom
+.yarnrc.yml                      @hafidimohammedamine-dotcom
+.yarn/                           @hafidimohammedamine-dotcom
+.gitattributes                   @hafidimohammedamine-dotcom

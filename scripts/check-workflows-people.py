@@ -98,6 +98,7 @@ def check_after_shift(name, doc):
     for r in want["runs"]:
         if r not in runs:
             core.err(f"{jw}: must run exactly '{r}'")
+    events_run = next(r for r in want["runs"] if "check-agent-events.sh" in r)
     for jn, other in (doc.get("jobs") or {}).items():   # elsewhere the event check may run only before a claude step
         if jn == want["job"] or not isinstance(other, dict):
             continue
@@ -107,8 +108,8 @@ def check_after_shift(name, doc):
             seen_claude = seen_claude or (isinstance(st, dict) and core.is_claude(st))
             if "check-agent-events.sh" in run and seen_claude:
                 core.err(f"{name} job {jn} step {i}: after Claude ran, the event check belongs in job '{want['job']}' only")
-            elif "check-agent-events.sh" in run and run.strip() != want["runs"][1]:
-                core.err(f"{name} job {jn} step {i}: the event check before the shift must run exactly '{want['runs'][1]}'")
+            elif "check-agent-events.sh" in run and run.strip() != events_run:
+                core.err(f"{name} job {jn} step {i}: the event check before the shift must run exactly '{events_run}'")
 
 
 def check_rerun_guard(name, doc):
@@ -121,3 +122,18 @@ def check_rerun_guard(name, doc):
             continue
         if want not in str(job.get("if", "")):
             core.err(f"{name} job {jn}: holds a secret, so its 'if' must contain {want} (a re-run of an old run would get today's secrets)")
+
+
+def check_id_token_jobs(name, doc):
+    """A job that can mint an OIDC token (id-token: write) runs only on a run's first attempt and only after the main-head
+    check: a re-run of an old run, or an unchecked push, must not mint one."""
+    want = core.P["rerun_guard"]; head = core.P["main_head_guard"]
+    for jn, job in (doc.get("jobs") or {}).items():
+        perms = job.get("permissions") if isinstance(job, dict) else None
+        if not isinstance(perms, dict) or perms.get("id-token") != "write":
+            continue
+        if want not in str(job.get("if", "")):
+            core.err(f"{name} job {jn}: id-token: write, so its 'if' must contain {want}")
+        runs = [str(s.get("run", "")).strip() for s in (job.get("steps") or []) if isinstance(s, dict)]
+        if head not in runs:
+            core.err(f"{name} job {jn}: id-token: write, so it must run '{head}' before the lock")

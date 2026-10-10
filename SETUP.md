@@ -64,8 +64,8 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
 
 When you (a founder) change a pinned file - anything under `.github/actions/`, a `scripts/check-*` script (tests excepted),
-`.gitleaks.toml`, `.github/accounts.txt`, `CLAUDE.md`, a `CLAUDE.local.md`, a `.mcp.json` or anything under a `.claude/`
-folder (the full rule is `pins_required` in `scripts/check-workflows-policy.json`) - run `bash scripts/check-pins.sh update`
+`.gitleaks.toml`, `.github/accounts.txt`, `.yarnrc.yml`, `CLAUDE.md`, a `CLAUDE.local.md`, a `.mcp.json` or anything under a
+`.claude/` folder (the full rule is `pins_required` in `scripts/check-workflows-policy.json`) - run `bash scripts/check-pins.sh update`
 in the same PR: every workflow checks those files against `.github/pins.txt` before it runs them, fails if the tree holds
 one that is not listed, and the agents cannot change that check.
 

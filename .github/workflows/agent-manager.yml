@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -90,7 +90,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -101,7 +101,7 @@ jobs:
     # $GITHUB_PATH of its own job): the pinned scripts re-check the agents' token and the guard workflows, and that the
     # agents' account did nothing outside this repository in the last day (the token can comment anywhere).
     needs: shift
-    if: always() && github.run_attempt == '1'
+    if: always() && needs.shift.result != 'skipped' && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -116,7 +116,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

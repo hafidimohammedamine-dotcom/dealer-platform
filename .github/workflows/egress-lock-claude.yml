@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -57,7 +57,7 @@ jobs:
       - name: Claude answered under the lock, and Skill(payload) was denied
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -105,7 +105,7 @@ jobs:
       - name: The tools saw no Claude token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -130,7 +130,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -155,21 +155,26 @@ jobs:
       - name: Every read outside the checkout was denied, and no tool result holds a token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           python3 -I scripts/check-claude-probe.py read-deny "$EXEC_FILE"
   oidc:
-    # Like claude.yml (id-token: write): the lock must allow exactly this run's OIDC token host, and nginx must accept its
-    # long generated name. Prints the token's length only, never the token. From main only: never with PR code.
-    if: github.event_name == 'schedule' || github.actor_id == '238822878'
+    # The only job anywhere with id-token: write: the lock must allow exactly this run's OIDC token host, and nginx must
+    # accept its long generated name. Prints the token's length only, never the token. From main only, first attempt
+    # only, after the main-head check: a re-run or an unchecked push must not mint a token. (No cloud or Railway trust
+    # policy accepts this repository's OIDC tokens; a founder confirms that stays so.)
+    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read   # the main-head check reads the main guard's runs
       id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -177,11 +182,13 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+          PINS_SHA256: "bf3ba50b04da090d0cd26b964699b37f5f136c97a97024cd96b16e5ef7f266e4"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push mints a token)
+        run: bash scripts/check-main-head.sh
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - name: An OIDC token can be fetched under the lock
