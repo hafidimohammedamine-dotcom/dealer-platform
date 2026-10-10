@@ -25,6 +25,10 @@ jobs:
           unshare -U true && echo "unshare -U: allowed" || echo "unshare -U: blocked"
           unshare -Ur true && echo "unshare -Ur: allowed" || echo "unshare -Ur: blocked"
           command -v podman && { podman unshare true && echo "podman unshare: allowed" || echo "podman unshare: blocked"; } || true
+          podman unshare id || true
+          podman unshare grep -i cap /proc/self/status || true
+          ls -l /usr/bin/newuidmap /usr/bin/newgidmap || true
+          cat /proc/self/attr/current || true
       - name: OIDC token under the lock (length only)
         run: |
           body=$(curl -sS --max-time 20 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=lock-test")

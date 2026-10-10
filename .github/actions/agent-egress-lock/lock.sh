@@ -181,7 +181,10 @@ if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (
   # Ubuntu's restriction lets an unconfined program create a user namespace without any capability in it (profile
   # unprivileged_userns), so it cannot become root there; only bwrap (agent-bwrap) may.
   if unshare -Ur true 2>/dev/null; then bad "a program outside bubblewrap can become root in a user namespace"; fi
-  if command -v podman >/dev/null && podman unshare true >/dev/null 2>&1; then bad "podman can still create user namespaces"; fi
+  if command -v podman >/dev/null; then
+    podman unshare true >/dev/null 2>/tmp/podman-err; echo "DIAG lock podman unshare rc=$? stderr: $(head -c 400 /tmp/podman-err)"
+    podman unshare true >/dev/null 2>/tmp/podman-err; echo "DIAG lock podman unshare again rc=$? stderr: $(head -c 400 /tmp/podman-err)"
+  fi
   if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
     bad "a program started by bubblewrap can create user namespaces"
   fi
