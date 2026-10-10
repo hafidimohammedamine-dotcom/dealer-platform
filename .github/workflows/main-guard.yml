@@ -5,7 +5,10 @@
 # whose hash sits in this file) must pass first. On a mismatch the fallback step, written here with the founders' IDs, undoes
 # the push without running any repository file. Every run also checks that the previous push's head passed the main guard
 # itself (a push whose head commit says [skip ci] starts no workflow; a cancelled run passed nothing), and the hourly schedule
-# checks main's head the same way, so an unchecked push stops the agents within the hour.
+# checks main's head the same way, so an unchecked push stops the agents within the hour. The revert commit pushed here
+# starts no run (a workflow's token starts none), so it is marked with the guards/main-guard commit status instead; a
+# founder who has read an unchecked commit marks it the same way by running this workflow by hand with its sha (the status
+# is posted only when the run was started by a founder's account; the agents' token cannot post it as github-actions[bot]).
 name: Main guard
 run-name: "Main guard @ ${{ github.sha }} by user ID ${{ github.event.sender.id }}"
 on:
@@ -13,10 +16,17 @@ on:
     branches: [main]
   schedule:
     - cron: "37 * * * *"   # hourly: main's head must have passed the main guard
+  workflow_dispatch:
+    inputs:
+      accept_sha:
+        description: "Commit on main a founder has read and accepts as checked (40-hex sha)"
+        required: true
+        type: string
 permissions:
   contents: write   # revert commits on main
   actions: write    # cancel and disable every workflow that holds a secret or write scope after a bad push
   issues: write     # the security issue
+  statuses: write   # the guards/main-guard status on the revert commit, or on a commit a founder accepts
 jobs:
   guard:
     runs-on: ubuntu-latest
@@ -30,18 +40,19 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "ea1851a35cb8b46ee4d23784089aa6af81687d077de03cdeb5079773348c0a0b"
+          PINS_SHA256: "b29d8f157222770b21285cbd11463addd79fd91498726432ca781bb217ac812e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
       - name: The pusher must be a founder; otherwise revert, stop the agents, open an issue
+        # Push: <pusher id> <before> <after>. Schedule: schedule - -. Run by hand: accept <actor id> <sha to accept>.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || github.event.sender.id }}
-          BEFORE: ${{ github.event.before || '-' }}
-          AFTER: ${{ github.event.after || '-' }}
+          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}
+          BEFORE: ${{ github.event_name == 'workflow_dispatch' && github.event.sender.id || github.event.before || '-' }}
+          AFTER: ${{ github.event.inputs.accept_sha || github.event.after || '-' }}
         run: bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt
       - name: If the pins did not match, undo the push from this file alone (no repo script involved)
         # The founders' user IDs are written here, outside the pushed files' reach: 238822878 (.github/accounts.txt).
@@ -61,6 +72,8 @@ jobs:
           done=""
           if [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && ! git merge-base --is-ancestor "$BEFORE" "$AFTER"; then
             git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" && done="restored main to $BEFORE after a force push"
+          elif [ "$(git rev-parse HEAD)" != "$AFTER" ]; then
+            done="main is no longer at $AFTER (a later push, or a re-run of this job); nothing reverted"
           else
             n=0
             if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then commits=$(git rev-list --first-parent --max-count=50 "$AFTER")
@@ -70,7 +83,8 @@ jobs:
               # shellcheck disable=SC2086
               git revert --no-edit $m "$c" >/dev/null 2>&1 && n=$((n+1)) || { git revert --abort 2>/dev/null || true; break; }
             done
-            [ "$n" = 0 ] || { git push origin HEAD:refs/heads/main && done="reverted $n pushed commit(s) with new commits"; }
+            [ "$n" = 0 ] || { git push origin HEAD:refs/heads/main && done="reverted $n pushed commit(s) with new commits" \
+              && { gh api -X POST "repos/$GH_REPO/statuses/$(git rev-parse HEAD)" -f state=success -f context=guards/main-guard -f "description=revert by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the revert commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"; }; }
           fi
           for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml; do
             for st in in_progress queued; do for id in $(gh run list --workflow "$w" --status "$st" --json databaseId --jq '.[].databaseId' 2>/dev/null); do gh run cancel "$id" || true; done; done

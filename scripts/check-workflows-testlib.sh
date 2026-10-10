@@ -64,6 +64,7 @@ PIN_STEP_HERE
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
+          classify_inline_comments: "false"
           prompt: "Do the task."
           claude_args: |
             --model haiku

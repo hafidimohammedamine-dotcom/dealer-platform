@@ -77,8 +77,10 @@ only to the exact names and that pattern.
   failure ends with `self-test failed; see errors above`.
 - Any other `self-test: ...` message means the lock is not doing its job on this runner. Do not bypass it; open an
   `area:security` issue for the founders. The messages: `sudo still works`, `sudo still lists rules for this user (a
-  command-limited rule is left)`, `Docker still reachable`, `systemd lets this user start docker.socket`, `polkit (pkexec)
-  lets this user run commands as root` (the Docker and containerd units are masked before sudo goes), `group-writable admin
+  command-limited rule is left)`, `Docker still reachable`, `systemd lets this user run a transient unit as root` (`systemd-run -p User=root`),
+  `systemd lets this user start a system service` (`systemctl start systemd-tmpfiles-clean.service`, an unmasked unit:
+  the Docker and containerd units are masked before sudo goes, so starting those would fail for anyone and prove
+  nothing), `polkit (pkexec) lets this user run commands as root`, `group-writable admin
   socket still there`, `blocked host
   example.com reachable`, `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another
   name (SNI)`, `raw IP without a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not

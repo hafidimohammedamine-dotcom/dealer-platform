@@ -188,16 +188,34 @@ wiring (`git archive` of the PR head, base scripts on PR data, the upstream fetc
 change takes effect only after it merges, so the **next** PR's guards log must show the new steps passing.
 
 ## Workflow "Main guard" (job `guard`)
-Runs on every push to `main` and hourly (`schedule`). First, every run checks the chain: the previous push's head (hourly:
-`main`'s head) must have passed the main guard itself (`Chain: ok <sha> passed the main guard`, or `Chain: ok <sha> is on the
-default branch before the main guard existed (floor <sha>)`: the floor is `MAIN_GUARD_FLOOR` in `scripts/check-github-lib.sh`, main's head
-when the guard was written, and a commit passes without a run only if GitHub's compare API says it is an ancestor of it). `commit <sha> reached main without passing the main guard (missing <sha> (runs: ...))`
-means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or the workflow disabled at the
-time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to main passed no main-guard
-run (commit <sha>)` without reverting anything (it cannot tell what that push contained); founders read that commit and
-the pushes after it (`git log --first-parent`), revert what should not be there, rotate `AGENT_GH_TOKEN_V2` if the agents'
-account pushed it, and re-enable the workflows. `the main-guard run for <sha> has not finished after 120s; re-run this job
-later` - the previous run is still going (rare; the hourly run will check). Then `scripts/check-main-push.sh` compares the
+Runs on every push to `main`, hourly (`schedule`) and by hand (`workflow_dispatch`, below). First, every push or scheduled
+run checks the chain: the previous push's head (hourly: `main`'s head) must have passed the main guard itself (`Chain: ok
+<sha> passed the main guard` - a successful run started by a push; the schedule and by-hand runs of the same commit do not
+count, so the hourly run never finds itself; `Chain: ok <sha> carries the guards/main-guard status (...)` - the commit status
+below; or `Chain: ok <sha> is on the default branch before the main guard existed (floor <sha>)`: the floor is
+`MAIN_GUARD_FLOOR` in `scripts/check-github-lib.sh`, main's head when the guard was written, and a commit passes without a
+run only if GitHub's compare API says it is an ancestor of it). `commit <sha> reached main without passing the main guard
+(missing <sha> (runs: ...))` means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or
+the workflow disabled at the time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to
+main passed no main-guard run (commit <sha>)` without reverting anything (it cannot tell what that push contained);
+founders read that commit and the pushes after it (`git log --first-parent`), revert what should not be there, rotate
+`AGENT_GH_TOKEN_V2` if the agents' account pushed it, **accept the commit** and re-enable the workflows. `the main-guard
+run for <sha> has not finished after 120s; re-run this job later` - the previous run is still going (rare; the hourly run
+will check).
+
+**The `guards/main-guard` commit status** stands in for a run on commits that can have none: the revert commit the guard
+pushes (a push made with a workflow's token starts no workflow) is marked right after the push (`revert by main-guard run
+<id>`), and a commit a founder has read is marked by running the workflow by hand: Actions -> Main guard -> Run workflow,
+`accept_sha` = the 40-hex sha (`Accepted: commit <sha> now carries the guards/main-guard status (founder ID <id>)`). The
+script posts the status only when the account that started the run is a `founder` row (`only a founder may accept a
+commit; user ID <id> is not one` - the agents' token can start the workflow, but is refused) and only for a commit on
+`main` (`is not on main (this checkout)`). The chain check accepts the status only when its creator is github-actions[bot]
+(user ID 41898282): a status the agents' token posts carries the agents' account as creator, and the workflow checker lets
+`statuses: write` into `main-guard.yml` and `pusher-ledger.yml` only, whose scripts are pinned. `could not be marked with
+the guards/main-guard status` - the revert went up but the status post failed; the next run flags the revert commit as
+unchecked, and a founder accepts it by hand. A re-run of a main-guard job, or a run whose push `main` has already moved past,
+reverts nothing (`main is no longer at <sha> (a later push, or a re-run of this job); nothing reverted`): reverting the same
+commits again would put them back. Then `scripts/check-main-push.sh` compares the
 pusher's user ID with the `founder` rows: a founder's push (every merge) prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder
 approval were bypassed (the agents' token can push to `main`; the free plan cannot block it): the job prints `::error::push to
 main by user ID <id> ...`, reverts the pushed first-parent commits with new commits (a merge commit against its first parent;

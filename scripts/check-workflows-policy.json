@@ -12,11 +12,15 @@
   "allowed_bots",
   "claude_args",
   "claude_code_oauth_token",
+  "classify_inline_comments",
   "github_token",
   "path_to_bun_executable",
   "path_to_claude_code_executable",
   "prompt"
  ],
+ "claude_inputs_required": {
+  "classify_inline_comments": "false"
+ },
  "allowed_bots": {
   "agent-manager.yml": "github-actions"
  },
@@ -155,12 +159,15 @@
   "actions",
   "contents",
   "issues",
-  "pull-requests",
-  "statuses"
+  "pull-requests"
  ],
  "per_file_permission_scopes": {
   "id-token": [
    "egress-lock-claude.yml"
+  ],
+  "statuses": [
+   "main-guard.yml",
+   "pusher-ledger.yml"
   ]
  },
  "permission_values": [

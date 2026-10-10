@@ -65,6 +65,9 @@ def check_inputs(fname, where, w, lock_id):
             core.err(f"{where}: allowed_bots may only be {P['allowed_bots']} (this file: {val!r})")
         for p in sorted(set(core.secrets_problems(str(val), allow_claude=(key == "claude_code_oauth_token")))):
             core.err(f"{where}: {p} in input {key!r}")
+    for key, val in P["claude_inputs_required"].items():  # e.g. no post-session step of the action may hold a token
+        if str(w.get(key, "")) != val:
+            core.err(f"{where}: input {key!r} must be {val!r} (the action's 'Post buffered inline comments' step would otherwise run after the session with the GitHub token)")
     for key, rx in LOCK_OUT_RE.items():  # the binaries the lock installed and checked, never a download inside the action
         m = rx.match(str(w.get(key, "")))
         if not m or (lock_id and m.group(1) != lock_id):

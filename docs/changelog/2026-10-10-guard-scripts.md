@@ -182,6 +182,13 @@
   head as GitHub sees it; the `id-token: write` rule requires the main-head check before the lock, by position; the
   tests share one fake `gh` (`write_gh_stub`) and `assert_no_token` from `check-testlib.sh`; founder decisions heading and
   wording, the 24-hour window as a design choice, the diagram with the lock test and the founder @claude path.
+- **Round 18:** the chain check counts push runs only (the hourly run no longer finds itself); the guard's revert commit
+  and a commit a founder accepts (`workflow_dispatch` with `accept_sha`, founder actor only) carry the `guards/main-guard`
+  commit status, accepted only from github-actions[bot] (`statuses: write` allowed in `main-guard.yml` and
+  `pusher-ledger.yml` alone); a re-run or a moved-on `main` reverts nothing; `MAIN_GUARD_FLOOR_OVERRIDE` removed and the
+  test overrides of `check-main-push.sh` ignored inside Actions; the lock's systemd self-test tries a transient root unit and
+  an unmasked service (the masked `docker.socket` proved nothing); every Claude step sets `classify_inline_comments: "false"`
+  (required by the checker) so no post-session step of the action holds a GitHub token.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

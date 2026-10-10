@@ -32,6 +32,12 @@ done
 for key in allowed_tools disallowed_tools settings plugins plugin_marketplaces; do
   fx; sed -i "s|          prompt: \"Do the task.\"|          prompt: \"Do the task.\"\n          $key: x|" "$T/$W/t.yml"; expect fail "claude input $key" "input '$key' not allowed"
 done
+# The action's post-session step "Post buffered inline comments" runs with the GitHub token (and `bun` from PATH) after
+# Claude ran, unless classify_inline_comments is "false": every claude step must say so.
+fx; sed -i '/          classify_inline_comments: "false"/d' "$T/$W/t.yml"; expect fail "classify_inline_comments missing" "input 'classify_inline_comments' must be 'false' (the action's 'Post buffered inline comments' step would otherwise run after the session with the GitHub token)"
+fx; sed -i 's|          classify_inline_comments: "false"|          classify_inline_comments: "true"|' "$T/$W/t.yml"; expect fail "classify_inline_comments true" "input 'classify_inline_comments' must be 'false'"
+fx; sed -i 's|          classify_inline_comments: "false"|          classify_inline_comments: false|' "$T/$W/t.yml"; expect fail "classify_inline_comments unquoted (YAML boolean, not the string the action compares)" "input 'classify_inline_comments' must be 'false'"
+fresh; sed -i '/          classify_inline_comments: "false"/d' "$T/$W/agent-manager.yml"; expect fail "the manager's claude step without classify_inline_comments: \"false\"" "input 'classify_inline_comments' must be 'false'"
 fx; sed -i 's|            --model haiku|            --model haiku\n            --disallowedTools "Read"|' "$T/$W/t.yml"; expect fail "two --disallowedTools" "needs exactly one --disallowedTools (found 2)"
 fx; sed -i 's|Skill(payload),Write|Skill(payload)x,Write|' "$T/$W/t.yml"; expect fail "near-miss Skill(payload)x" "does not deny Skill(payload)"
 fx; sed -i 's|            --model haiku|            --model|' "$T/$W/t.yml"; sed -i 's|            --disallowedTools|            --disallowedTools|' "$T/$W/t.yml"; expect fail "flag without a value" "needs a value"
@@ -242,6 +248,8 @@ fresh; sed -i 's/^      issues: read$/      issues: read\n      id-token: write/
 fresh; sed -i 's/^      contents: read$/      contents: write/' "$T/$W/agent-manager.yml"; expect fail "a write scope on the manager's job token" "permission contents: write is not allowed in agent-manager.yml (its job token is read-only"
 fresh; sed -i 's/^      pull-requests: read$/      pull-requests: read\n      id-token: write/' "$T/$W/claude.yml"; expect fail "id-token in claude.yml (prompt mode needs no OIDC token)" "permission id-token: write not allowed"
 fresh; grep -q 'id-token: write' "$T/$W/egress-lock-claude.yml" && expect ok "id-token stays allowed in the probe workflow's oidc job" "Workflow denies OK"
+fresh; sed -i 's/^      pull-requests: read$/      pull-requests: read\n      statuses: write/' "$T/$W/claude.yml"; expect fail "statuses: write in claude.yml (only main-guard.yml and pusher-ledger.yml post commit statuses as the bot)" "permission statuses: write not allowed"
+fresh; sed -i 's/^      issues: read$/      issues: read\n      statuses: read/' "$T/$W/agent-manager.yml"; expect fail "statuses in agent-manager.yml" "permission statuses: read not allowed"
 # Tag mode (a claude step without a prompt) is still checked where it could appear: on issue_comment only, never on PRs
 tagmode() { python3 - "$T/$W/claude.yml" "$1" "$2" <<'PYEOF'
 import re, sys; p, old, new = sys.argv[1:4]; s = open(p).read()

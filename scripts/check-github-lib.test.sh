@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests scripts/check-github-lib.sh (gh_context, token_account, main_guard_runs, main_guard_passed, main_head_passed) with a
+# Tests scripts/check-github-lib.sh (gh_context, token_account, main_guard_runs, main_guard_status, mark_main_guard_passed,
+# main_guard_passed, main_head_passed) with a
 # stubbed gh; the scripts that use them have their own tests.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,4 +47,15 @@ check "main_guard_runs: the runs of a head sha" test "$(mgr "$S40" 'STUB_RUNS=co
 check "main_guard_runs: an API error returns 1" bash -c '! ( GH="$1/bin/gh"; REPO=owner/repo; STUB_RUNS_RC=1; export STUB_RUNS_RC; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; main_guard_runs "$3" )' _ "$D" "$HERE" "$S40"
 case "$(mgp2 "$S40" STUB_RUNS=in_progress/)" in "ERROR: the main-guard run for $S40 has not finished after 0s"*) t PASS "main_guard_passed: a run still going with no wait left is an error";; *) t FAIL "main_guard_passed: still going";; esac
 check "main_guard_passed: a bad sha" test "$(mgp nope)" = "ERROR: bad commit sha: 'nope'"
+# The guards/main-guard status (the guard's own revert commit, or a commit a founder accepted) stands in for a run
+check "main_guard_passed: no run but the status" test "$(mgp2 "$S40" STUB_RUNS= STUB_MARKS=1)" = "ok $S40 carries the guards/main-guard status (the main guard's revert, or accepted by a founder)"
+check "main_guard_passed: a cancelled run and the status: the status wins" test "$(mgp2 "$S40" STUB_RUNS=completed/cancelled STUB_MARKS=1)" = "ok $S40 carries the guards/main-guard status (the main guard's revert, or accepted by a founder)"
+check "main_guard_passed: the status is asked before the floor compare (no compare when marked)" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; STUB_RUNS=; STUB_MARKS=1; export STUB_RUNS STUB_MARKS; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log2" main_guard_passed "$3" 0 >/dev/null ); ! grep -q "compare/" "$1/log2"' _ "$D" "$HERE" "$S40"
+check "main_guard_passed: the status call fails" test "$(mgp2 "$S40" STUB_RUNS= STUB_MARKS_RC=1)" = "ERROR: could not read the commit statuses of $S40."
+check "main_guard_passed: odd status text" test "$(mgp2 "$S40" STUB_RUNS= STUB_MARKS=lots)" = "ERROR: could not read the commit statuses of $S40."
+check "main_guard_status asks the combined status for context guards/main-guard, state success, creator 41898282" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log3" main_guard_status "$3" >/dev/null ); grep -qF "gh api repos/owner/repo/commits/$3/status --jq [.statuses[] | select(.context == \"guards/main-guard\" and .state == \"success\" and .creator.id == 41898282)] | length" "$1/log3"' _ "$D" "$HERE" "$S40"
+check "mark_main_guard_passed posts a success status with the context and the description" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log4" mark_main_guard_passed "$3" "revert by main-guard run 7" ); grep -qF "gh api -X POST repos/owner/repo/statuses/$3 -f state=success -f context=guards/main-guard -f description=revert by main-guard run 7" "$1/log4"' _ "$D" "$HERE" "$S40"
+check "mark_main_guard_passed: a failed post returns 1" bash -c '! ( GH="$1/bin/gh"; REPO=owner/repo; STUB_MARK_RC=1; export STUB_MARK_RC; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; mark_main_guard_passed "$3" x )' _ "$D" "$HERE" "$S40"
+check "main_guard_runs counts push runs only (the schedule and workflow_dispatch runs of the same head are left out)" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log5" main_guard_runs "$3" >/dev/null ); grep -qF "select(.event == \"push\")" "$1/log5"' _ "$D" "$HERE" "$S40"
+check "no MAIN_GUARD_FLOOR_OVERRIDE: the floor is the constant" bash -c '! grep -q "FLOOR_OVERRIDE" "$1/check-github-lib.sh"' _ "$HERE"
 summary

@@ -200,8 +200,9 @@ selftest_privileges() {
   if sudo -n -l >/dev/null 2>&1; then bad "sudo still lists rules for this user (a command-limited rule is left)"; fi
   DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point these AGENT_LOCK_* hooks at temp paths
   if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
-  # Nor can the job bring Docker back through systemd or polkit without sudo.
-  if systemctl --no-ask-password start docker.socket >/dev/null 2>&1; then bad "systemd lets this user start docker.socket"; fi
+  # Nor through systemd or polkit: a transient unit as root, or starting an unmasked system service (docker.socket is masked).
+  if command -v systemd-run >/dev/null && systemd-run --no-ask-password --wait --quiet -p User=root true >/dev/null 2>&1; then bad "systemd lets this user run a transient unit as root"; fi
+  if systemctl --no-ask-password start systemd-tmpfiles-clean.service >/dev/null 2>&1; then bad "systemd lets this user start a system service"; fi
   if command -v pkexec >/dev/null && pkexec --disable-internal-agent true >/dev/null 2>&1; then bad "polkit (pkexec) lets this user run commands as root"; fi
   # The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
   RUN_DIRS="${AGENT_LOCK_TEST_RUN_DIRS:-/run /var/run}"

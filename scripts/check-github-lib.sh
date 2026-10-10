@@ -25,11 +25,35 @@ token_account() {
   TOKEN_ROLE=$(account_field "$1" "$TOKEN_ID" 3)
 }
 
-# main_guard_runs <sha>: "status/conclusion" of every main-guard run whose head is that commit, space-separated (empty when
-# none); returns 1 on an API error.
+# main_guard_runs <sha>: "status/conclusion" of every main-guard run started by a push whose head is that commit,
+# space-separated (empty when none); returns 1 on an API error. Only push runs count: the hourly schedule run and a
+# founder's workflow_dispatch run also carry the head's sha, and the schedule run would otherwise find itself (still in
+# progress) when it checks main's head.
 main_guard_runs() {
   "$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?head_sha=$1&per_page=100" \
-    --jq '[.workflow_runs[] | "\(.status)/\(.conclusion)"] | join(" ")' 2>/dev/null
+    --jq '[.workflow_runs[] | select(.event == "push") | "\(.status)/\(.conclusion)"] | join(" ")' 2>/dev/null
+}
+
+# The commit status that stands in for a main-guard run: context guards/main-guard, state success, created by
+# github-actions[bot] (user ID 41898282, the identity of every workflow's job token). main-guard.yml posts it from its own
+# token on the revert commit it pushes (a push made with a workflow's token starts no workflow, so that commit has no run of
+# its own) and on a commit a founder accepts by hand (workflow_dispatch, after reading it). The agents' token cannot forge
+# it: a status it posts has the agents' account as creator, and no job the agents' code runs in holds `statuses: write`
+# (the workflow checker allows that scope only in main-guard.yml and pusher-ledger.yml, whose scripts are pinned).
+MAIN_GUARD_STATUS=guards/main-guard
+GITHUB_ACTIONS_BOT_ID=41898282
+
+# main_guard_status <sha>: prints the number of guards/main-guard success statuses github-actions[bot] created on that
+# commit (0 when none); returns 1 on an API error.
+main_guard_status() {
+  "$GH" api "repos/$REPO/commits/$1/status" \
+    --jq "[.statuses[] | select(.context == \"$MAIN_GUARD_STATUS\" and .state == \"success\" and .creator.id == $GITHUB_ACTIONS_BOT_ID)] | length" 2>/dev/null
+}
+
+# mark_main_guard_passed <sha> <description>: posts that status on the commit (the caller's token must be a workflow's job
+# token with statuses: write); returns 1 when the API call fails.
+mark_main_guard_passed() {
+  "$GH" api -X POST "repos/$REPO/statuses/$1" -f state=success -f "context=$MAIN_GUARD_STATUS" -f "description=$2" >/dev/null 2>&1
 }
 
 # MAIN_GUARD_FLOOR: the head of the default branch when the main guard was written (founder-owned constant, pinned with
@@ -39,14 +63,16 @@ main_guard_runs() {
 MAIN_GUARD_FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28
 
 # main_guard_passed <sha> <wait-seconds>: that commit, as the head of a push to the default branch, has a successful
-# main-guard run (waits up to <wait-seconds> for one still going), or is an ancestor of MAIN_GUARD_FLOOR (GitHub's compare
+# main-guard run (waits up to <wait-seconds> for one still going), carries the guards/main-guard status (main_guard_status:
+# the guard's own revert commit, or a commit a founder accepted), or is an ancestor of MAIN_GUARD_FLOOR (GitHub's compare
 # API: the floor is "ahead" of it or "identical"). Every push to the default branch must pass the main guard, and a push
 # whose head commit message says [skip ci] (or a run someone cancelled) has no run at all; because each run checks the
 # previous push's head (its `before`) with this, one unchecked push breaks the chain at the next run or the next shift, so
 # no first-parent walk is needed: a push's inner commits are covered by the run on its head.
 # Prints "ok ..." and returns 0, or "missing <sha> (runs: ...)" and returns 1; API errors print "ERROR: ..." and return 1.
+# The checks that read the result never take an override from the environment: the floor is this file's constant.
 main_guard_passed() {
-  local sha=$1 wait_max=$2 waited=0 runs rel floor="${MAIN_GUARD_FLOOR_OVERRIDE:-$MAIN_GUARD_FLOOR}"
+  local sha=$1 wait_max=$2 waited=0 runs rel marks floor=$MAIN_GUARD_FLOOR
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: bad commit sha: '$sha'"; return 1; }
   while :; do
     runs=$(main_guard_runs "$sha") || { echo "ERROR: could not list the main-guard runs of $sha."; return 1; }
@@ -58,6 +84,9 @@ main_guard_passed() {
     esac
     break
   done
+  marks=$(main_guard_status "$sha") || { echo "ERROR: could not read the commit statuses of $sha."; return 1; }
+  [[ "$marks" =~ ^[0-9]+$ ]] || { echo "ERROR: could not read the commit statuses of $sha."; return 1; }
+  [ "$marks" = 0 ] || { echo "ok $sha carries the $MAIN_GUARD_STATUS status (the main guard's revert, or accepted by a founder)"; return 0; }
   rel=$("$GH" api "repos/$REPO/compare/$sha...$floor" --jq .status 2>/dev/null) || { echo "ERROR: could not compare $sha with the main guard's floor commit $floor."; return 1; }
   case "$rel" in
     ahead|identical) echo "ok $sha is on the default branch before the main guard existed (floor $floor)"; return 0;;

@@ -132,8 +132,10 @@ Jobs with a claude step
   `'shell' not allowed in a job with a claude step`.
 - `permissions must be a mapping of scopes (no read-all/write-all)`; `permission <scope>: <value> not allowed (...)` - for
   every job and the workflow level: only the scopes in `permission_scopes` (`actions`, `contents`, `issues`,
-  `pull-requests`, `statuses`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
-  `egress-lock-claude.yml`, for its `oidc` job), each read, write or none. `id-token: write, so its 'if' must contain
+  `pull-requests`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
+  `egress-lock-claude.yml`, for its `oidc` job; `statuses` only in `main-guard.yml` and `pusher-ledger.yml`, whose
+  pinned scripts post the `guards/main-guard` and ledger commit statuses as github-actions[bot] - no job the agents'
+  code runs in can post a status in that identity), each read, write or none. `id-token: write, so its 'if' must contain
   github.run_attempt == '1'` / `... must run 'bash scripts/check-main-head.sh' before the lock` - a job that can mint an
   OIDC token runs only on a first attempt and only after the main-head check. `id-token: write is not allowed in a workflow that
   runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access. `permission <scope>: write
@@ -155,9 +157,16 @@ Claude steps
   `env not allowed on a claude step (job env names: ...)` - put allowed names in the job's env.
 - `a claude step may not run after a failure (no always()/failure()/cancelled() in its if)`.
 - `input '<x>' not allowed (allowed: ...)` - only `claude_code_oauth_token`, `github_token`, `prompt`, `claude_args`,
-  `path_to_claude_code_executable`, `path_to_bun_executable` and `allowed_bots`; `allowed_bots may only be ...` - only `github-actions`, only in
+  `path_to_claude_code_executable`, `path_to_bun_executable`, `classify_inline_comments` and `allowed_bots`; `allowed_bots may only be ...` - only `github-actions`, only in
   `agent-manager.yml` (it lets `review.yml` start a fix round right after a failed review). `<problem> in input '<x>'` - a
-  secrets problem inside an input.
+  secrets problem inside an input. `input 'classify_inline_comments' must be 'false' (...)` - `claude_inputs_required`
+  in the policy: the action's own post-session step "Post buffered inline comments" (read at the pinned commit) runs
+  `if: always() && inputs.classify_inline_comments != 'false'` with `GITHUB_TOKEN` (the step's `github_token`, so the
+  agents' token in the manager) and `bun` from `PATH` when the action's own copy is missing; after a session that ran with
+  `bypassPermissions`, nothing on `PATH` is trusted, so the step is turned off (the quoted string `"false"`, exactly what
+  the action compares). The other post-session steps of the action hold no token: "Re-prepend system bin dirs to PATH"
+  (only with `allowed_non_write_users`), the SSH-signing cleanup (unused) and "Revoke app token" (only without a
+  `github_token` input, which every step here sets).
 - `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}` / `path_to_bun_executable must be ${{
   steps.<lock id>.outputs.bun-path }}` - the binaries the lock installed and checked (it writes those outputs only after its
   self-test passed; the action's own Bun download would need hosts the lock closes).

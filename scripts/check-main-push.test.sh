@@ -45,11 +45,33 @@ fresh; push_commits 1; run ok "the first push ever (zero before) has no chain to
 fresh; push_commits 1; run ok "schedule: main's head passed" "Scheduled check: main's head $HEAD passed the main guard." schedule - -
 fresh; push_commits 1; run fail "schedule: main's head never checked (a [skip ci] push) stops the agents" "commit $HEAD reached main without passing the main guard" schedule - - STUB_RUNS=
 check "schedule: issue opened, workflows disabled" bash -c 'grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run" "$1" && [ "$(grep -c "gh workflow disable " "$1")" = 8 ]' _ "$W/gh.log"
+# A founder accepts a commit by hand (workflow_dispatch): the status is posted; anyone else, or a commit not on main, is refused
+fresh; push_commits 1; run ok "accept: a founder marks a commit on main with the guards/main-guard status" "Accepted: commit $HEAD now carries the guards/main-guard status (founder ID 111)" accept 111 "$HEAD"
+check "accept: the status was posted with the founder's ID in the description, nothing else touched" bash -c 'grep -qF "gh api -X POST repos/owner/repo/statuses/$2 -f state=success -f context=guards/main-guard -f description=accepted by founder 111 (main-guard run local)" "$1" && ! grep -q "workflow disable\|issue create\|runs?head_sha" "$1"' _ "$W/gh.log" "$HEAD"
+fresh; push_commits 1; run fail "accept: the agents' account cannot accept (the agents' token can start the workflow by hand)" "only a founder may accept a commit; user ID 333 is not one. Nothing was marked." accept 333 "$HEAD"
+check "accept refused: no status posted" bash -c '! grep -q "statuses/" "$1"' _ "$W/gh.log"
+fresh; push_commits 1; run fail "accept: an unknown account cannot accept" "user ID 999 is not one" accept 999 "$HEAD"
+fresh; push_commits 1; run fail "accept: a commit that is not on main is refused" "is not on main (this checkout); nothing was marked" accept 111 "$(printf 'a%.0s' {1..40})"
+fresh; push_commits 1; run fail "accept: a bad sha" "must be a 40-hex sha" accept 111 nope
+fresh; push_commits 1; run fail "accept: a non-numeric actor" "the actor id must be numeric" accept me "$HEAD"
+fresh; push_commits 1; run fail "accept: the status post fails" "could not post the guards/main-guard status on $HEAD" accept 111 "$HEAD" STUB_MARK_RC=1
+# The chain check accepts a previous head that carries the status (the guard's own revert, or a founder's acceptance)
+fresh; push_commits 1; run ok "a previous head with no run but the guards/main-guard status passes the chain" "carries the guards/main-guard status" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_MARKS=1
 fresh; push_commits 1 2; run fail "an agent's push is reverted, the secret-holding workflows cancelled and disabled, an issue opened" "reverted 2 pushed commit(s) with new commits on main; cancelled 1 running or queued run(s); disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml (re-enable them after the review)" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
 check "origin main now has the two reverts on top and the base content" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && git show origin/main:f | grep -qx base && ! git ls-tree --name-only origin/main | grep -q "^f1$"' _ "$W/clone"
 check "the running shift is cancelled before the disables (both states asked for every workflow)" bash -c 'grep -q "gh run cancel 4242" "$1" && [ "$(grep -c "gh run list --workflow " "$1")" = 16 ] && [ "$(grep -n "gh run cancel 4242" "$1" | cut -d: -f1)" -lt "$(grep -n "gh workflow disable agent-manager.yml" "$1" | cut -d: -f1)" ]' _ "$W/gh.log"
 check "every secret-holding workflow disabled and the issue labeled security + blocked" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh workflow disable review.yml" "$1" && grep -q "gh workflow disable guards.yml" "$1" && grep -q "gh issue create --title SECURITY: non-founder push to main by user ID 333 --label area:security --label blocked --label priority:1" "$1" && grep -q "@founder-one @founder-two" "$1"' _ "$W/gh.log"
+check "the revert commit (origin main's new head) was marked with the guards/main-guard status by the job token" bash -c 'cd "$1" && grep -qF "gh api -X POST repos/owner/repo/statuses/$(git rev-parse origin/main) -f state=success -f context=guards/main-guard -f description=revert by main-guard run local" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; run fail "the revert is pushed but cannot be marked: reported, a founder accepts it by hand" "could not be marked with the guards/main-guard status; the next run will flag it, so a founder accepts it (Actions -> Main guard -> Run workflow)" 333 "$BASE" "$HEAD" STUB_MARK_RC=1
+check "unmarked revert: still reverted and pushed, workflows disabled" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && grep -q "reverted 1 pushed commit" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ]' _ "$W/clone" "$W/gh.log"
+# A re-run (or a later push): main is no longer at the event's head, so nothing is reverted (reverting again would re-apply)
+fresh; push_commits 1; OLD=$HEAD; push_commits 2; run fail "main moved past the pushed head: nothing reverted, agents still stopped" "main is no longer at $OLD (a later push, or a re-run of this job); nothing reverted" 333 "$BASE" "$OLD"
+check "moved main: untouched, no status posted, workflows disabled, issue opened" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && ! grep -q "statuses/" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "gh issue create" "$2" && grep -q "reverted 0 pushed commit" "$2"' _ "$W/clone" "$W/gh.log"
 fresh; push_commits 1; run fail "an unknown account's push" "not in $W/accounts, role unknown" 999 "$BASE" "$HEAD"
+# Inside Actions the test overrides are ignored (a step that ran before could have written $GITHUB_ENV)
+fresh; push_commits 1; run fail "in Actions: MAIN_GUARD_WORKFLOWS cannot shrink the stop list" "disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml" 333 "$BASE" "$HEAD" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo MAIN_GUARD_WORKFLOWS=review.yml
+check "in Actions: all 8 workflows disabled" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ]' _ "$W/gh.log"
+fresh; push_commits 1; echo 0 > "$W/count"; run ok "in Actions: MAIN_GUARD_WAIT=0 is ignored (the fixed wait lets a run still going finish)" "passed the main guard" 111 "$BASE" "$HEAD" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo MAIN_GUARD_WAIT=0 STUB_RUNS=queued/ STUB_RUNS_LATER=completed/success STUB_COUNT="$W/count"
 fresh; push_commits 1; run fail "a new-branch push (before = zeros) reverts up to 50 commits" "reverted 2 pushed commit(s)" 333 "$Z" "$HEAD"
 fresh; cd "$W/clone" && git checkout -q -b side && echo s > s && git add s && git commit -qm side && git checkout -q main && git merge -q --no-ff -m merge side && git push -q origin main && HEAD=$(git rev-parse HEAD)
 run fail "a merge commit is reverted against its first parent (its branch not again)" "reverted 1 pushed commit(s) with new commits on main; cancelled 0 running or queued run(s); disabled agent-manager.yml" 333 "$BASE" "$HEAD"
@@ -92,6 +114,11 @@ runfb() { # runfb <name> <message> <pusher> <before> <after> [VAR=value ...]   (
   assert_result fail "$rc" "$name" "$msg" "$out"; }
 fresh; push_commits 1 2; runfb "fallback: normal push by the agent is reverted, runs cancelled, workflows disabled, issue opened" "::error::push to main by user ID 333 changed pinned files" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
 check "fallback: origin main has the base content back, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "reverted 2 pushed commit(s) with new commits" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files" "$2"' _ "$W/clone" "$W/gh.log"
+check "fallback: the revert commit was marked guards/main-guard by the job token" bash -c 'cd "$1" && grep -qF "gh api -X POST repos/owner/repo/statuses/$(git rev-parse origin/main) -f state=success -f context=guards/main-guard -f description=revert by main-guard run local" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; runfb "fallback: the revert cannot be marked: the issue says a founder accepts it" "changed pinned files" 333 "$BASE" "$HEAD" STUB_MARK_RC=1
+check "fallback: unmarked revert reported in the issue, still reverted" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && grep -q "could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; OLD=$HEAD; push_commits 2; runfb "fallback: main moved past the pushed head: nothing reverted" "changed pinned files" 333 "$BASE" "$OLD"
+check "fallback: moved main untouched, the issue says so" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && grep -q "main is no longer at $3 (a later push, or a re-run of this job); nothing reverted" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log" "$OLD"
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
 runfb "fallback: force push restored" "changed pinned files" 333 "$OLD" "$HEAD"
 check "fallback: origin main is the previous tip again, issue says restored" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$3" ] && grep -q "restored main to $3 after a force push" "$2"' _ "$W/clone" "$W/gh.log" "$OLD"
@@ -125,9 +152,15 @@ assert wfs == re.search(r'MAIN_GUARD_WORKFLOWS:-([^}]+)\}', src).group(1).split(
 # the workflow checker's rule: scripts/check-workflows.py check_stop_list)
 main = [s for s in steps if s.get("name", "").startswith("The pusher must be a founder")][0]
 assert main["run"].strip() == 'bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt'
-assert wf.get("on", wf.get(True)) == {"push": {"branches": ["main"]}, "schedule": [{"cron": "37 * * * *"}]} and wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write"}
+on = wf.get("on", wf.get(True))
+assert on["push"] == {"branches": ["main"]} and on["schedule"] == [{"cron": "37 * * * *"}] and set(on) == {"push", "schedule", "workflow_dispatch"}, on
+assert on["workflow_dispatch"]["inputs"]["accept_sha"]["required"] is True and on["workflow_dispatch"]["inputs"]["accept_sha"]["type"] == "string"
+assert wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write", "statuses": "write"}
 env = main["env"]
-assert env["PUSHER_ID"] == "${{ github.event_name == 'schedule' && 'schedule' || github.event.sender.id }}", env["PUSHER_ID"]
-assert env["BEFORE"] == "${{ github.event.before || '-' }}" and env["AFTER"] == "${{ github.event.after || '-' }}", env
+assert env["PUSHER_ID"] == "${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}", env["PUSHER_ID"]
+assert env["BEFORE"] == "${{ github.event_name == 'workflow_dispatch' && github.event.sender.id || github.event.before || '-' }}", env["BEFORE"]
+assert env["AFTER"] == "${{ github.event.inputs.accept_sha || github.event.after || '-' }}", env["AFTER"]
+assert "statuses/$(git rev-parse HEAD)" in fb["run"] and "-f context=guards/main-guard" in fb["run"], "the fallback marks its revert commit"
+assert 'elif [ "$(git rev-parse HEAD)" != "$AFTER" ]' in fb["run"], "the fallback never reverts when main moved on (a re-run)"
 PY
 summary
