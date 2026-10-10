@@ -13,9 +13,9 @@ jobs:
       - name: Where the runner lives and which service hosts it is configured with
         run: |
           pid=$(pgrep -f Runner.Listener | head -1); echo "listener pid $pid"
-          d=$(sudo readlink "/proc/$pid/cwd"); echo "runner dir: $d"; sudo ls -la "$d" | head -20
-          echo "--- .runner URLs"; sudo grep -oE 'https://[a-z0-9.-]+' "$d/.runner" | sort -u
-          echo "--- .runner keys"; sudo python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sorted(d.keys()))' "$d/.runner"
+          d=$(dirname "$(sudo readlink "/proc/$pid/exe")"); echo "runner dir: $d"; sudo ls -la "$d" | head -30; d=$(cd "$d/.." && pwd); echo "root: $d"; sudo ls -la "$d" | head
+          echo "--- .runner URLs"; sudo grep -oE 'https://[a-z0-9.-]+' "$d/.runner" | sort -u || true
+          echo "--- .runner keys"; sudo python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sorted(d.keys()))' "$d/.runner" || true
           echo "--- worker/listener peers"; sudo ss -tnp state established | grep -iE 'Runner' | awk '{print $4}' | sort -u
           echo "--- reverse"; for ip in $(sudo ss -tn state established | awk '{print $4}' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | sort -u); do printf '%s ' "$ip"; getent hosts "$ip" | awk '{print $2}' || echo '?'; done; true
           echo "--- resolve candidates"; for h in results-receiver.actions.githubusercontent.com broker.actions.githubusercontent.com vstoken.actions.githubusercontent.com; do printf '%s ' "$h"; getent ahostsv4 "$h" | awk 'NR==1{print $1}'; done; true
