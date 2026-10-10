@@ -1,35 +1,34 @@
-# TEMPORARY founder experiment on branch founder/egress-scratch3 only. Never merged. No secrets.
+# TEMPORARY founder experiment on branch founder/egress-scratch3 only. Never merged.
 name: Egress lock scratch
 on:
   push:
     branches: [founder/egress-scratch3]
 permissions:
   contents: read
-  id-token: write
 jobs:
-  oidc-lock:
+  measure:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - name: Runner service hosts and loaded AppArmor profiles (before the lock)
+        run: |
+          echo "--- env ACTIONS_* names"; env | grep -oE '^ACTIONS_[A-Z_]+' | sort
+          echo "--- runner config hosts"; for f in /home/runner/runners/*/.runner /home/runner/actions-runner/.runner; do [ -f "$f" ] && grep -oE 'https://[a-z0-9.-]+' "$f" | sort -u; done; true
+          echo "--- established connections by runner processes"; sudo ss -tnp state established | grep -iE 'Runner|dotnet' | awk '{print $4, $5}' | sort -u; true
+          echo "--- resolve"; for h in results-receiver.actions.githubusercontent.com pipelinesghubeus6.actions.githubusercontent.com; do getent ahostsv4 $h | head -1; done; true
+          echo "--- loaded apparmor profiles"; sudo cat /sys/kernel/security/apparmor/profiles | awk '{print $1}' | sort | head -80
+          echo "--- snap profile dir"; ls /var/lib/snapd/apparmor/profiles 2>/dev/null | head -20; grep -lE '^[[:space:]]*(audit[[:space:]]+)?(allow[[:space:]]+)?userns' /var/lib/snapd/apparmor/profiles/* 2>/dev/null | head; true
+          echo "--- userns grants in /etc/apparmor.d (recursive)"; grep -rlE '^[[:space:]]*(audit[[:space:]]+)?(allow[[:space:]]+)?userns' /etc/apparmor.d 2>/dev/null | sort; true
       - id: lock
         uses: ./.github/actions/agent-egress-lock
-      - name: Probe bodies and userns (diagnostics)
-        if: always()
+      - name: Fronting probes with same-CDN hosts (after the lock)
         run: |
-          h=$(sed -E 's#^https://([^/]+)/.*#\1#' <<<"$ACTIONS_ID_TOKEN_REQUEST_URL"); echo "oidc host: $h"
-          curl -sS --max-time 10 -H 'Host: example.com' "https://$h/" | head -c 120; echo
-          curl -sS --max-time 10 "https://$h/" | head -c 120; echo
-          unshare -U true && echo "unshare -U: allowed" || echo "unshare -U: blocked"
-          unshare -Ur true && echo "unshare -Ur: allowed" || echo "unshare -Ur: blocked"
-          command -v podman && { podman unshare true && echo "podman unshare: allowed" || echo "podman unshare: blocked"; } || true
-          podman unshare id || true
-          podman unshare grep -i cap /proc/self/status || true
-          ls -l /usr/bin/newuidmap /usr/bin/newgidmap || true
-          cat /proc/self/attr/current || true
-      - name: OIDC token under the lock (length only)
-        run: |
-          body=$(curl -sS --max-time 20 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=lock-test")
-          python3 -c 'import json, sys; print("len", len(json.load(sys.stdin).get("value") or ""))' <<<"$body"
+          for d in github.com api.github.com codeload.github.com api.anthropic.com registry.npmjs.org registry.yarnpkg.com repo.yarnpkg.com; do
+            for h in example.com www.cloudflare.com pypi.org storage.googleapis.com gist.github.com objects.githubusercontent.com claude.ai; do
+              printf '%s Host:%s -> ' "$d" "$h"; curl -sS -o /tmp/b --max-time 10 -w '%{http_code} %{redirect_url}' -H "Host: $h" "https://$d/" || printf '000'; printf ' | %s\n' "$(head -c 60 /tmp/b | tr -d '\n\r')"
+            done
+          done
+          echo "--- connections after lock"; sudo ss -tnp 2>/dev/null | head -3; ss -tn state established | awk '{print $4}' | sort -u

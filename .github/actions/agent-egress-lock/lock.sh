@@ -192,7 +192,6 @@ if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (
     if [ -u "$SETUID_DIR/$f" ] || [ -g "$SETUID_DIR/$f" ]; then bad "$SETUID_DIR/$f is still setuid/setgid (maps root into a user namespace)"; fi
   done
   if command -v podman >/dev/null && [ "$(podman unshare id -u 2>/dev/null)" = 0 ]; then bad "podman can still become root in a user namespace"; fi
-  podman unshare id >/tmp/podman-out 2>/tmp/podman-err || true; echo "DIAG lock podman: $(cat /tmp/podman-out) / $(head -c 300 /tmp/podman-err)"
   if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
     bad "a program started by bubblewrap can create user namespaces"
   fi
