@@ -1,14 +1,15 @@
-# Records who pushed every commit of a pull request (founder-owned file). GitHub keeps no durable "pusher" per commit and a
-# commit's author can be forged, so this job writes its own record from the event's sender (trusted): one `guards/pusher`
-# commit status per commit, signed with the GUARDS_LEDGER_KEY secret (scripts/check-pushers.sh). No concurrency group: every
-# push gets its own run, nothing is dropped or cancelled. Only the base branch's script runs; the PR's files are data.
-# guards.yml reads the ledger back and refuses founder-only changes unless every commit was pushed by a founder.
+# Records who pushed every commit on every branch but main (founder-owned file). GitHub keeps no durable "pusher" per
+# commit and a commit's author can be forged, so this job writes its own record from the push event's sender (trusted): one
+# `guards/pusher` commit status per commit, signed with the GUARDS_LEDGER_KEY secret (scripts/check-pushers.sh). It runs on
+# the push itself, so a commit pushed before a pull request exists is recorded too; opening a PR records nothing. No
+# concurrency group: every push gets its own run. The workflow file comes from the pushed branch (the agents' token cannot
+# change workflow files); the scripts come from the default branch, pinned. guards.yml reads the ledger back and refuses
+# founder-only changes unless every commit was pushed by a founder.
 name: Pusher ledger
-run-name: "Pusher ledger PR #${{ github.event.pull_request.number }} ${{ github.event.action }} by user ID ${{ github.event.sender.id }}"
+run-name: "Pusher ledger ${{ github.ref_name }} by user ID ${{ github.event.sender.id }}"
 on:
-  pull_request_target:
-    types: [opened, synchronize]
-    branches: [main]
+  push:
+    branches-ignore: [main]   # every branch a pull request can come from; main has its own guard
 permissions:
   contents: read
   statuses: write
@@ -17,35 +18,38 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out the base branch (scripts)
+      - name: Check out the default branch (scripts), never the pushed branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.base_ref }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Record the pushed commits as this event's sender
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+      - name: Record the pushed commits as this push's sender
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
           SENDER_ID: ${{ github.event.sender.id }}
-          ACTION: ${{ github.event.action }}
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          # The commits of this event only: on synchronize before..after (the branch's new tip after a force push counts as
-          # all new, credited to the force-pusher); on opened base..head. Shas come from the event, never from a later fetch.
-          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: bad head sha"; exit 1; }
-          git fetch -q origin "$HEAD_SHA"
-          if [ "$ACTION" = synchronize ]; then
-            [[ "$AFTER" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: bad after sha"; exit 1; }
-            [ "$AFTER" = "$HEAD_SHA" ] || { echo "ERROR: the event's after sha ($AFTER) is not the PR head ($HEAD_SHA)"; exit 1; }
-            from="$BEFORE"
-            git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q origin "$BEFORE" 2>/dev/null || from="origin/$BASE_REF"
-          else
-            from="origin/$BASE_REF"
+          # Exactly this push's commits, before..after from the event (never a later fetch). A new branch or a force push
+          # (before missing or not an ancestor) credits every unrecorded commit since the default branch to this sender:
+          # whoever rewrote the branch answers for what is on it. A deleted branch records nothing.
+          [[ "$AFTER" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: bad after sha"; exit 1; }
+          [ "$AFTER" != 0000000000000000000000000000000000000000 ] || { echo "branch deleted; nothing to record"; exit 0; }
+          git fetch -q origin "$AFTER"
+          from="origin/$DEFAULT_BRANCH"
+          if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            { git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q origin "$BEFORE" 2>/dev/null; } \
+              && git merge-base --is-ancestor "$BEFORE" "$AFTER" && from="$BEFORE" || true
           fi
-          bash scripts/check-pushers.sh record "$from" "$HEAD_SHA" "$SENDER_ID"
+          bash scripts/check-pushers.sh record "$from" "$AFTER" "$SENDER_ID"

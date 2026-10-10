@@ -28,6 +28,12 @@ jobs:
           ref: main   # always the default branch
           fetch-depth: 0
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
@@ -52,28 +58,18 @@ jobs:
             --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
             --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
           # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
-      - name: Show blocked tool calls (names and commands only)
-        if: always() && steps.claude.outputs.execution_file != ''
-        env:
-          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: |
-          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
-            "$EXEC_FILE" || true
-      - name: Hand the answer (text only, at most 60000 characters) to the post job
+      - name: Show blocked tool calls and hand the answer to the post job (pinned script)
         id: answer
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
         run: |
           set -euo pipefail
-          if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
-            echo "has_result=true" >> "$GITHUB_OUTPUT"
-            d="ANSWER_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
-            { echo "answer<<$d"; jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC_FILE" | head -c 60000; echo; echo "$d"; } >> "$GITHUB_OUTPUT"
-          else
-            echo "has_result=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+          bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"
   post:
     # The only job with a write scope; runs no Claude and reads only the answer (data) and main's post script.
     needs: audit
@@ -90,13 +86,14 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - uses: ./.github/actions/install-gitleaks
       - name: Post the report (secret-scanned) to the "Daily reports" issue
         env:
           ANSWER: ${{ needs.audit.outputs.answer }}
-        run: |
-          set -euo pipefail
-          jq -n --arg r "$ANSWER" '[{type: "result", result: $r}]' > /tmp/answer.json
-          n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
-          [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
-          bash scripts/check-review-post.sh issue "$n" /tmp/answer.json
+        run: bash scripts/check-review-post.sh daily-reports

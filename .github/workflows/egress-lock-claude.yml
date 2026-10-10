@@ -1,15 +1,11 @@
 # Runs the real pinned claude-code-action under the agent egress lock, from main only (founder-owned), and checks that
 # `Skill(payload)` in --disallowedTools blocks a skill named payload (a throwaway user-level probe skill).
 # A second job checks Claude Code's subprocess isolation: tools Claude runs must not see the Claude token.
-# Never runs PR code: triggers are pushes to main that change the lock or this file, a weekly schedule and founder runs.
-# These checks cannot run before merge; see docs/runbooks/agent-network-lock.md ("Evidence").
+# Never runs fresh code next to a token: no push trigger (a push to main by the agents' token would run its lock before
+# the main guard could revert it); a weekly schedule and founder-started runs only, on main, with every file it runs pinned.
+# A founder starts it by hand right after merging a lock change (founder decision 3 in docs/runbooks/agent-network-lock.md).
 name: Agent egress lock - Claude probe
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/actions/agent-egress-lock/**"
-      - ".github/workflows/egress-lock-claude.yml"
   schedule:
     - cron: "41 6 * * 1"   # Mondays 06:41 UTC
   workflow_dispatch:
@@ -17,6 +13,7 @@ permissions:
   contents: read
 jobs:
   probe:
+    if: github.event_name == 'schedule' || github.actor_id == '238822878'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -27,6 +24,12 @@ jobs:
         with:
           ref: main   # always the default branch
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - name: Throwaway probe skill named payload (user level; never committed)
@@ -61,6 +64,7 @@ jobs:
   scrub:
     # Claude Code's subprocess isolation under the lock: a Bash tool started by Claude must not see the Claude token, either
     # in its environment or in any process environment it can read (scripts/check-scrub-probe.sh prints counts only).
+    if: github.event_name == 'schedule' || github.actor_id == '238822878'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -71,6 +75,12 @@ jobs:
         with:
           ref: main   # always the default branch
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - id: pin
@@ -101,6 +111,7 @@ jobs:
   oidc:
     # Like claude.yml (id-token: write): the lock must allow exactly this run's OIDC token host, and nginx must accept its
     # long generated name. Prints the token's length only, never the token. From main only: never with PR code.
+    if: github.event_name == 'schedule' || github.actor_id == '238822878'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -111,6 +122,12 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - name: An OIDC token can be fetched under the lock

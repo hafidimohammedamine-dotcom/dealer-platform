@@ -79,18 +79,22 @@ if [ -f "$USERNS" ]; then
   UNS_NAMES=$( { [ "${#UNS[@]}" = 0 ] || awk '$1 == "profile" {print $2}' "${UNS[@]}"; } | sort -u)
   UNS_LEFT=$(sudo cat "$AA_LOADED" 2>/dev/null | awk '{print $1}' | grep -xF -f <(printf '%s\n' "$UNS_NAMES" | sed '/^$/d') || true)
 fi
+SINK_IP=192.0.2.1   # TEST-NET-1: never routable; only the firewall's redirect to the proxy gives it meaning
 UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
 [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
 id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
 id www-data >/dev/null 2>&1 || die "no www-data user for nginx"
-DNS_UID=$(id -u dnsmasq); PROXY_UID=$(id -u www-data)
+PROXY_UID=$(id -u www-data)
 
 CONF=$(mktemp)
 {
-  echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"
+  # dnsmasq forwards nothing: every allowed name (and anything under it) answers a fixed unroutable address, which the
+  # firewall redirects to the proxy; the proxy resolves the exact name itself. So no query from the job ever reaches an
+  # outside resolver (no DNS tunnelling through a subdomain), and a subdomain that is not an allowed name dies at the proxy.
+  echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"; echo "no-hosts"
   echo "user=dnsmasq"; echo "cache-size=1000"; echo "filter-AAAA"
-  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "server=/$d/$UPSTREAM"; done
-  echo "server=/actions.githubusercontent.com/$UPSTREAM"   # the run service's generated name (proxy: RUNNER_PATTERN only)
+  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "address=/$d/$SINK_IP"; done
+  echo "address=/actions.githubusercontent.com/$SINK_IP"   # the run service's generated name (the proxy allows RUNNER_PATTERN only)
 } > "$CONF"
 sudo install -m 0644 "$CONF" /etc/agent-dnsmasq.conf
 sudo systemctl stop systemd-resolved.service 2>/dev/null || true
@@ -107,7 +111,7 @@ NG=$(mktemp)
   echo "events { worker_connections 1024; }"
   echo "stream {"
   echo "  map_hash_bucket_size 128;   # room for long generated names such as this run's OIDC host"
-  echo "  resolver 127.0.0.1 ipv6=off valid=60s; resolver_timeout 10s;"
+  echo "  resolver $UPSTREAM ipv6=off valid=60s; resolver_timeout 10s;"   # the proxy resolves exact names itself
   echo "  map \$ssl_preread_server_name \$agent_upstream {"
   echo "    hostnames;"
   for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "    $d \$ssl_preread_server_name:443;"; done
@@ -127,12 +131,13 @@ sudo nginx -c /etc/nginx/agent-egress.conf
 # NAT: every new TCP/443 connection, except the proxy's own, goes to the SNI proxy.
 sudo iptables -t nat -F OUTPUT
 sudo iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner "$PROXY_UID" -j REDIRECT --to-ports 8443
-# Filter: loopback, replies, DNS only from dnsmasq to the upstream, 443 only from the proxy, Azure host services for root.
+# Filter: loopback, replies, DNS only from the proxy to the upstream (dnsmasq forwards nothing), 443 only from the proxy,
+# Azure host services for root.
 sudo iptables -F OUTPUT
 sudo iptables -A OUTPUT -o lo -j ACCEPT
 sudo iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT   # connections redirected to the local proxy keep their outer interface
 sudo iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-for p in udp tcp; do sudo iptables -A OUTPUT -p "$p" --dport 53 -d "$UPSTREAM" -m owner --uid-owner "$DNS_UID" -j ACCEPT; done
+for p in udp tcp; do sudo iptables -A OUTPUT -p "$p" --dport 53 -d "$UPSTREAM" -m owner --uid-owner "$PROXY_UID" -j ACCEPT; done
 sudo iptables -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$PROXY_UID" -j ACCEPT
 sudo iptables -A OUTPUT -d 168.63.129.16 -m owner --uid-owner 0 -j ACCEPT
 sudo iptables -A OUTPUT -d 169.254.169.254 -m owner --uid-owner 0 -j ACCEPT
@@ -193,6 +198,10 @@ blocked --resolve "example.com:443:$NPM_IP" https://example.com || bad "allowed 
 blocked -k "https://$NPM_IP" || bad "raw IP without a name reachable"
 blocked http://registry.npmjs.org || bad "plain HTTP (port 80) reachable"
 if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolves"; fi
+[ "$NPM_IP" = "$SINK_IP" ] || bad "DNS for an allowed name does not answer the sink address (dnsmasq forwards queries)"
+if grep -qE '^(server|rev-server)=' "$CONF"; then bad "dnsmasq forwards DNS queries (server= lines)"; fi
+blocked https://x.github.com || bad "a subdomain of an allowed name (x.github.com) is reachable"
+blocked https://x.registry.npmjs.org || bad "a subdomain of an allowed name (x.registry.npmjs.org) is reachable"
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
 bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"

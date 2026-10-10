@@ -7,12 +7,23 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMPROOT="${TMPDIR:-/tmp}"
 W=.github/workflows
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
-fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github"; cp -r "$REPO/$W" "$T/.github/"; cp "$REPO/.github/accounts.txt" "$T/.github/"; }
+# A fresh root: the real workflows, accounts.txt, and every pinned file with pins.txt (the pin steps must verify).
+fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github" "$T/scripts"; cp -r "$REPO/$W" "$REPO/.github/actions" "$T/.github/"
+  cp "$REPO/.github/accounts.txt" "$REPO/.github/pins.txt" "$T/.github/"; cp "$REPO/.gitleaks.toml" "$T/"
+  local _pf; for _pf in "$REPO"/scripts/check-*; do case "$_pf" in *.test.sh|*testlib.sh) ;; *) cp "$_pf" "$T/scripts/";; esac; done; }
+PINS_HASH=$(sha256sum "$REPO/.github/pins.txt" | cut -c1-64)
+PIN_STEP="      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: \"$PINS_HASH\"
+        run: |
+          echo \"\$PINS_SHA256  .github/pins.txt\" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt"
+# plain <file>: a minimal non-claude workflow (one job, checkout + pin step + one run step) for argument/format cases
+plain() { printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: echo\n' "$PIN_STEP" > "$T/$W/$1"; }
 expect() { # expect <ok|fail> <name> <message> [extra args]
   local want=$1 name=$2 msg=$3; shift 3
-  out=$(bash "$SCRIPT" "$T" "$@" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"
-  else t FAIL "$name ($got)"; echo "$out"; fi; rm -rf "$T"; }
+  out=$(bash "$SCRIPT" "$T" "$@" 2>&1); rc=$?
+  assert_result "$want" "$rc" "$name" "$msg" "$out"; rm -rf "$T"; }
 drop() { python3 - "$T/$W/$1" "$2" <<'EOF'
 import sys
 p, item = sys.argv[1], sys.argv[2]
@@ -26,7 +37,7 @@ open(p, "w").write(s)
 EOF
 }
 # A small valid workflow; tests edit it with sed.
-mk() { cat > "$T/$W/t.yml" <<'EOF'
+mk() { sed "s|^PIN_STEP_HERE$|$(printf '%s' "$PIN_STEP" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//')|" <<'EOF' > "$T/$W/t.yml"
 name: t
 on: workflow_dispatch
 jobs:
@@ -39,6 +50,7 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+PIN_STEP_HERE
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - id: claude
@@ -50,7 +62,7 @@ jobs:
           prompt: "Do the task."
           claude_args: |
             --model haiku
-            --disallowedTools "Skill(payload),Write"
+            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
       - name: After
         if: always() && steps.claude.outputs.execution_file != ''
         run: echo "steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude"

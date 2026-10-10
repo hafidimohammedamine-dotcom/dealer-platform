@@ -105,8 +105,19 @@
   "Bash(gh api:*)",
   "Bash(gh gist:*)",
   "Bash(gh repo:*)",
+  "WebFetch",
+  "WebSearch",
   "Bash(yarn npm publish:*)",
   "Bash(yarn npm login:*)",
+  "Read(//proc/**)",
+  "Read(//sys/**)",
+  "Read(//home/runner/work/_temp/**)",
+  "Read(//home/runner/.*/**)",
+  "Read(//etc/**)"
+ ],
+ "claude_denies": [
+  "WebFetch",
+  "WebSearch",
   "Read(//proc/**)",
   "Read(//sys/**)",
   "Read(//home/runner/work/_temp/**)",
@@ -162,6 +173,20 @@
  "id_gated": {
   "agent-manager.yml": "founder",
   "claude.yml": "founder",
+  "egress-lock-claude.yml": "founder",
   "review.yml": "agent"
+ },
+ "pins_file": ".github/pins.txt",
+ "pins_step_name": "The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)",
+ "pins_step_run": "echo \"$PINS_SHA256  .github/pins.txt\" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\n",
+ "pins_exempt": [
+  "ci.yml",
+  "egress-lock-test.yml"
+ ],
+ "pins_required": {
+  "dirs": [".github/actions"],
+  "globs": ["scripts/check-*"],
+  "files": [".gitleaks.toml", ".github/accounts.txt"],
+  "exclude_suffixes": [".test.sh", "testlib.sh"]
  }
 }

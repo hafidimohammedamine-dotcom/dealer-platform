@@ -4,18 +4,32 @@
 # .gitleaks.toml, and posts it.
 #   pr mode:    the answer must start with "REVIEW TEAM RESULT: PASS|FAIL"; labels are set from that line.
 #   issue mode: the answer is posted as a comment on the issue (daily report, weekly audit); no labels.
-# Usage: scripts/check-review-post.sh <pr|issue> <number> <execution-file>   GH_BIN / GITLEAKS_BIN may point to stubs.
+#   daily-reports mode: like issue mode on the open issue titled "Daily reports" (created if missing); no number argument.
+# The answer comes from the ANSWER environment variable (the text a Claude job handed over as a job output: the post job
+# runs no Claude, so it has no execution file), or from an execution file given as the third argument.
+# Usage: scripts/check-review-post.sh <pr|issue> <number> [execution-file]   or   check-review-post.sh daily-reports
+#        GH_BIN / GITLEAKS_BIN may point to stubs.
 set -euo pipefail
-MODE="${1:?pr or issue}"; PR="${2:?number}"; EXEC="${3:?execution file}"
-case "$MODE" in pr|issue) ;; *) echo "ERROR: mode must be pr or issue"; exit 1;; esac
+MODE="${1:?pr, issue or daily-reports}"
+case "$MODE" in
+  pr|issue) PR="${2:?number}"; EXEC="${3:-}";;
+  daily-reports) PR=""; EXEC="${2:-}";;
+  *) echo "ERROR: mode must be pr, issue or daily-reports"; exit 1;;
+esac
 GH="${GH_BIN:-gh}"; GITLEAKS="${GITLEAKS_BIN:-/tmp/gitleaks}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-[[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: bad PR number"; exit 1; }
+[ "$MODE" = daily-reports ] || [[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: bad PR number"; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 
-text=""
-if [ -f "$EXEC" ]; then
+text="${ANSWER:-}"
+if [ -z "$text" ] && [ -n "$EXEC" ] && [ -f "$EXEC" ]; then
   text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC" 2>/dev/null || true)
+fi
+if [ "$MODE" = daily-reports ]; then   # the founders' running thread; MODE becomes issue below
+  PR=$("$GH" issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
+  [ -n "$PR" ] || PR=$("$GH" issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
+  [[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: could not find or create the Daily reports issue"; exit 1; }
+  MODE=issue
 fi
 first=$(printf '%s\n' "$text" | head -n1 | tr -d '\r')
 if [ "$MODE" = issue ]; then

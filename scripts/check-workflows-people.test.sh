@@ -35,6 +35,7 @@ fresh; swap claude.yml "$CLA" "github.event.comment.user.id == 250452267"; expec
 fresh; printf '238822878 hafidimohammedamine-dotcom\n' > "$T/.github/accounts.txt"; expect fail "accounts line without a role" "bad line 1 in"
 fresh; printf '250452267 mohammedaminehafidi-ctrl agent\n' > "$T/.github/accounts.txt"; expect fail "accounts without a founder" "no founder listed in"
 fresh; rm "$T/.github/accounts.txt"; expect fail "no accounts file" "accounts file not found"
+fresh; rm "$T/.github/accounts.txt"; out=$(bash "$SCRIPT" "$T" 2>&1); grep -qE "^ERROR: accounts file not found" <<<"$out" && ! grep -q "ERROR: ERROR" <<<"$out" && t PASS "the accounts error carries one ERROR prefix" || { t FAIL "accounts error prefix"; echo "$out"; }; rm -rf "$T"
 fresh; printf '238822878 hafidimohammedamine-dotcom founder\n250452267 mohammedaminehafidi-ctrl agent\n12345 evil founder\n' > "$T/.github/accounts.txt"
 swap agent-manager.yml "$MGR" "github.actor_id == '12345'"; B=$(mktemp -d "$TMPROOT/cwa.XXXXXX"); cp "$REPO/.github/accounts.txt" "$B/"
 expect fail "a PR that lists itself in its own accounts file is checked against the base list" "user ID 12345 is not in .github/accounts.txt" --accounts "$B/accounts.txt"; rm -rf "$B"
@@ -50,25 +51,24 @@ done
 fx; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.agent_gh_token }}|' "$T/$W/t.yml"; expect fail "lower-case secret name still needs the token check" "t.yml job a: holds the agents' token"
 fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - run: git push origin HEAD:refs/heads/x\n' > "$T/$W/p.yml"
 expect fail "a job without a claude step that holds the token needs the check too" "p.yml job push: holds the agents' token"
-fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n      - run: git push origin HEAD:refs/heads/x\n' > "$T/$W/p.yml"
-expect ok "a job without a claude step that checks the token first" "Workflow denies OK"
+fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n      - run: git push origin HEAD:refs/heads/x\n' "$PIN_STEP" > "$T/$W/p.yml"
+expect ok "a job without a claude step that checks the token first (after the pin step)" "Workflow denies OK"
 fresh; printf 'name: p\non: workflow_dispatch\nenv:\n  GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' > "$T/$W/p.yml"
 expect fail "the agents' token at workflow level" "p.yml: the agents' token may only be set in a job's env"
 fresh; swap agent-manager.yml "$GUARD" "        run: echo first
       - name: later
 $GUARD"; expect fail "token check not the first step after the lock" "its first step after checkout and the lock must run"
 
-# guards.yml wiring: run the real step's commands on a temp base checkout whose refs/remotes/pr/head is this tree
+# guards.yml wiring: run the real step's commands on a temp base checkout, with this tree as the PR's data (/tmp/pr)
 guards_step() { python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1]))
 print(next(s["run"] for s in d["jobs"]["guards"]["steps"] if "check-workflows.sh" in str(s.get("run", ""))))' "$1"; }
-W2=$(mktemp -d "$TMPROOT/gw.XXXXXX"); mkdir -p "$W2/base" "$W2/pr-skills"
-cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$W2/base/"; rm -rf "$W2/base/scripts/__pycache__"
-( cd "$W2/base" && git init -q . && git add -A && git -c user.email=a@b -c user.name=t commit -qm base && git update-ref refs/remotes/pr/head HEAD
-  git archive refs/remotes/pr/head .claude | tar -x -C "$W2/pr-skills" )
-step=$(guards_step "$REPO/.github/workflows/guards.yml" | sed "s#/tmp/pr-wf#$W2/pr-wf#g; s#/tmp/pr-skills#$W2/pr-skills#g")
+W2=$(mktemp -d "$TMPROOT/gw.XXXXXX"); mkdir -p "$W2/base" "$W2/pr-skills" "$W2/pr"
+cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$REPO/.gitleaks.toml" "$W2/base/"; rm -rf "$W2/base/scripts/__pycache__"
+cp -r "$REPO/scripts" "$REPO/.github" "$REPO/.gitleaks.toml" "$W2/pr/"; rm -rf "$W2/pr/scripts/__pycache__"; cp -r "$REPO/.claude" "$W2/pr-skills/"
+step=$(guards_step "$REPO/.github/workflows/guards.yml" | sed "s#/tmp/pr-skills#$W2/pr-skills#g; s#/tmp/pr\b#$W2/pr#g")
 out=$(cd "$W2/base" && bash -c "$step" 2>&1); rc=$?
-if [ $rc = 0 ] && grep -qF "Workflow denies OK" <<<"$out" && [ -d "$W2/pr-wf/.github/actions/agent-egress-lock" ]; then
-  t PASS "the guards.yml step passes on the real workflows and unpacks the PR's local actions"
+if [ $rc = 0 ] && grep -qF "Workflow denies OK" <<<"$out" && grep -q "/tmp/pr " <<<"$(guards_step "$REPO/.github/workflows/guards.yml")"; then
+  t PASS "the guards.yml step passes with the real tree as the PR's data (workflows, actions, pins)"
 else t FAIL "the guards.yml step (rc=$rc)"; echo "$out" | tail -n 4; fi
 rm -rf "$W2"
 summary

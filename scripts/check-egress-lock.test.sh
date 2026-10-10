@@ -36,7 +36,7 @@ case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$
   stub id 'case "$*" in "-Gn") echo "runner adm docker bad;group";; "-u dnsmasq") echo 999;; "-u www-data") echo 33;; *) [ "${STUB_NO_WWW:-}" = 1 ] && [ "$1" = www-data ] && exit 1
   [ "${STUB_NO_DNSMASQ:-}" = 1 ] && [ "$1" = dnsmasq ] && exit 1; exit 0;; esac'
   stub ls '[ "${STUB_NO_MODULE:-}" = 1 ] && exit 2; echo /usr/lib/nginx/modules/ngx_stream_module.so'
-  stub getent 'case "$1 $2" in "ahostsv4 registry.npmjs.org") [ "${STUB_NO_NPM_DNS:-}" = 1 ] && exit 2; echo "1.2.3.4 STREAM registry.npmjs.org";; "hosts example.com") exit "${STUB_DNS_LEAK_RC:-2}";; *) exit 2;; esac'
+  stub getent 'case "$1 $2" in "ahostsv4 registry.npmjs.org") [ "${STUB_NO_NPM_DNS:-}" = 1 ] && exit 2; echo "${STUB_NPM_IP:-192.0.2.1} STREAM registry.npmjs.org";; "hosts example.com") exit "${STUB_DNS_LEAK_RC:-2}";; *) exit 2;; esac'
   stub timeout 'exit "${STUB_TCP_RC:-1}"'
   cat > "$S/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -86,14 +86,15 @@ bun-path=$2/home/.local/bin/bun" ]' _ "$T/out" "$T"
 L="$T/sudo.log"
 DC=$(conf_of "$L" /etc/agent-dnsmasq.conf); NC=$(conf_of "$L" /etc/nginx/agent-egress.conf)
 check "dnsmasq: listens on 127.0.0.1 only, no outside resolv" bash -c 'grep -qx listen-address=127.0.0.1 "$1" && grep -qx bind-interfaces "$1" && grep -qx no-resolv "$1" && grep -qx filter-AAAA "$1"' _ "$DC"
-check "dnsmasq: one server line per allowed name and runner service plus the run-service suffix, upstream from resolv.conf" bash -c 'grep -qx "server=/api.anthropic.com/10.1.2.3" "$1" && grep -qx "server=/github.com/10.1.2.3" "$1" && grep -qx "server=/broker.actions.githubusercontent.com/10.1.2.3" "$1" && grep -qx "server=/results-receiver.actions.githubusercontent.com/10.1.2.3" "$1" && grep -qx "server=/actions.githubusercontent.com/10.1.2.3" "$1" && [ "$(grep -c "^server=" "$1")" = "$(( $(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l) + 3 ))" ]' _ "$DC" "$LOCK_DIR/allow-domains.txt"
+check "dnsmasq: one sink address line per allowed name and runner service plus the run-service suffix, no forwarding at all" bash -c 'grep -qx "address=/api.anthropic.com/192.0.2.1" "$1" && grep -qx "address=/github.com/192.0.2.1" "$1" && grep -qx "address=/broker.actions.githubusercontent.com/192.0.2.1" "$1" && grep -qx "address=/results-receiver.actions.githubusercontent.com/192.0.2.1" "$1" && grep -qx "address=/actions.githubusercontent.com/192.0.2.1" "$1" && [ "$(grep -c "^address=" "$1")" = "$(( $(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l) + 3 ))" ] && ! grep -qE "^(server|rev-server)=" "$1" && grep -qx "no-resolv" "$1" && grep -qx "no-hosts" "$1"' _ "$DC" "$LOCK_DIR/allow-domains.txt"
+check "nginx resolves exact names itself, through the upstream resolver" grep -q "  resolver 10.1.2.3 ipv6=off" "$NC"
 check "nginx: the run service only as its name pattern, never a bare suffix" bash -c 'grep -qF "    ~^run-actions-[0-9]+-azure-[a-z0-9]+\\.actions\\.githubusercontent\\.com\$ \$ssl_preread_server_name:443;" "$1" && ! grep -qE "^    \.?actions\.githubusercontent\.com " "$1" && grep -q "    broker.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$1"' _ "$NC"
 check "dnsmasq: no wildcard or catch-all server" bash -c '! grep -E "^server=(/|[0-9])" "$1" | grep -qvE "^server=/[a-z0-9.-]+/" ' _ "$DC"
 check "nginx: SNI map with hostnames, unknown names go nowhere" bash -c 'grep -q "hostnames;" "$1" && grep -q "default 127.0.0.1:1;" "$1" && grep -q "ssl_preread on;" "$1" && grep -q "listen 127.0.0.1:8443;" "$1" && grep -q "user www-data;" "$1"' _ "$NC"
 check "nginx: map hash buckets big enough for long generated names" grep -q "  map_hash_bucket_size 128;" "$NC"
 check "nginx: exact names only, no suffix entry" bash -c 'grep -q "    api.anthropic.com \$ssl_preread_server_name:443;" "$1" && ! grep -qE "^    \." "$1"' _ "$NC"
 check "iptables: 443 redirected for everyone but the proxy" grep -qx -- "iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner 33 -j REDIRECT --to-ports 8443" "$L"
-check "iptables: DNS only from dnsmasq to the upstream" bash -c 'grep -qx -- "iptables -A OUTPUT -p udp --dport 53 -d 10.1.2.3 -m owner --uid-owner 999 -j ACCEPT" "$1" && grep -qx -- "iptables -A OUTPUT -p tcp --dport 53 -d 10.1.2.3 -m owner --uid-owner 999 -j ACCEPT" "$1"' _ "$L"
+check "iptables: DNS only from the proxy to the upstream, none for dnsmasq" bash -c 'grep -qx -- "iptables -A OUTPUT -p udp --dport 53 -d 10.1.2.3 -m owner --uid-owner 33 -j ACCEPT" "$1" && grep -qx -- "iptables -A OUTPUT -p tcp --dport 53 -d 10.1.2.3 -m owner --uid-owner 33 -j ACCEPT" "$1" && ! grep -q -- "--dport 53 .*--uid-owner 999" "$1"' _ "$L"
 check "iptables: reject then default drop (IPv4 and IPv6)" bash -c 'grep -qx -- "iptables -A OUTPUT -j REJECT" "$1" && grep -qx -- "iptables -P OUTPUT DROP" "$1" && grep -qx -- "ip6tables -A OUTPUT -j REJECT" "$1" && grep -qx -- "ip6tables -P OUTPUT DROP" "$1"' _ "$L"
 check "iptables: nothing else accepted on the open internet" bash -c '[ "$(grep -c -- "^iptables -A OUTPUT .*-j ACCEPT" "$1")" = 8 ]' _ "$L"
 check "AppArmor: restriction kept on, only bwrap allowed" bash -c 'grep -qx -- "sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=1" "$1" && grep -qx -- "apparmor_parser -r /etc/apparmor.d/agent-bwrap" "$1" && ! grep -q "userns=0" "$1"' _ "$L"
@@ -103,7 +104,7 @@ check "sudoers.d cleanup is the last real sudo call" bash -c 'tail -n 4 "$1" > "
 check "Docker stopped and its sockets removed" grep -qx -- "rm -f /var/run/docker.sock /run/containerd/containerd.sock" "$L"
 rm -rf "$T"
 fresh; printf 'nameserver 127.0.0.53\n' > "$T/resolv.conf"; KEEP=1 run ok "no outside resolver: Azure DNS fallback" "Agent egress lock on:"
-check "fallback upstream 168.63.129.16 used" grep -q "^server=/api.anthropic.com/168.63.129.16$" "$(conf_of "$T/sudo.log" /etc/agent-dnsmasq.conf)"; rm -rf "$T"
+check "fallback upstream 168.63.129.16 used by the proxy's resolver" grep -q "  resolver 168.63.129.16 ipv6=off" "$(conf_of "$T/sudo.log" /etc/nginx/agent-egress.conf)"; rm -rf "$T"
 fresh; KEEP=1 run ok "no dnsmasq user: one is created" "Agent egress lock on:" STUB_NO_DNSMASQ=1
 check "useradd called for dnsmasq" grep -qx -- "useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq" "$T/sudo.log"; rm -rf "$T"
 fresh; KEEP=1 run ok "dnsmasq user exists: none created" "Agent egress lock on:"
@@ -144,8 +145,11 @@ fresh; run fail "allowed host unreachable"  "self-test: allowed host api.github.
 fresh; run fail "blocked host reachable"    "self-test: blocked host example.com reachable" STUB_REACHABLE=https://example.com
 fresh; run fail "gist reachable"            "self-test: gist.github.com reachable" STUB_REACHABLE=https://gist.github.com
 fresh; run fail "uploads reachable"         "self-test: uploads.github.com reachable" STUB_REACHABLE=https://uploads.github.com
-fresh; run fail "allowed IP under another name" "self-test: allowed IP reachable under another name (SNI)" STUB_REACHABLE=example.com:443:1.2.3.4
-fresh; run fail "raw IP reachable"          "self-test: raw IP without a name reachable" STUB_REACHABLE=https://1.2.3.4
+fresh; run fail "allowed IP under another name" "self-test: allowed IP reachable under another name (SNI)" STUB_REACHABLE=example.com:443:192.0.2.1
+fresh; run fail "raw IP reachable"          "self-test: raw IP without a name reachable" STUB_REACHABLE=https://192.0.2.1
+fresh; run fail "subdomain of an allowed name reachable" "self-test: a subdomain of an allowed name (x.github.com) is reachable" STUB_REACHABLE=https://x.github.com
+fresh; run fail "subdomain of the npm registry reachable" "self-test: a subdomain of an allowed name (x.registry.npmjs.org) is reachable" STUB_REACHABLE=https://x.registry.npmjs.org
+fresh; run fail "an allowed name resolves to a real address (dnsmasq forwarded the query)" "self-test: DNS for an allowed name does not answer the sink address" STUB_NPM_IP=1.2.3.4
 fresh; run fail "plain HTTP reachable"      "self-test: plain HTTP (port 80) reachable" STUB_REACHABLE=http://registry.npmjs.org
 fresh; run fail "allowed name does not resolve" "self-test: DNS for an allowed name does not resolve" STUB_NO_NPM_DNS=1
 fresh; run fail "blocked name resolves"     "self-test: DNS for a blocked name resolves" STUB_DNS_LEAK_RC=0
@@ -167,7 +171,7 @@ fresh; run ok   "fronting: redirect to the same host is fine" "Agent egress lock
 # The OIDC host of a job with id-token: write is added exactly, and probed like every other name
 OIDC='https://run-actions-2-azure-eastus.actions.githubusercontent.com/abc/idtoken/def?api-version=2.0'
 fresh; KEEP=1 run ok "OIDC host added exactly" "Agent egress lock on: 7 allowed names + 3 runner services" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC"
-check "dnsmasq and nginx know only the exact OIDC host" bash -c 'grep -qx "server=/run-actions-2-azure-eastus.actions.githubusercontent.com/10.1.2.3" "$1" && grep -q "    run-actions-2-azure-eastus.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$2" && ! grep -q "^    \.actions" "$2"' _ "$(conf_of "$T/sudo.log" /etc/agent-dnsmasq.conf)" "$(conf_of "$T/sudo.log" /etc/nginx/agent-egress.conf)"; rm -rf "$T"
+check "dnsmasq and nginx know only the exact OIDC host" bash -c 'grep -qx "address=/run-actions-2-azure-eastus.actions.githubusercontent.com/192.0.2.1" "$1" && grep -q "    run-actions-2-azure-eastus.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$2" && ! grep -q "^    \.actions" "$2"' _ "$(conf_of "$T/sudo.log" /etc/agent-dnsmasq.conf)" "$(conf_of "$T/sudo.log" /etc/nginx/agent-egress.conf)"; rm -rf "$T"
 fresh; run fail "OIDC host on another domain" "unexpected OIDC host: 'evil.example.com'" "ACTIONS_ID_TOKEN_REQUEST_URL=https://evil.example.com/x"
 fresh; run fail "OIDC URL that is not https" "unexpected OIDC host" "ACTIONS_ID_TOKEN_REQUEST_URL=http://run-actions-2.actions.githubusercontent.com/x"
 fresh; run fail "fronting through the OIDC host" "domain fronting through run-actions-2-azure-eastus.actions.githubusercontent.com answers for another host" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC" STUB_FRONT="run-actions-2-azure-eastus.actions.githubusercontent.com=200"

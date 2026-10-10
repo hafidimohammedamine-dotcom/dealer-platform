@@ -16,8 +16,8 @@ fresh() {
   side "$B" '# skills\npayload third-party requires=ovr\novr ours\n' "| payload | payloadcms/payload \`skills/payload\`, tag v1 | $SHA |\n"
   side "$P" '# skills\npayload third-party requires=ovr\novr ours\n' "| payload | payloadcms/payload \`skills/payload\`, tag v1 | $SHA |\n"
 }
-expect() { out=$(bash "$SCRIPT" "$B" "$P" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"; else t FAIL "$2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
+expect() { out=$(bash "$SCRIPT" "$B" "$P" 2>&1); rc=$?
+  assert_result "$1" "$rc" "$2" "$3" "$out"; rm -rf "$W"; }
 fresh;                                                         expect ok   "unchanged" "Third-party skills vs base OK"
 fresh; sed -i 's/^payload third-party requires=ovr$/payload ours/' "$P/.claude/skills/manifest.txt"; expect fail "third-party turned into ours" "is now listed as 'ours'"
 fresh; sed -i "s/$SHA/$SHA2/" "$P/.claude/skills/SKILLS-LOCK.md";  expect ok   "commit update is logged" "CHANGED third-party skill 'payload': payloadcms/payload skills/payload $SHA -> payloadcms/payload skills/payload $SHA2"

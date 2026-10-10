@@ -8,7 +8,7 @@ writes the full version here.
 PR opened / pushed
  ├─ CI (ci.yml, pull_request, from the PR, no secrets)
  │    guard-script tests · install · lint · typecheck · test · build · audit
- ├─ Pusher ledger (pusher-ledger.yml, pull_request_target, from main, no concurrency): who pushed these commits → signed statuses
+ ├─ Pusher ledger (pusher-ledger.yml, every push to a branch but main, scripts from main, no concurrency): who pushed → signed statuses
  ├─ Guards (guards.yml, pull_request_target, from main)
  │    PR fetched as data (must be the event's head) → founder-only files (author + every pusher from the ledger) · skills manifest + checksums ·
  │    third-party skills vs their pinned upstream · agent workflow denies · secret scan of PR commits
@@ -49,6 +49,12 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   blocked security issue opened.
 - `scripts/check-python-deps.sh` (guards and CI): the guard scripts' Python packages (PyYAML, coverage.py) from a hash-pinned
   requirements file into a private venv.
+- `scripts/check-pins.sh` (founders, and the tests): regenerates `.github/pins.txt` (sha256 of the lock action, every guard
+  script, `.gitleaks.toml`, `.github/accounts.txt`) and the `PINS_SHA256` every workflow checks before running any of them.
+- `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
+  answer to the post job as a job output.
+- `scripts/check-accounts-lib.sh` (sourced by the guards that read `.github/accounts.txt`): the one parser of that file and
+  the one lookup (`account_field`). `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
 - `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny and scrub probes from the
   claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard

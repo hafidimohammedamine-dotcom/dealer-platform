@@ -16,8 +16,8 @@ fresh() {
   printf '| Skill | Source | Commit |\n|---|---|---|\n| demo | acme/tools `skills/demo`, tag v1 | %s |\n' "$SHA" > "$S/SKILLS-LOCK.md"
   printf -- '--- upstream/SKILL.md\n+++ ours/SKILL.md\n@@ -1,4 +1,2 @@\n # Demo\n keep\n-## Install\n-npx bad\n' > "$R/.claude/skills-patches/demo.diff"
 }
-expect() { out=$(UPSTREAM_BASE="file://$W/hub/" bash "$SCRIPT" "$R" "$W/work" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"; else t FAIL "$2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
+expect() { out=$(UPSTREAM_BASE="file://$W/hub/" bash "$SCRIPT" "$R" "$W/work" 2>&1); rc=$?
+  assert_result "$1" "$rc" "$2" "$3" "$out"; rm -rf "$W"; }
 fresh;                                                    expect ok   "pinned upstream, deletions only" "Upstream check OK for 1 third-party skill(s)"
 fresh; echo 'npx evil' >> "$S/demo/SKILL.md";             expect fail "added line found against the real upstream" "lines added or changed in SKILL.md"
 fresh; sed -i "s/$SHA/$(printf '%040d' 0)/" "$S/SKILLS-LOCK.md"; expect fail "commit that does not exist upstream" "could not fetch acme/tools"

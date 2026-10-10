@@ -11,7 +11,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
 PUSHER="${1:?pusher id}"; BEFORE="${2:?before sha}"; AFTER="${3:?after sha}"; ACCOUNTS="${4:?accounts file}"
-MANAGER_WORKFLOW="${MAIN_GUARD_MANAGER:-agent-manager.yml}"
+# Every workflow that holds a secret or acts with write scopes: all of them stop until a founder re-enables them, so no job
+# runs tampered code with a token even if the revert below fails.
+WORKFLOWS="${MAIN_GUARD_WORKFLOWS:-agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml}"
 : "${GH_REPO:?GH_REPO (owner/repo)}"
 [[ "$PUSHER" =~ ^[0-9]+$ ]] || { echo "ERROR: pusher id must be numeric: '$PUSHER'"; exit 2; }
 [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$AFTER" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: before/after must be 40-hex commit shas"; exit 2; }
@@ -50,13 +52,14 @@ else
   fi
   what="reverted $reverted pushed commit(s) with new commits on main"
 fi
-gh workflow disable "$MANAGER_WORKFLOW" >/dev/null 2>&1 && stopped="disabled $MANAGER_WORKFLOW (re-enable it after the review)" \
-  || stopped="could not disable $MANAGER_WORKFLOW; disable it by hand"
+off=""; notoff=""
+for w in $WORKFLOWS; do gh workflow disable "$w" >/dev/null 2>&1 && off+="$w " || notoff+="$w "; done
+stopped="disabled ${off:-no workflow}(re-enable them after the review)"; [ -z "$notoff" ] || stopped+="; could not disable $notoff- disable by hand"
 body="**Someone other than a founder pushed to \`main\`.** Pusher: user ID $PUSHER (${login:-not in accounts.txt}, role ${role:-unknown}). Range: \`$range\`.
 
 What main-guard did: $what; $stopped.${left:+ **Left to do:** $left}
 
-Founders: check what the pushed commits contained (and any repositories the pusher's account owns), rotate \`AGENT_GH_TOKEN\` if the agents' account was involved, then re-enable the manager. $founders"
+Founders: check what the pushed commits contained (and any repositories the pusher's account owns), rotate \`AGENT_GH_TOKEN\` if the agents' account was involved, then re-enable the workflows (Actions -> each workflow -> Enable). $founders"
 gh issue create --title "SECURITY: non-founder push to main by user ID $PUSHER" --label "area:security" --label "blocked" --label "priority:1" --body "$body" >/dev/null 2>&1 \
   || echo "::error::could not open the security issue; founders: $body"
 echo "main-guard: $what; $stopped.${left:+ Left: $left}"

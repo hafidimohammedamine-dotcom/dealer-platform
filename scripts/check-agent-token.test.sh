@@ -19,9 +19,9 @@ chmod +x "$T/gh"
 FG=github_pat_test_not_a_real_token; CL=ghp_classic_test_not_real
 expect() { # expect <ok|fail> <name> <message> [env...]
   local want=$1 name=$2 msg=$3; shift 3
-  out=$(env GH_BIN="$T/gh" GH_TOKEN="$FG" ACC="$T/accounts" "$@" bash -c 'bash "$0" "$ACC"' "$SCRIPT" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out" && ! grep -qe "$FG" -e "$CL" -e gho_oauth_test <<<"$out"; then t PASS "$name"
-  else t FAIL "$name ($got)"; echo "$out"; fi; }
+  out=$(env GH_BIN="$T/gh" GH_TOKEN="$FG" ACC="$T/accounts" "$@" bash -c 'bash "$0" "$ACC"' "$SCRIPT" 2>&1); rc=$?
+  assert_result "$want" "$rc" "$name" "$msg" "$out"
+  check "no token in the output of: $name" bash -c '! grep -qe "$1" -e "$2" -e gho_oauth_test <<<"$3"' _ "$FG" "$CL" "$out"; }
 expect ok   "agents' fine-grained token"       "Agent token OK: fine-grained, runs as agent account 'agents-bot', owns no repositories" "STUB_WHO=333 agents-bot"
 expect ok   "agents' classic token, only repo" "Agent token OK: classic, runs as agent account 'agents-bot', owns no repositories" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo
 expect ok   "lower-case scopes header"         "Agent token OK: classic" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo STUB_HDR=x-oauth-scopes

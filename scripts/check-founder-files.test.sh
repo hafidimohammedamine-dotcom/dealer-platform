@@ -15,9 +15,7 @@ setup() {
 commit() { git add -A && git commit -qm change >/dev/null; }
 expect() { # expect <ok|fail> <author> <name> [message-substring]
   out=$(bash "$SCRIPT" main HEAD "$2" "$R.founders" 2>&1); rc=$?
-  got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && { [ -z "${4:-}" ] || grep -qF -- "$4" <<<"$out"; }; then t PASS "$3"
-  else t FAIL "$3 (expected $1, got $got)"; echo "$out"; fi
+  assert_result "$1" "$rc" "$3" "${4:-}" "$out"
   cd /; rm -rf "$R" "$R.founders"
 }
 A=333   # the agents' account ID
@@ -72,9 +70,7 @@ if [ $rc != 0 ] && grep -qF "accounts file not found" <<<"$out"; then t PASS "mi
 expectp() { # expectp <ok|fail> <author> <name> <pushers text> [message-substring]
   printf '%b' "$4" > "$R.pushers"
   out=$(bash "$SCRIPT" main HEAD "$2" "$R.founders" "$R.pushers" 2>&1); rc=$?
-  got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && { [ -z "${5:-}" ] || grep -qF -- "$5" <<<"$out"; }; then t PASS "$3"
-  else t FAIL "$3 (expected $1, got $got)"; echo "$out"; fi
+  assert_result "$1" "$rc" "$3" "${5:-}" "$out"
   cd /; rm -rf "$R" "$R.founders" "$R.pushers"
 }
 setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp ok   111 "founder change, every commit pushed by a founder" "$H 111 founder\n" "every commit was pushed by a founder"

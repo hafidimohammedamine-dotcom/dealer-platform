@@ -5,7 +5,7 @@ import json
 import re
 import shlex
 
-import check_workflows_lib as core  # noqa: E402 - loaded into sys.modules by check-workflows.py before this module
+import check_workflows_lib as core  # loaded into sys.modules by check-workflows.py before this module
 
 LOCK_OUT_RE = {key: re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\." + out + r"\s*\}\}$")
                for key, out in (("path_to_claude_code_executable", "claude-path"), ("path_to_bun_executable", "bun-path"))}
@@ -94,6 +94,9 @@ def check_claude_step(fname, where, step, required, lock_id):
     for n in sorted(required):
         if f"Skill({n})" not in have:
             core.err(f"{where}: --disallowedTools does not deny Skill({n})")
+    for d in P["claude_denies"]:   # every Claude step: no web tools, no reads of process/runner internals
+        if d not in have:
+            core.err(f"{where}: --disallowedTools does not deny {d} (every claude step must)")
     if fname == P["manager"]:
         for d in P["manager_denies"]:
             if d not in have:
@@ -114,9 +117,11 @@ def check_checkout(where, step, ok_refs):
 def check_job_start(jw, steps, ok_refs):
     """Checkout of the default (or base) branch without credentials, then the bare lock step. Returns the lock id."""
     first = steps[0] if steps and isinstance(steps[0], dict) else {}
-    second = steps[1] if len(steps) > 1 and isinstance(steps[1], dict) else {}
-    if not str(first.get("uses", "")).startswith("actions/checkout@") or second.get("uses") != core.P["lock_action"]:
-        core.err(f"{jw}: a job with a claude step must start with actions/checkout, then {core.P['lock_action']}")
+    pins = steps[1] if len(steps) > 1 and isinstance(steps[1], dict) else {}
+    second = steps[2] if len(steps) > 2 and isinstance(steps[2], dict) else {}
+    if (not str(first.get("uses", "")).startswith("actions/checkout@") or not core.is_pins_step(pins)
+            or second.get("uses") != core.P["lock_action"]):
+        core.err(f"{jw}: a job with a claude step must start with actions/checkout, the pin step, then {core.P['lock_action']}")
         return None
     extra = set(second) - {"id", "uses", "name"}
     if extra:
@@ -148,7 +153,7 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
     and post steps that check their pinned files before running repo scripts."""
     P = core.P
     for i, step in enumerate(steps, 1):
-        if not isinstance(step, dict) or core.is_claude(step) or i <= 2:
+        if not isinstance(step, dict) or core.is_claude(step) or i <= 3:
             continue
         sw = f"{jw} step {i}"
         uses = str(step.get("uses", ""))

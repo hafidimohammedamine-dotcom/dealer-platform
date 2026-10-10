@@ -25,5 +25,5 @@ for m in "${MANIFESTS[@]}"; do [ -f "$m" ] || { echo "ERROR: manifest not found:
 THIRD=""
 for m in "${MANIFESTS[@]}"; do THIRD+="$(manifest_entries "$m" | awk '$2 == "third-party" {print $1}')"$'\n'; done
 # The accounts list: guards passes the base branch's copy (--accounts), so a PR cannot list itself.
-rows=$(accounts_rows "${ACCOUNTS:-$ROOT/.github/accounts.txt}") || { echo "ERROR: $rows"; exit 1; }
+rows=$(accounts_rows "${ACCOUNTS:-$ROOT/.github/accounts.txt}") || { echo "$rows"; exit 1; }
 CW_THIRD_PARTY="$(sort -u <<<"$THIRD" | sed '/^$/d' | paste -sd, -)" CW_ACCOUNT_ROWS="$rows" exec python3 -I "$HERE/check-workflows.py" "$ROOT"

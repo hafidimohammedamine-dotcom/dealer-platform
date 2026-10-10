@@ -31,6 +31,12 @@ jobs:
           ref: ${{ github.base_ref }}
           fetch-depth: 0
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
@@ -62,17 +68,13 @@ jobs:
         run: bash scripts/check-skills-vs-base.sh . /tmp/pr-skills
       - name: Third-party skills equal their pinned upstream with deletions only (fresh fetch of the locked commit)
         run: bash scripts/check-skills-upstream-all.sh /tmp/pr-skills /tmp/pr-upstream
-      - name: Agent workflows keep their denies (base script, PR's workflows as data)
+      - name: Agent workflows keep their denies and pins (base script, the PR's tree as data)
         run: |
           set -euo pipefail
-          rm -rf /tmp/pr-wf && mkdir -p /tmp/pr-wf
-          # The PR's workflows and local actions, as data. The accounts list comes from the base branch (a PR cannot add itself).
-          git archive refs/remotes/pr/head .github/workflows | tar -x -C /tmp/pr-wf
-          if git cat-file -e refs/remotes/pr/head:.github/actions 2>/dev/null; then
-            git archive refs/remotes/pr/head .github/actions | tar -x -C /tmp/pr-wf
-          fi
-          # Skill denies are required for every third-party skill named in the base or the PR manifest.
-          bash scripts/check-workflows.sh /tmp/pr-wf --accounts .github/accounts.txt \
+          # The PR's whole tree, as data (/tmp/pr: checked out, never run): its workflows, local actions, pins.txt and the
+          # pinned files. The accounts list comes from the base branch (a PR cannot add itself). Skill denies are required for
+          # every third-party skill named in the base or the PR manifest.
+          bash scripts/check-workflows.sh /tmp/pr --accounts .github/accounts.txt \
             --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
       - uses: ./.github/actions/install-gitleaks
       - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)

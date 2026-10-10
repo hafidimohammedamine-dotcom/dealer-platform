@@ -1,6 +1,8 @@
 """Shared state and helpers for scripts/check-workflows.py, check-workflows-claude.py and check-workflows-people.py (founder-owned): the
 policy lists, the accounts list, the error list, and the secrets and claude-step tests. Rules and messages:
 docs/runbooks/workflow-checker.md."""
+import glob
+import hashlib
 import json
 import os
 import re
@@ -17,6 +19,11 @@ SECRETS_TOKEN = re.compile(r"\bsecrets\b(\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?")
 CLAUDE_NAME = re.compile(r"claude|anthropic", re.I)
 CRED_ENV = re.compile(r"ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN")
 PINNED = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
+errors = []
+
+
+def err(msg):
+    errors.append(msg)
 
 
 def require_pinned(where, uses):
@@ -24,11 +31,6 @@ def require_pinned(where, uses):
     u = str(uses or "")
     if u and not u.startswith("./") and not PINNED.match(u):
         err(f"{where}: action must be pinned to a full commit SHA: {u}")
-errors = []
-
-
-def err(msg):
-    errors.append(msg)
 
 
 def is_claude(step):
@@ -50,6 +52,76 @@ def secrets_problems(text, allow_claude=False):
 
 
 PR_TRIGGERS = ("pull_request", "pull_request_target")
+PINS_HASH = None   # sha256 of <root>/.github/pins.txt, set by check_pins_file
+
+
+def _sha256(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def pinned_paths(root):
+    """The repo-relative files .github/pins.txt must list (same rule as scripts/check-pins.sh)."""
+    req = P["pins_required"]
+    out = set()
+    for d in req["dirs"]:
+        for dp, _, fns in os.walk(os.path.join(root, d)):
+            for fn in fns:
+                out.add(os.path.relpath(os.path.join(dp, fn), root))
+    for g in req["globs"]:
+        for f in glob.glob(os.path.join(root, g)):
+            if os.path.isfile(f) and not any(f.endswith(x) for x in req["exclude_suffixes"]):
+                out.add(os.path.relpath(f, root))
+    for f in req["files"]:
+        if os.path.isfile(os.path.join(root, f)):
+            out.add(f)
+    return out
+
+
+def check_pins_file(root):
+    """pins.txt lists exactly the required files with their current sha256; remembers its own hash for the pin steps."""
+    global PINS_HASH
+    path = os.path.join(root, P["pins_file"])
+    if not os.path.isfile(path):
+        err(f"{P['pins_file']} is missing; run: bash scripts/check-pins.sh update")
+        return
+    PINS_HASH = _sha256(path)
+    listed = {}
+    for n, line in enumerate(open(path, encoding="utf-8"), 1):
+        m = re.match(r"^([0-9a-f]{64})  (\S.*)$", line.rstrip("\n"))
+        if not m:
+            err(f"{P['pins_file']} line {n}: want '<sha256>  <path>'")
+            continue
+        listed[m.group(2)] = m.group(1)
+    want = pinned_paths(root)
+    for f in sorted(want - set(listed)):
+        err(f"{P['pins_file']} does not list {f}; run: bash scripts/check-pins.sh update")
+    for f in sorted(set(listed) - want):
+        err(f"{P['pins_file']} lists {f}, which is not a pinned file (or no longer exists); run: bash scripts/check-pins.sh update")
+    for f in sorted(want & set(listed)):
+        if _sha256(os.path.join(root, f)) != listed[f]:
+            err(f"{P['pins_file']}: {f} changed but its pin did not; run: bash scripts/check-pins.sh update")
+
+
+def is_pins_step(step):
+    """The exact pin step: name and run from the policy, env PINS_SHA256 equal to pins.txt's current hash, nothing else
+    but an optional id."""
+    if not isinstance(step, dict) or step.get("name") != P["pins_step_name"]:
+        return False
+    return True
+
+
+def check_pins_step(where, step):
+    """Errors for a pin step that is not exactly right (called when is_pins_step matched the name)."""
+    if str(step.get("run", "")) != P["pins_step_run"]:
+        err(f"{where}: the pin step's run must be exactly the policy's pins_step_run")
+    env = step.get("env") if isinstance(step.get("env"), dict) else {}
+    got = str(env.get("PINS_SHA256", ""))
+    if PINS_HASH and got != PINS_HASH:
+        err(f"{where}: PINS_SHA256 is {got or 'missing'} but {P['pins_file']} is {PINS_HASH}; run: bash scripts/check-pins.sh update")
+    extra = set(step) - {"name", "env", "run", "id"}
+    if extra or set(env) != {"PINS_SHA256"}:
+        err(f"{where}: the pin step may only have name, env (PINS_SHA256), run and id")
 
 
 def check_permissions(fname, where, perms, triggers):

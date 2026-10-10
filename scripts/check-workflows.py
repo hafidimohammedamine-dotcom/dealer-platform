@@ -76,6 +76,22 @@ def check_other(where, obj):
             err(f"{where}: not allowed: {u}")
 
 
+def check_pins_position(fname, jw, steps):
+    """Every job outside pins_exempt runs the exact pin step right after its first checkout (before the lock, before any
+    repo script): a push that changed a pinned file fails the job before any secret or sudo is used."""
+    if fname in P["pins_exempt"] or not isinstance(steps, list):
+        return
+    at = next((i for i, st in enumerate(steps) if isinstance(st, dict) and str(st.get("uses", "")).startswith("actions/checkout@")), None)
+    if at is None:
+        err(f"{jw}: no actions/checkout step (every job outside pins_exempt checks out and pins the files it runs)")
+        return
+    nxt = steps[at + 1] if at + 1 < len(steps) else None
+    if not LIB.is_pins_step(nxt):
+        err(f"{jw}: the step after the checkout must be the pin step '{P['pins_step_name']}'")
+        return
+    LIB.check_pins_step(f"{jw} step {at + 2}", nxt)
+
+
 def check_job(fname, jname, job, required, triggers):
     """Checks one job; returns its number of claude steps."""
     jw = f"{fname} job {jname}"
@@ -88,6 +104,7 @@ def check_job(fname, jname, job, required, triggers):
         if key in job:
             err(f"{jw}: '{key}' not allowed")
     LIB.check_permissions(fname, jw, job.get("permissions"), triggers)
+    check_pins_position(fname, jw, job.get("steps") or [])
     for key, val in job.items():
         if key != "steps":
             check_other(f"{jw} {key}", val)
@@ -159,8 +176,8 @@ def check_file(path, required, accounts):
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
-    for t in sorted(triggers & {"pull_request", "workflow_run"}) if count else []:
-        err(f"{name}: a workflow with a claude step must not run on {t} (PR code or its artifacts next to a Claude token)")
+    for t in sorted(triggers & {"pull_request", "workflow_run", "push"}) if count else []:
+        err(f"{name}: a workflow with a claude step must not run on {t} (PR code, its artifacts or a fresh push next to a Claude token)")
     return count
 
 
@@ -182,6 +199,7 @@ def main(argv):
     if not files:
         print(f"ERROR: no workflow files in {d}")
         return 1
+    LIB.check_pins_file(root)
     required = third_party(os.environ["CW_THIRD_PARTY"])
     accounts = LIB.accounts_from_rows(os.environ["CW_ACCOUNT_ROWS"])
     counts = {os.path.basename(f): check_file(f, required, accounts) for f in files}

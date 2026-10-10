@@ -19,6 +19,7 @@ expect "non-numeric ID with extra fields" fail 'abc founder-one founder extra\n'
 expect "extra field" fail '111 founder-one founder extra\n' "bad line 1 in"
 expect "bad role" fail '111 founder-one owner\n' "bad line 1 in"
 expect "login with a # is cut at the comment and fails" fail '111 founder#one founder\n' "bad line 1 in"
+expect "CRLF line endings" fail '111 founder-one founder\r\n' "bad line 1 in"
 expect "login with other characters" fail '111 founder_one founder\n' "bad line 1 in"
 expect "duplicate ID (founder twice)" fail '111 founder-one founder\n111 founder-two founder\n' "user ID 111 is listed twice in"
 expect "duplicate ID as founder and agent" fail '111 founder-one founder\n111 agents-bot agent\n' "user ID 111 is listed twice in"

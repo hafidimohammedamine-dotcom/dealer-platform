@@ -19,9 +19,8 @@ rec() { # (re)write the record .claude/skills-patches/demo.diff the way a founde
     diff -ru -a -x NOTICE.md -x UPSTREAM-LICENSE upstream ours ; rm -f upstream ours ) > "$R" || true
 }
 expect() { # expect <ok|fail> <name> <message>
-  out=$(bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"
-  else t FAIL "$2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
+  out=$(bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?
+  assert_result "$1" "$rc" "$2" "$3" "$out"; rm -rf "$W"; }
 fresh;                                                   expect ok   "deleted lines and a deleted file" "deletions only (1 upstream file(s) removed)"
 fresh; cp "$U/SKILL.md" "$O/SKILL.md"; cp "$U/ref/PLUG.md" "$O/ref/"; : > "$R"; expect ok "identical to upstream (no deletions)" "(0 upstream file(s) removed)"
 fresh; echo "npx evil" >> "$O/SKILL.md";                 expect fail "added line" "lines added or changed in SKILL.md"
@@ -45,9 +44,15 @@ fresh; printf 'r1 \nr2\n' > "$O/ref/R.md";              expect fail "whitespace-
 fresh; printf 'a\0b\nc\n' > "$U/ref/B.bin"; printf 'a\0b\nX\0\nc\n' > "$O/ref/B.bin"; rec; expect fail "added line in a binary file" "lines added or changed in ref/B.bin"
 fresh; : > "$O/ref/R.md"; rec;                           expect fail "prose lines removed (file emptied)" "deletions in ref/R.md are not whole units"
 fresh; rm "$O/ref/R.md"; mkdir "$O/ref/R.md"; echo x > "$O/ref/R.md/in.md"; expect fail "upstream file is a folder in ours" "file not in upstream: ref/R.md/in.md"
-if [ "$(id -u)" != 0 ]; then
-  fresh; chmod 000 "$U/ref/R.md";                        expect fail "unreadable upstream file (diff error)" "diff failed on ref/R.md"
-else echo "SKIP  unreadable file (running as root; runs in CI)"; fi
+# diff errors (exit > 1) fail closed in both passes: a shim fails the added-lines pass (first call for a file), or only
+# the removed-lines pass (second call, --old-line-format='%dn'), independent of who runs the test.
+D1=$(mktemp -d "$TMPROOT/sd1.XXXXXX"); printf '#!/bin/sh\ncase "$*" in *"--new-line-format=%%L"*) exit 2;; esac\nexec /usr/bin/diff "$@"\n' > "$D1/diff"; chmod +x "$D1/diff"
+fresh; out=$(PATH="$D1:$PATH" bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?
+[ $rc != 0 ] && grep -q "diff failed on ref/R.md (exit 2)" <<<"$out" && t PASS "diff error in the added-lines pass fails closed" || { t FAIL "added-lines diff error ($rc)"; echo "$out"; }
+D2=$(mktemp -d "$TMPROOT/sd2.XXXXXX"); printf '#!/bin/sh\ncase "$*" in *"--old-line-format=%%dn"*) exit 2;; esac\nexec /usr/bin/diff "$@"\n' > "$D2/diff"; chmod +x "$D2/diff"
+fresh; out=$(PATH="$D2:$PATH" bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?
+[ $rc != 0 ] && grep -q "diff failed on ref/R.md (exit 2)" <<<"$out" && t PASS "diff error in the removed-lines pass fails closed" || { t FAIL "removed-lines diff error ($rc)"; echo "$out"; }
+rm -rf "$D1" "$D2"
 # The record .claude/skills-patches/<name>.diff must be today's diff
 fresh; rm "$R";                                          expect fail "missing record" "missing or empty record .claude/skills-patches/demo.diff"
 fresh; : > "$R";                                         expect fail "zero-byte record while ours differs" "missing or empty record"

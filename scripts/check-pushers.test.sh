@@ -40,6 +40,9 @@ run fail "record: non-numeric pusher" "pusher id must be numeric" -- record main
 run fail "record: no key" "GUARDS_LEDGER_KEY is missing or shorter than 32" GUARDS_LEDGER_KEY= -- record main HEAD 111
 run fail "record: short key" "GUARDS_LEDGER_KEY is missing or shorter than 32" GUARDS_LEDGER_KEY=short -- record main HEAD 111
 run fail "bad base ref" "could not list commits" -- record nope HEAD 111
+run ok "record: empty range (base == head)" "Recorded 0 new commit(s)" -- record work work 111
+out=$(cd "$R" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" STATUS_DIR="$W/statuses" GH_REPO=owner/repo GUARDS_LEDGER_KEY="$KEY" bash "$SCRIPT" verify work work "$W/accounts" 2>&1); rc=$?
+[ $rc = 0 ] && [ -z "$out" ] && t PASS "verify: empty range prints nothing" || { t FAIL "verify empty range ($rc)"; echo "$out"; }
 run ok "verify before any record: unknown rows" "$C2 - unknown" -- verify main HEAD "$W/accounts"
 run ok "record two commits for the founder" "Recorded 2 new commit(s) as pushed by user ID 111." -- record main HEAD 111
 check "a status per commit with id and 40-hex mac" bash -c 'grep -qE "^id=111 mac=[0-9a-f]{40}$" "$1/$2" && grep -qE "^id=111 mac=[0-9a-f]{40}$" "$1/$3"' _ "$W/statuses" "$C1" "$C2"

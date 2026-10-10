@@ -29,6 +29,18 @@ Files and arguments
   `step <n>: not a mapping`, `'with' must be a mapping` - malformed workflow; fix the YAML.
 
 Any workflow or composite action
+- `.github/pins.txt is missing`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is not
+  a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly the lock action's files, every
+  `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml` and `.github/accounts.txt` with their current
+  sha256: `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
+  the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
+  <x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
+  outside `pins_exempt` (`ci.yml`, `egress-lock-test.yml`) checks out and then runs the exact pin step from the policy
+  (`pins_step_name`, `pins_step_run`) with the current hash; `update` rewrites the hash.
+- `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
+  token before the main guard could act; use schedule or a founder-gated `workflow_dispatch`.
+- `--disallowedTools does not deny <x> (every claude step must)` - every Claude step denies the policy's `claude_denies`
+  (`WebFetch`, `WebSearch` and the `Read(//...)` paths), not only the manager.
 - `secrets used other than as secrets.<NAME> outside a claude step's claude_code_oauth_token` - no `secrets['x']`,
   `secrets[format(...)]`, `toJSON(secrets)`, `join(secrets)` or the whole object anywhere.
 - `Claude/Anthropic credential secrets.<NAME> ...` / `Claude/Anthropic credential variable ...` - a secret named

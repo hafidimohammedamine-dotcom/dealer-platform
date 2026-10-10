@@ -19,9 +19,7 @@ fresh() {
 }
 expect() { # expect <ok|fail> <name> <message-substring>
   out=$(bash "$SCRIPT" "$T" 2>&1); rc=$?
-  got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"
-  else t FAIL "$2 (expected $1 with '$3', got $got)"; echo "$out"; fi
+  assert_result "$1" "$rc" "$2" "$3" "$out"
   rm -rf "$T"
 }
 fresh;                                                       expect ok   "clean fixture passes" "Skills OK (5 files)"
@@ -45,6 +43,7 @@ fresh; echo x > "$S/alpha/new
 line.md";                                                    expect fail "newline in name" "newline"
 fresh; rm "$S/checksums.sha256";                             expect fail "missing checksums" "missing"
 fresh; rm "$S/manifest.txt";                                 expect fail "missing manifest" "missing"
+fresh; rm -rf "$S";                                            expect fail "missing .claude/skills" "ERROR: missing"
 fresh; echo "gamma maybe" >> "$S/manifest.txt"; mkdir "$S/gamma"; printf -- '---\nname: gamma\n---\n' > "$S/gamma/SKILL.md"; expect fail "bad kind" "needs kind"
 fresh; echo x > "$S/alpha/with space.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "space in name after --write" "Skills OK (6 files)"
 fresh; echo x >> "$S/alpha/reference/R.md"; bash "$SCRIPT" --write "$T" >/dev/null; expect ok "--write then check" "Skills OK"

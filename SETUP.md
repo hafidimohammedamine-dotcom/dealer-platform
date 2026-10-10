@@ -60,6 +60,10 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 1. Write `packages/contracts` (the first issue, labeled `agent:founder`). Most agents wait for it. Ask Claude to help you draft it.
 2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
 
+When you (a founder) change the network lock, a guard script, `.gitleaks.toml` or `.github/accounts.txt`, run
+`bash scripts/check-pins.sh update` in the same PR: every workflow checks those files against `.github/pins.txt` before it
+runs them, and the agents cannot change that check.
+
 ## 6. Your daily routine (about 30 minutes)
 1. Read the morning **Daily report**. Founders' actions are listed first.
 2. Merge PRs labeled `ready-to-merge`: open it, read the summary, click through the app on staging, approve, merge.

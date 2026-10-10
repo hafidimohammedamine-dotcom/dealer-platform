@@ -2,7 +2,8 @@
 
 - **Agent network lock** (`.github/actions/agent-egress-lock`, right after the checkout of `main` in every agent job):
   installs gitleaks and the pinned Claude Code and Bun binaries, each checked against a pinned sha256 (the action's own Bun
-  download is not used); DNS answers only allow-listed names; a local
+  download is not used); DNS answers only allow-listed names (since round 10 with a fixed sink address, forwarding nothing);
+  a local
   SNI-checking proxy (nginx stream) is the only way out on port 443 and connects only to allow-listed host names, so an allowed
   IP cannot be reused under another name; plain HTTP, raw IPs, other DNS servers and IPv6 are rejected; Docker is stopped and
   sudo removed (also group rules); bubblewrap may create user namespaces but its children may not and have no capabilities
@@ -63,7 +64,8 @@
   to the `agent` account and be classic with exactly `repo` (fine-grained tokens cannot cover a personal account's repo for a
   collaborator) or fine-grained with no classic scopes; it is the first step after checkout and the lock in every job that
   holds `AGENT_GH_TOKEN`.
-- The lock allows exact names only: the `.actions.githubusercontent.com` wildcard is gone (the runner needed none during the
+- The lock allows exact names only (superseded in round 8: the runner's own services are allowed by exact name plus the
+  run service's name pattern): the `.actions.githubusercontent.com` wildcard is gone (the runner needed none during the
   steps); a job with `id-token: write` also allows its own OIDC host for that run. It installs Node 20 before it closes,
   checks that every allowed name answers, and gives nginx room for long generated names.
 - `log-patch.txt` for reviewers includes merge commits (combined diffs).
@@ -96,3 +98,24 @@
   or Bun download; `accounts_rows` rejects a user ID listed twice and `account_field` is the one lookup; `check-pushers.sh`
   treats a GitHub API error as an error, never as "no record"; coverage.py 7.16.2 and PyYAML 6.0.3 (current releases, hashes
   from PyPI); `require_pinned` is the one pin check.
+- **Round 10:** every workflow but CI and the hosted lock test pins the files it runs (`.github/pins.txt`, its sha256 in the
+  workflow file as `PINS_SHA256`, `scripts/check-pins.sh update`); `egress-lock-claude.yml` has no push trigger (schedule
+  and founder-started runs only); the checker rejects `push` for Claude workflows and requires the pin step in every job;
+  the pusher ledger runs on every push to a non-main branch (opening a PR records nothing); the main guard disables every
+  secret-holding workflow and its fallback reverts inline; dnsmasq forwards nothing (sink address, the proxy resolves exact
+  names; subdomains die at the proxy, self-tested); `scripts/check-claude-answer.sh` replaces the pasted jq steps and
+  `check-review-post.sh` takes the answer from `ANSWER` with a `daily-reports` target; every Claude step must deny
+  `WebFetch`, `WebSearch` and the `Read(//...)` paths (`claude_denies`); after its shift the manager re-checks that the
+  agents' account owns no repository; tests for the remaining branches (`check-accounts-lib`, `check-pins`,
+  `check-claude-answer`, empty ranges, failed pushes, diff errors); the seven remaining tests use `assert_result`.
+
+## Founder steps before and after merging this PR
+1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
+   ledger and the guards' ledger step fail on every PR.
+2. Merge in the web UI (that also re-registers the schedules).
+3. Right after merge, start `Agent egress lock - Claude probe` by hand (Actions -> Run workflow) and read its three jobs
+   (founder decision 3 in `docs/runbooks/agent-network-lock.md`); a failure is a revert trigger.
+4. Earlier PRs have no ledger records: re-push each open founder branch (a rebase, or one empty commit of your own) so the
+   ledger records them under your ID; founder-only changes fail the guards until then.
+5. Whenever a founder PR changes the lock action, a guard script, `.gitleaks.toml` or `.github/accounts.txt`, run
+   `bash scripts/check-pins.sh update` in that PR.

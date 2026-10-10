@@ -13,7 +13,7 @@ for wf in agent-daily-report.yml agent-weekly-audit.yml review.yml claude.yml ag
 done
 # Every manager deny is required
 mapfile -t MD < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["manager_denies"]))' "$(dirname "$PY")/check-workflows-policy.json")
-[ "${#MD[@]}" = 30 ] || t FAIL "expected 30 manager denies, got ${#MD[@]}"
+[ "${#MD[@]}" = 32 ] || t FAIL "expected 32 manager denies, got ${#MD[@]}"
 for d in "${MD[@]}"; do
   [ "$d" = 'Skill(payload)' ] && continue
   fresh; drop agent-manager.yml "$d";                   expect fail "manager missing $d" "missing deny $d"
@@ -22,7 +22,7 @@ done
 fx; python3 - "$T/$W/t.yml" <<'EOF'
 import sys; p=sys.argv[1]; s=open(p).read()
 s=s.replace('prompt: "Do the task."', 'prompt: |\n            --disallowedTools "Skill(payload)"\n            - x')
-s=s.replace('            --disallowedTools "Skill(payload),Write"\n', '            --permission-mode bypassPermissions\n')
+s=s.replace('            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"\n', '            --permission-mode bypassPermissions\n')
 open(p,"w").write(s)
 EOF
                                                         expect fail "decoy deny in prompt, list line, no deny in claude_args" "needs exactly one --disallowedTools (found 0)"
@@ -45,7 +45,19 @@ fx; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\
 fresh; sed -i 's|allowed_bots: github-actions|allowed_bots: "*"|' "$T/$W/agent-manager.yml"; expect fail "manager allowing every bot" "allowed_bots may only be"
 # Structure: duplicate keys, the lock step and the pinned action
 fx; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\n          claude_args: "--model haiku"|' "$T/$W/t.yml"; expect fail "duplicate claude_args key" "duplicate key"
-fx; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, then ./.github/actions/agent-egress-lock"
+fx; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, the pin step, then ./.github/actions/agent-egress-lock"
+fx; sed -i '/- name: The repository files this job runs are the reviewed ones/,+5d' "$T/$W/t.yml"; expect fail "claude job without the pin step" "the step after the checkout must be the pin step"
+fx; sed -i 's|PINS_SHA256: "[0-9a-f]*"|PINS_SHA256: "0000000000000000000000000000000000000000000000000000000000000000"|' "$T/$W/t.yml"; expect fail "pin step with a stale hash" "PINS_SHA256 is 0000000000000000000000000000000000000000000000000000000000000000 but .github/pins.txt is"
+fx; sed -i 's|          sha256sum --check --strict --quiet .github/pins.txt|          true|' "$T/$W/t.yml"; expect fail "pin step with a changed run" "the pin step's run must be exactly the policy's pins_step_run"
+fx; sed -i '/PINS_SHA256:/a\          EXTRA: x' "$T/$W/t.yml"; expect fail "pin step with an extra env" "the pin step may only have name, env (PINS_SHA256), run and id"
+fx; printf 'x\n' >> "$T/scripts/check-pins.sh"; expect fail "a pinned file changed without a pin update" "check-pins.sh changed but its pin did not; run: bash scripts/check-pins.sh update"
+fx; rm "$T/.github/pins.txt"; expect fail "pins.txt missing" ".github/pins.txt is missing; run: bash scripts/check-pins.sh update"
+fx; echo "0000000000000000000000000000000000000000000000000000000000000000  scripts/check-zzz.sh" >> "$T/.github/pins.txt"; expect fail "pins.txt lists a file that is not pinned" "lists scripts/check-zzz.sh, which is not a pinned file"
+fx; sed -i '/check-pins.sh/d' "$T/.github/pins.txt"; expect fail "pins.txt misses a pinned file" "does not list scripts/check-pins.sh"
+fx; echo "bad line" >> "$T/.github/pins.txt"; expect fail "pins.txt with a bad line" "want '<sha256>  <path>'"
+fx; printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n' > "$T/$W/s.yml"; expect fail "a job without a checkout" "no actions/checkout step (every job outside pins_exempt"
+fx; printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n      - run: echo\n' > "$T/$W/s.yml"; expect fail "a plain job without the pin step after checkout" "the step after the checkout must be the pin step"
+fresh; plain s.yml; expect ok "a plain job with the pin step" "Workflow denies OK"
 fx; sed -i 's|      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|      - run: echo first\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|' "$T/$W/t.yml"; expect fail "a step before checkout" "must start with actions/checkout"
 fx; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./.github/actions/agent-egress-lock\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "lock that may fail silently" "may only have id/uses/name (found continue-on-error)"
 fx; sed -i 's|      - id: lock|      -|' "$T/$W/t.yml";        expect fail "lock without an id" "needs an id"
@@ -70,6 +82,7 @@ fx; sed -i 's|^jobs:|env:\n  CLAUDE_CODE_OAUTH_TOKEN: x\njobs:|' "$T/$W/t.yml"; 
 fx; printf '  b:\n    runs-on: ubuntu-latest\n    env:\n      K: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n    steps:\n      - run: echo hi\n' >> "$T/$W/t.yml"; expect fail "credential in a later job's env" "t.yml job b env: Claude/Anthropic credential"
 fx; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTHROPIC_API_KEY: x|' "$T/$W/t.yml"; expect fail "any env on the claude step" "env not allowed on a claude step"
 fx; sed -i 's|prompt: "Do the task."|prompt: "${{ toJSON(secrets) }}"|' "$T/$W/t.yml"; expect fail "credential in the prompt" "in input 'prompt'"
+fx; sed -i 's|,WebFetch,||' "$T/$W/t.yml"; expect fail "a claude step without one of the common denies" "--disallowedTools does not deny WebFetch (every claude step must)"
 # Actions and jobs
 fx; printf '      - uses: "./.github/actions/evil"\n' >> "$T/$W/t.yml"; expect fail "quoted local action not on the allow-list" "local action not on the allow-list: ./.github/actions/evil"
 fx; printf '      - uses: ./.github/actions/install-gitleaks\n' >> "$T/$W/t.yml"; expect fail "local action after the claude step" "no local action after the claude step"
@@ -118,7 +131,7 @@ fx; sed -i 's|        uses: ./.github/actions/agent-egress-lock|        uses: ./
 fx; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      AGENT_LOCK_TEST_DOCKER_SOCK: /x|' "$T/$W/t.yml"; expect fail "lock test hook in a claude job" "env 'AGENT_LOCK_TEST_DOCKER_SOCK' not allowed"
 fx; sed -i 's|^jobs:|env:\n  AGENT_LOCK_SELFTEST_BREAK: "1"\njobs:|' "$T/$W/t.yml"; expect fail "workflow-level env in a claude workflow" "no workflow-level env in a workflow with a claude step"
 # Job env: allow-list, and the subprocess scrub must be on
-fx; sed -i '/      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/d; /    env:$/d' "$T/$W/t.yml"; expect fail "subprocess scrub missing" 'needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"'
+fx; sed -i '/      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/d; /^    env:$/d' "$T/$W/t.yml"; expect fail "subprocess scrub missing" 'needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"'
 fx; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"|' "$T/$W/t.yml"; expect fail "subprocess scrub turned off" 'needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"'
 for v in NODE_OPTIONS BASH_ENV ANTHROPIC_BASE_URL LD_PRELOAD; do
   fx; sed -i "s|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: \"1\"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: \"1\"\n      $v: x|" "$T/$W/t.yml"; expect fail "job env $v" "env '$v' not allowed in a job with a claude step"

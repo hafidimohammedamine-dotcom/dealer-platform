@@ -9,6 +9,9 @@ cat > "$W/gh" <<STUB
 #!/usr/bin/env bash
 echo "\$*" >> "$W/gh.log"
 if [ "\$1 \$2" = "pr comment" ] || [ "\$1 \$2" = "issue comment" ]; then while [ \$# -gt 0 ]; do [ "\$1" = --body-file ] && cp "\$2" "$W/posted.md"; shift; done; fi
+[ "\$1 \$2" = "issue list" ] && printf '%s\n' "\${STUB_DAILY_NUMBER:-}"
+[ "\$1 \$2" = "issue create" ] && printf 'https://github.com/o/r/issues/%s\n' "\${STUB_CREATED_NUMBER:-77}"
+exit 0
 STUB
 cat > "$W/gitleaks" <<STUB
 #!/usr/bin/env bash
@@ -40,4 +43,15 @@ exec_file $'DAILY REPORT\nall quiet'; issue_run; rc=$?
 exec_file $'report with LEAKME'; issue_run
 grep -q LEAKME "$W/posted.md" && { t FAIL "issue mode posted a secret"; } || { t PASS "issue mode withholds secrets"; }
 out=$(GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" other 2 "$W/exec.json" 2>&1); [ $? != 0 ] && { t PASS "bad mode rejected"; } || { t FAIL "bad mode"; }
+# The answer from the environment (the post jobs), and the daily-reports target
+rm -f "$W/gh.log" "$W/posted.md"; ANSWER=$'REVIEW TEAM RESULT: PASS\nfrom env' GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?
+[ $rc = 0 ] && grep -q "from env" "$W/posted.md" && grep -q "add-label ready-to-merge" "$W/gh.log" && t PASS "ANSWER from the environment, no execution file" || t FAIL "ANSWER env ($rc)"
+rm -f "$W/gh.log" "$W/posted.md"; ANSWER="report text" STUB_DAILY_NUMBER=42 GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" daily-reports >/dev/null 2>&1; rc=$?
+[ $rc = 0 ] && grep -q "issue comment 42" "$W/gh.log" && grep -q "report text" "$W/posted.md" && ! grep -q "issue create" "$W/gh.log" && t PASS "daily-reports: posts on the existing Daily reports issue" || { t FAIL "daily-reports existing ($rc)"; cat "$W/gh.log"; }
+rm -f "$W/gh.log" "$W/posted.md"; ANSWER="report text" STUB_CREATED_NUMBER=77 GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" daily-reports >/dev/null 2>&1; rc=$?
+[ $rc = 0 ] && grep -q "issue create --title Daily reports" "$W/gh.log" && grep -q "issue comment 77" "$W/gh.log" && t PASS "daily-reports: creates the issue when missing" || { t FAIL "daily-reports create ($rc)"; cat "$W/gh.log"; }
+rm -f "$W/gh.log"; out=$(ANSWER="x" STUB_CREATED_NUMBER=nope GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" daily-reports 2>&1); rc=$?
+[ $rc = 1 ] && grep -q "could not find or create the Daily reports issue" <<<"$out" && t PASS "daily-reports: a bad issue number fails" || t FAIL "daily-reports bad number ($rc)"
+rm -f "$W/gh.log" "$W/posted.md"; ANSWER="" GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" issue 2 >/dev/null 2>&1; rc=$?
+[ $rc = 0 ] && grep -q "did not produce a report" "$W/posted.md" && t PASS "issue mode with an empty answer and no file posts the placeholder" || t FAIL "empty answer ($rc)"
 summary

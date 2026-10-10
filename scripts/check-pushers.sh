@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# A ledger of who pushed every commit of a pull request, kept as commit statuses that only the guards job can write
-# (founder-owned). GitHub records the pusher of a push only in a short-lived event feed, and a commit's author can be forged
-# with any email, so the guards job writes its own record from the event's sender (trusted) at the start of every run:
-#   record <base-ref> <head-ref> <pusher-id>   for every commit of base..head without a valid record, post a status
-#       context `guards/pusher`, description `id=<pusher-id> mac=<40 hex>`, mac = HMAC-SHA256(GUARDS_LEDGER_KEY, "<sha> <id>")
+# The pusher ledger (founder-owned): `guards/pusher` commit statuses, one per commit, recording who pushed it. GitHub keeps
+# the pusher of a push only in a short-lived event feed, and a commit's author can be forged with any email, so
+# pusher-ledger.yml writes the record itself from the push event's sender (trusted) on every push to a branch other than
+# main, and guards.yml reads it back. Anyone with write access can post a status under the same context; only the HMAC
+# makes a record valid: mac = HMAC-SHA256(GUARDS_LEDGER_KEY, "<sha> <id>"), and the key is a GitHub secret the agents'
+# token cannot read, so a forged, copied or edited status never verifies and a deleted one is "no record".
+#   record <base-ref> <head-ref> <pusher-id>   post a record on every commit of base..head that has no valid record yet
 #   verify <base-ref> <head-ref> <accounts-file>   print "<sha> <id> <founder|agent|unknown>" for every commit, or
-#       "<sha> - unknown" when no record has a valid mac (a deleted or forged status is "no record"); check-founder-files.sh
-#       then requires every line to be a founder when founder-only files changed
-# A status anyone with write access posts under the same context does not verify without the key (a GitHub secret the
-# agents' token cannot read). Needs gh with GH_TOKEN (statuses: write for record) and GH_REPO. Rules: docs/runbooks/ci-guards.md.
+#       "<sha> - unknown" when no record has a valid mac; check-founder-files.sh then requires every line to be a founder
+#       when founder-only files changed
+# A GitHub API error is an error (exit 1), never "no record". Needs gh with GH_TOKEN (statuses: write for record) and
+# GH_REPO. Rules: docs/runbooks/ci-guards.md.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh

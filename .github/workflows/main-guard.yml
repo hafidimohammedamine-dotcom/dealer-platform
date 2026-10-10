@@ -1,9 +1,9 @@
 # Only founders may push to main (they merge pull requests). Any other push is reverted, the agents are stopped and a
 # security issue is opened: scripts/check-main-push.sh. Founder-owned file. The agents' token has no `workflow` scope, so it
 # cannot change this file; pushes made here with the workflow's token start no workflow (no loop).
-# The push itself could have changed the script, its library or the accounts list, so this file pins all three by sha256:
-# a push that changes any of them (a founder's, in a reviewed PR) also updates the hashes here. A mismatch is treated like a
-# non-founder push would be: the job fails loudly and the founders look.
+# The push itself could have changed the script, its library or the accounts list, so this job's pin step (.github/pins.txt,
+# whose hash sits in this file) must pass first. On a mismatch the fallback step, written here with the founders' IDs, undoes
+# the push without running any repository file.
 name: Main guard
 run-name: "Main guard @ ${{ github.sha }} by user ID ${{ github.event.sender.id }}"
 on:
@@ -24,13 +24,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: true   # the revert push uses the job token
       - id: pins
-        name: The guard's own inputs are the reviewed ones (pinned here, outside the pushed files' reach)
+        name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
         run: |
-          sha256sum --check --strict <<'EOF'
-          fbc024b038445b9ae5959220cb5a0fed01281c9ef2c538cb5b82d58896a66897  scripts/check-main-push.sh
-          027dd973b7df69b70e10e6be03117b29e965cdcc8c2f77dabb816b6932ad5e4b  scripts/check-accounts-lib.sh
-          c8de29b2df92ef4b1bf99604e07dbe04da582922c7a06a9ffcbe988f7a259bb5  .github/accounts.txt
-          EOF
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
       - name: The pusher must be a founder; otherwise revert, stop the agents, open an issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -51,8 +50,8 @@ jobs:
           FOUNDER_IDS: "238822878"
         run: |
           set -u
-          case " $FOUNDER_IDS " in *" $PUSHER_ID "*) echo "pins changed by a founder's push ($AFTER): update them in main-guard.yml"; exit 1;; esac
-          echo "::error::push to main by user ID $PUSHER_ID changed the main guard's inputs; undoing it from the workflow file"
+          case " $FOUNDER_IDS " in *" $PUSHER_ID "*) echo "pinned files changed by a founder's push ($AFTER) without a pin update: run scripts/check-pins.sh update in a founder PR"; exit 1;; esac
+          echo "::error::push to main by user ID $PUSHER_ID changed pinned files; undoing it from the workflow file"
           git config user.name main-guard && git config user.email main-guard@users.noreply.github.com
           done=""
           if [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && ! git merge-base --is-ancestor "$BEFORE" "$AFTER"; then
@@ -66,8 +65,8 @@ jobs:
             done
             [ "$n" = 0 ] || { git push origin HEAD:refs/heads/main && done="reverted $n pushed commit(s) with new commits"; }
           fi
-          gh workflow disable agent-manager.yml || true
-          gh issue create --title "SECURITY: push to main changed the main guard's inputs (user ID $PUSHER_ID)" \
+          for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml; do gh workflow disable "$w" || true; done
+          gh issue create --title "SECURITY: push to main changed pinned files (user ID $PUSHER_ID)" \
             --label area:security --label blocked --label priority:1 \
-            --body "A push to main ($BEFORE..$AFTER by user ID $PUSHER_ID) changed scripts/check-main-push.sh, scripts/check-accounts-lib.sh or .github/accounts.txt without updating the pins in .github/workflows/main-guard.yml. main-guard ${done:-could not undo it (see the job log)}; the manager workflow is disabled. Founders: check that push, finish undoing it if needed, re-enable the manager." || true
+            --body "A push to main ($BEFORE..$AFTER by user ID $PUSHER_ID) changed pinned files (.github/pins.txt and the files it lists: the lock action, the guard scripts, the accounts list) without a founder's pin update. main-guard ${done:-could not undo it (see the job log)}; every workflow that holds a secret is disabled. Founders: check that push, finish undoing it if needed, run scripts/check-pins.sh update in a founder PR if the change was yours, then re-enable the workflows." || true
           exit 1

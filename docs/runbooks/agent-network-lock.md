@@ -10,10 +10,13 @@ enforces that). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
    (`path_to_claude_code_executable`, `path_to_bun_executable`) instead of downloading its own, because the lock closes
    GitHub's release storage. It also sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and `DISABLE_AUTOUPDATER=1` for the
    later steps.
-2. Starts a local DNS server (dnsmasq) that answers only the allowed names, stops systemd-resolved and points
-   `/etc/resolv.conf` at it.
-3. Starts a local proxy (nginx `stream` with `ssl_preread`) that reads the TLS server name (SNI) of each connection and
-   connects only to allow-listed names. The firewall (iptables) sends every outbound port-443 connection, except the proxy's
+2. Starts a local DNS server (dnsmasq) that forwards nothing: every allowed name (and anything under it) answers the fixed
+   unroutable address 192.0.2.1, every other name is NXDOMAIN. So no query from the job reaches an outside resolver (no DNS
+   tunnelling through a subdomain), and a connection to a subdomain dies at the proxy. It stops systemd-resolved and points
+   `/etc/resolv.conf` at dnsmasq.
+3. Starts a local proxy (nginx `stream` with `ssl_preread`) that reads the TLS server name (SNI) of each connection,
+   connects only to allow-listed names and resolves those exact names itself through the upstream resolver (the only DNS
+   the firewall lets out, from the proxy's user). The firewall (iptables) sends every outbound port-443 connection, except the proxy's
    own, to that proxy and rejects everything else: plain HTTP, raw IPs without a name, other DNS servers, all IPv6. An allowed
    IP cannot be reused under another name. The one exception to "no raw IPs" is root's access to the Azure host services
    (168.63.129.16 and 169.254.169.254) that the runner machine itself needs; the job's steps do not run as root.
@@ -31,10 +34,13 @@ enforces that). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
    outputs, so a Claude step can never start on a runner the lock did not finish.
 
 Allowed names are exact hosts, listed in `allow-domains.txt`: `github.com`, `api.github.com`, `codeload.github.com`,
-`api.anthropic.com` and the npm/Yarn registries. There are no wildcards. The runner's own services needed no new connection
-during the steps (measured 2026-10-09). The one addition: a job with `id-token: write` (`claude.yml`) also allows its own OIDC
-token host, read from the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` (a generated name such as
-`run-actions-3-azure-eastus.actions.githubusercontent.com`), for that run only.
+`api.anthropic.com` and the npm/Yarn registries, plus the runner's own services, which every job needs to report its result
+(measured 2026-10-10, see "Measured limits"): `broker.actions.githubusercontent.com`,
+`results-receiver.actions.githubusercontent.com` and the run service, whose generated name matches
+`run-actions-<n>-azure-<region>.actions.githubusercontent.com` (the proxy's only pattern; the same host a job with
+`id-token: write` reads from `ACTIONS_ID_TOKEN_REQUEST_URL`, which the lock checks against that pattern). dnsmasq answers the
+sink address for `actions.githubusercontent.com` and everything under it so the proxy can see the SNI; the proxy connects
+only to the exact names and that pattern.
 
 ## Tests
 - `scripts/check-egress-lock.test.sh`: every failure branch, with stubbed system commands; it also checks the generated
@@ -42,8 +48,9 @@ token host, read from the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` (a generated n
 - `.github/workflows/egress-lock-test.yml`: runs the PR's lock on a real runner with no secrets and a read-only token
   (tools, git push path, Bun, gitleaks, bubblewrap) and in a break-on-purpose run. Never with `id-token`: a PR must not run
   its own lock code next to an OIDC token (the workflow checker rejects `id-token: write` on PR triggers).
-- `.github/workflows/egress-lock-claude.yml`: from `main` only, on pushes to main that change the lock action or this workflow,
-  weekly (Mondays) and on demand. Job `probe` runs the real claude-code-action under the lock and checks the
+- `.github/workflows/egress-lock-claude.yml`: from `main` only, weekly (Mondays) and started by a founder (never on a push:
+  a push to main by the agents' token would run its own lock before the main guard could revert it; every file it runs is
+  pinned, see `docs/runbooks/ci-guards.md`). Job `probe` runs the real claude-code-action under the lock and checks the
   `Skill(payload)` deny. Job `scrub` checks the subprocess isolation. Job `oidc` (`id-token: write`) fetches an OIDC token
   under the lock, proving the run service's generated name is allowed and nginx accepts it.
 
@@ -231,7 +238,8 @@ them powerless instead:
 Re-check when a pin changes.
 
 ## Founder decisions (accepted risks)
-Accepted by founder Mohammed (`hafidimohammedamine-dotcom`) on 2026-10-09, in the session that built PR #30; recorded at his
+Accepted by founder Mohammed (`hafidimohammedamine-dotcom`) on 2026-10-09 (decisions 1-2) and 2026-10-10 (decisions 3-4),
+in the session that built PR #30; recorded at his
 request. Owner: Mohammed. Review by 2026-11-08, or earlier if any of them changes.
 1. **Open exit routes.** An agent misled by an injected instruction that also carries an attacker's own credentials could
    still send data to GitHub (push, issue, gist), npm (publish) or the Anthropic API. Closing these needs a read-only package
