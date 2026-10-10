@@ -17,6 +17,13 @@ SECRETS_TOKEN = re.compile(r"\bsecrets\b(\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?")
 CLAUDE_NAME = re.compile(r"claude|anthropic", re.I)
 CRED_ENV = re.compile(r"ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN")
 PINNED = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
+
+
+def require_pinned(where, uses):
+    """A remote action must be pinned to a full commit SHA (local ./ actions are checked by name elsewhere)."""
+    u = str(uses or "")
+    if u and not u.startswith("./") and not PINNED.match(u):
+        err(f"{where}: action must be pinned to a full commit SHA: {u}")
 errors = []
 
 
@@ -40,6 +47,27 @@ def secrets_problems(text, allow_claude=False):
     if not allow_claude and CRED_ENV.search(text):
         out.append("Claude/Anthropic credential variable")
     return out
+
+
+PR_TRIGGERS = ("pull_request", "pull_request_target")
+
+
+def check_permissions(fname, where, perms, triggers):
+    """The permissions allow-list for any job or workflow: only the policy's scopes (plus per-file ones), read/write/none,
+    and never id-token: write in a workflow that runs on pull_request or pull_request_target (a PR could trade the OIDC
+    token for cloud access)."""
+    if perms is None:
+        return
+    if not isinstance(perms, dict):
+        err(f"{where}: permissions must be a mapping of scopes (no read-all/write-all)")
+        return
+    for k, v in perms.items():
+        scope_ok = k in P["permission_scopes"] or fname in P["per_file_permission_scopes"].get(k, [])
+        if not scope_ok or v not in P["permission_values"]:
+            err(f"{where}: permission {k}: {v} not allowed (scopes {', '.join(P['permission_scopes'])}; "
+                f"per file {P['per_file_permission_scopes']}; read/write/none)")
+        if k == "id-token" and v == "write" and any(t in PR_TRIGGERS for t in triggers):
+            err(f"{where}: id-token: write is not allowed in a workflow that runs on pull_request/pull_request_target")
 
 
 def accounts_from_rows(rows):

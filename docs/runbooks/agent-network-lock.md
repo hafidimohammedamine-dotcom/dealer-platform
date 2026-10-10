@@ -39,20 +39,24 @@ token host, read from the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` (a generated n
 ## Tests
 - `scripts/check-egress-lock.test.sh`: every failure branch, with stubbed system commands; it also checks the generated
   dnsmasq, nginx, iptables and AppArmor setup and the order of the sudo removal.
-- `.github/workflows/egress-lock-test.yml`: runs the PR's lock on a real runner with no secrets (tools, git push path, Bun,
-  gitleaks, bubblewrap), in a job with `id-token: write` that fetches an OIDC token under the lock, and in a
-  break-on-purpose run.
+- `.github/workflows/egress-lock-test.yml`: runs the PR's lock on a real runner with no secrets and a read-only token
+  (tools, git push path, Bun, gitleaks, bubblewrap) and in a break-on-purpose run. Never with `id-token`: a PR must not run
+  its own lock code next to an OIDC token (the workflow checker rejects `id-token: write` on PR triggers).
 - `.github/workflows/egress-lock-claude.yml`: from `main` only, on pushes to main that change the lock action or this workflow,
   weekly (Mondays) and on demand. Job `probe` runs the real claude-code-action under the lock and checks the
-  `Skill(payload)` deny. Job `scrub` checks the subprocess isolation.
+  `Skill(payload)` deny. Job `scrub` checks the subprocess isolation. Job `oidc` (`id-token: write`) fetches an OIDC token
+  under the lock, proving the run service's generated name is allowed and nginx accepts it.
 
 ## Messages and fixes
 - `Linux x64 runners only` / `must run inside GitHub Actions` - only for GitHub-hosted Ubuntu x64 runners.
 - `bad CLAUDE_CODE_VERSION`, `bad CLAUDE_CODE_SHA256`, `Claude Code download does not match its pinned sha256`, `Claude Code
   <v> not installed`, `bad BUN_VERSION`, `bad BUN_SHA256`, `Bun download does not match its pinned sha256`, `Bun <v> not
-  installed` - fix the pins in `action.yml` (see "Bumping the pins").
+  installed` - fix the pins in `action.yml` (see "Bumping the pins"). `could not download Claude Code <v> from
+  downloads.claude.ai` / `could not download Bun <v> from github.com` / `the Bun archive did not unpack (corrupt zip ...)` -
+  the download failed before the network closed; re-run once, then check the vendor's release.
 - `empty allow-list` / `not a plain host name: '<x>'` - fix `allow-domains.txt` (exact names only, no wildcards).
-- `unexpected OIDC host: '<host>'` - the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` is not `https://<name>.actions.githubusercontent.com/...`.
+- `unexpected OIDC host: '<host>'` - the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` is not
+  `https://run-actions-<n>-azure-<region>.actions.githubusercontent.com/...` (the run service's name pattern).
   Re-run once; if it persists, GitHub changed its OIDC service: a founder checks the new host and updates `lock.sh`.
 - `no www-data user for nginx`, `nginx stream module missing`, `nginx config invalid`, `could not install dnsmasq-base nginx
   libnginx-mod-stream bubblewrap socat`, `could not load the AppArmor profile for bubblewrap` - the runner image changed. Re-run
@@ -62,7 +66,9 @@ token host, read from the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` (a generated n
   failure ends with `self-test failed; see errors above`.
 - Any other `self-test: ...` message means the lock is not doing its job on this runner. Do not bypass it; open an
   `area:security` issue for the founders. The messages: `sudo still works`, `sudo still lists rules for this user (a
-  command-limited rule is left)`, `Docker still reachable`, `group-writable admin socket still there`, `blocked host
+  command-limited rule is left)`, `Docker still reachable`, `systemd lets this user start docker.socket`, `polkit (pkexec)
+  lets this user run commands as root` (the Docker and containerd units are masked before sudo goes), `group-writable admin
+  socket still there`, `blocked host
   example.com reachable`, `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another
   name (SNI)`, `raw IP without a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not
   resolve`, `DNS for a blocked name resolves`, `outside DNS server reachable`, `IPv6 reachable`, `bubblewrap cannot start
@@ -201,7 +207,7 @@ them powerless instead:
   `src/entrypoints/run.ts` pins Claude Code 2.1.295 and its `action.yml` installs Bun 1.3.14.
 - Verified on 2026-10-10 against the vendors' sources, in founder Mohammed's session: Claude Code 2.1.295 linux-x64 checksum
   from `https://downloads.claude.ai/claude-code-releases/2.1.295/manifest.json`; Bun 1.3.14 `bun-linux-x64.zip` from the
-  release's `SHASUMS256.txt`; coverage.py 7.6.1 cp312/cp313 manylinux x86_64 wheel digests and PyYAML 6.0.2 cp312/cp313
+  release's `SHASUMS256.txt`; coverage.py 7.16.2 cp312/cp313 manylinux x86_64 wheel digests and PyYAML 6.0.3 cp312/cp313
   digests from `https://pypi.org/pypi/<name>/<version>/json`; tag `v1.0.247` of claude-code-action = commit
   `2dca132ff0e0c4094ce6048b422c6915a071210b` (`git ls-remote`), whose `action.yml` sets `bun-version: 1.3.14` and whose
   `src/entrypoints/run.ts` sets `claudeCodeVersion = "2.1.295"`. Re-checked at every pin bump (see "Bumping the pins").
@@ -236,10 +242,10 @@ request. Owner: Mohammed. Review by 2026-11-08, or earlier if any of them change
    measurements above were taken on GitHub's runners on 2026-10-09 and 2026-10-10 and are accepted as recorded. A founder
    re-checks them at the next pin bump.
 3. **The Claude jobs run under the lock for the first time after merge.** Before merge they are checked statically
-   (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml` (four jobs: `lock`,
-   `oidc`, `break-on-purpose`, and after #33 `lock-container`). The jobs that need a Claude token (`egress-lock-claude.yml`:
-   the `Skill(payload)` deny probe and the subprocess-isolation scrub probe; the manager, review, reports) never run next to
-   PR code, so they first run under the lock after merge. **Accepted on 2026-10-10:** right after merging, a founder starts
+   (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml` (jobs `lock` and
+   `break-on-purpose`). The jobs that need a Claude token or an OIDC token (`egress-lock-claude.yml`: the `Skill(payload)`
+   deny probe, the subprocess-isolation scrub probe and the `oidc` job; the manager, review, reports) never run next to PR
+   code, so they first run under the lock after merge. **Accepted on 2026-10-10:** right after merging, a founder starts
    `egress-lock-claude.yml` by hand (Actions -> Run workflow) and reads its result; a failure there is a revert trigger (the
    founder reverts the merge in the web UI and the fix comes as a new founder PR).
 4. **What the agents' token can still do (2026-10-10).** The free plan cannot block pushes to `main` or repository

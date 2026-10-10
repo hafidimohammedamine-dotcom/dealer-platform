@@ -80,8 +80,19 @@
   by a founder; the agents' account must own no repository (`scripts/check-agent-token.sh`); the manager denies `gh repo`.
   The lock allows the runner's own services (`broker`, `results-receiver` and the `run-actions-<n>-azure-<region>` run
   service, measured: a locked job hung until its timeout without them) and probes every allowed name with five foreign
-  Host values (Cloudflare, Fastly, Google, GitHub); AppArmor grants are searched in `/etc/apparmor.d` and snapd's folder
-  recursively. Python packages for the guard scripts are hash-pinned (`scripts/check-python-requirements.txt`,
+  Host values (`example.com`, `www.cloudflare.com`, `claude.ai`, `pypi.org`, `storage.googleapis.com`); AppArmor grants are
+  searched in `/etc/apparmor.d` and snapd's folder recursively. Python packages for the guard scripts are hash-pinned (`scripts/check-python-requirements.txt`,
   `scripts/check-python-deps.sh`: PyYAML too). `scripts/check-workflows.sh` reads the manifests and `.github/accounts.txt`
   with the shared bash helpers and passes the results to Python (one parser per format). `scripts/check-testlib.sh` holds the
   test bookkeeping every `scripts/*.test.sh` shares. A loose `|` line in a vendored skill is no longer a deletable unit.
+- **Round 9:** the pusher ledger is written by its own workflow `pusher-ledger.yml` (no concurrency group, the event's own
+  `before..after`, never a later fetch; `guards` fails if its fetched head is not the event's head); the main guard's
+  pin-mismatch fallback reverts (or restores after a force push) from the workflow file alone, with the founders' IDs
+  written there; `check-main-push.sh` restores `main` after a force push and reverts first-parent commits only; the
+  `oidc` lock test moved to `egress-lock-claude.yml` (main only) and the checker applies the permissions allow-list to
+  every job and workflow and rejects `id-token: write` on PR triggers; the review, daily report and weekly audit jobs run
+  Claude with a read-only token and hand the answer (text) to a second `post` job that holds the write scope; the lock masks
+  the Docker units and its self-test checks that systemd and polkit cannot bring them back, and names a failed Claude Code
+  or Bun download; `accounts_rows` rejects a user ID listed twice and `account_field` is the one lookup; `check-pushers.sh`
+  treats a GitHub API error as an error, never as "no record"; coverage.py 7.16.2 and PyYAML 6.0.3 (current releases, hashes
+  from PyPI); `require_pinned` is the one pin check.

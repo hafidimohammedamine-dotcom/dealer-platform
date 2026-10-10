@@ -39,7 +39,8 @@ fi
 BIN="$HOME/.local/bin/claude"
 mkdir -p "$HOME/.local/bin"
 DL=$(mktemp)
-curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude"
+curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude" \
+  || die "could not download Claude Code $CLAUDE_CODE_VERSION from downloads.claude.ai"
 echo "$CLAUDE_CODE_SHA256  $DL" | sha256sum --check --quiet || die "Claude Code download does not match its pinned sha256"
 install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 "$BIN" --version | grep -q "^$CLAUDE_CODE_VERSION " || die "Claude Code $CLAUDE_CODE_VERSION not installed"
@@ -48,9 +49,10 @@ install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 # pinned to the version the action expects and checked against the release's SHASUMS256.txt.
 BUN="$HOME/.local/bin/bun"
 DL=$(mktemp); UZ=$(mktemp -d)
-curl -fsSL --retry 3 -o "$DL" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+curl -fsSL --retry 3 -o "$DL" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" \
+  || die "could not download Bun $BUN_VERSION from github.com"
 echo "$BUN_SHA256  $DL" | sha256sum --check --quiet || die "Bun download does not match its pinned sha256"
-unzip -q -o "$DL" -d "$UZ" && install -m 0755 "$UZ/bun-linux-x64/bun" "$BUN" && rm -rf "$DL" "$UZ"
+{ unzip -q -o "$DL" -d "$UZ" && install -m 0755 "$UZ/bun-linux-x64/bun" "$BUN" && rm -rf "$DL" "$UZ"; } || die "the Bun archive did not unpack (corrupt zip or missing bun-linux-x64/bun)"
 [ "$("$BUN" --version)" = "$BUN_VERSION" ] || die "Bun $BUN_VERSION not installed"
 
 # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
@@ -144,6 +146,7 @@ sudo ip6tables -P OUTPUT DROP
 
 # --- 4. Nothing later in the job may undo this: stop Docker, remove sudo ---------------------------------------------------
 sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
+sudo systemctl mask docker.socket docker.service containerd.service 2>/dev/null || true   # no restart by socket activation or polkit
 sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock
 sudo gpasswd -d "$USER" sudo >/dev/null 2>&1 || true
 sudo gpasswd -d "$USER" docker >/dev/null 2>&1 || true
@@ -168,6 +171,9 @@ if sudo -n true 2>/dev/null; then bad "sudo still works"; fi
 if sudo -n -l >/dev/null 2>&1; then bad "sudo still lists rules for this user (a command-limited rule is left)"; fi
 DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point these AGENT_LOCK_* hooks at temp paths
 if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
+# Nor can the job bring Docker back through systemd or polkit without sudo.
+if systemctl --no-ask-password start docker.socket >/dev/null 2>&1; then bad "systemd lets this user start docker.socket"; fi
+if command -v pkexec >/dev/null && pkexec --disable-internal-agent true >/dev/null 2>&1; then bad "polkit (pkexec) lets this user run commands as root"; fi
 # The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
 RUN_DIRS="${AGENT_LOCK_TEST_RUN_DIRS:-/run /var/run}"
 GROUP_SOCKS=""

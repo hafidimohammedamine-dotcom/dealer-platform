@@ -16,37 +16,48 @@ MANAGER_WORKFLOW="${MAIN_GUARD_MANAGER:-agent-manager.yml}"
 [[ "$PUSHER" =~ ^[0-9]+$ ]] || { echo "ERROR: pusher id must be numeric: '$PUSHER'"; exit 2; }
 [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$AFTER" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: before/after must be 40-hex commit shas"; exit 2; }
 rows=$(accounts_rows "$ACCOUNTS") || { echo "$rows"; exit 1; }
-role=$(awk -v i="$PUSHER" '$1 == i {print $3; exit}' <<<"$rows"); login=$(awk -v i="$PUSHER" '$1 == i {print $2; exit}' <<<"$rows")
+role=$(account_field "$rows" "$PUSHER" 3); login=$(account_field "$rows" "$PUSHER" 2)
 if [ "$role" = founder ]; then echo "Push to main by founder '$login' (ID $PUSHER): OK."; exit 0; fi
 founders=$(awk '$3 == "founder" {printf "@%s ", $2}' <<<"$rows")
 
 echo "::error::push to main by user ID $PUSHER (${login:-not in $ACCOUNTS}, role ${role:-unknown}): only founders may push to main"
-if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-  commits=$(git rev-list --max-count=50 "$AFTER" 2>/dev/null || true); range="(new branch) ..$AFTER"
+ZERO=0000000000000000000000000000000000000000
+reverted=0; left=""; what=""
+git config user.name "main-guard" && git config user.email "main-guard@users.noreply.github.com"
+[ "$BEFORE" = "$ZERO" ] || git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch -q origin "$BEFORE" 2>/dev/null || true
+if [ "$BEFORE" != "$ZERO" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && ! git merge-base --is-ancestor "$BEFORE" "$AFTER" 2>/dev/null; then
+  # A force push rewrote main: put the previous tip back (only if main still is what this event says it is).
+  range="$BEFORE..$AFTER (force push)"
+  if git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" >/dev/null 2>&1; then
+    what="restored main to $BEFORE after a force push (the rewritten history is gone from main)"
+  else left="main was force-pushed and could not be restored to $BEFORE (${left:-check the job log}); the founders restore it by hand"; fi
 else
-  commits=$(git rev-list "$BEFORE".."$AFTER" 2>/dev/null || true); range="$BEFORE..$AFTER"
-fi
-reverted=0; left=""
-if [ -z "$commits" ]; then
-  left="could not list the pushed commits ($range); revert them by hand"
-else
-  git config user.name "main-guard" && git config user.email "main-guard@users.noreply.github.com"
-  for c in $commits; do   # newest first: each revert undoes one pushed commit (a merge commit against its first parent)
-    if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then m=(-m 1); else m=(); fi
-    if git revert --no-edit "${m[@]}" "$c" >/dev/null 2>&1; then reverted=$((reverted+1)); else git revert --abort 2>/dev/null || true; left="revert of $c did not apply cleanly; the founders revert the rest by hand"; break; fi
-  done
-  if [ "$reverted" -gt 0 ]; then
-    git push origin HEAD:refs/heads/main >/dev/null 2>&1 || left="the revert could not be pushed (${left:-check the job log})"
+  if [ "$BEFORE" = "$ZERO" ]; then
+    commits=$(git rev-list --first-parent --max-count=50 "$AFTER" 2>/dev/null || true); range="(new branch) ..$AFTER"
+  else   # first-parent only: a merge commit's revert (-m 1) already undoes the whole branch it merged
+    commits=$(git rev-list --first-parent "$BEFORE".."$AFTER" 2>/dev/null || true); range="$BEFORE..$AFTER"
   fi
+  if [ -z "$commits" ]; then
+    left="could not list the pushed commits ($range); revert them by hand"
+  else
+    for c in $commits; do   # newest first: each revert undoes one pushed commit (a merge commit against its first parent)
+      if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then m=(-m 1); else m=(); fi
+      if git revert --no-edit "${m[@]}" "$c" >/dev/null 2>&1; then reverted=$((reverted+1)); else git revert --abort 2>/dev/null || true; left="revert of $c did not apply cleanly; the founders revert the rest by hand"; break; fi
+    done
+    if [ "$reverted" -gt 0 ]; then
+      git push origin HEAD:refs/heads/main >/dev/null 2>&1 || { left="the revert could not be pushed (${left:-check the job log})"; reverted=0; }
+    fi
+  fi
+  what="reverted $reverted pushed commit(s) with new commits on main"
 fi
 gh workflow disable "$MANAGER_WORKFLOW" >/dev/null 2>&1 && stopped="disabled $MANAGER_WORKFLOW (re-enable it after the review)" \
   || stopped="could not disable $MANAGER_WORKFLOW; disable it by hand"
 body="**Someone other than a founder pushed to \`main\`.** Pusher: user ID $PUSHER (${login:-not in accounts.txt}, role ${role:-unknown}). Range: \`$range\`.
 
-What main-guard did: reverted $reverted pushed commit(s) with new commits on main; $stopped.${left:+ **Left to do:** $left}
+What main-guard did: $what; $stopped.${left:+ **Left to do:** $left}
 
 Founders: check what the pushed commits contained (and any repositories the pusher's account owns), rotate \`AGENT_GH_TOKEN\` if the agents' account was involved, then re-enable the manager. $founders"
 gh issue create --title "SECURITY: non-founder push to main by user ID $PUSHER" --label "area:security" --label "blocked" --label "priority:1" --body "$body" >/dev/null 2>&1 \
   || echo "::error::could not open the security issue; founders: $body"
-echo "Reverted $reverted commit(s); $stopped.${left:+ Left: $left}"
+echo "main-guard: $what; $stopped.${left:+ Left: $left}"
 exit 1

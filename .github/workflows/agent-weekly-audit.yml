@@ -9,15 +9,19 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
     permissions:
       contents: read
-      issues: write   # used only by the fixed post step
+      issues: read
       pull-requests: read
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
-      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
+      GH_TOKEN: ${{ github.token }}   # read-only job token
+    outputs:
+      answer: ${{ steps.answer.outputs.answer }}
+      has_result: ${{ steps.answer.outputs.has_result }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -33,10 +37,6 @@ jobs:
           mkdir -p /tmp/audit-meta
           git log --stat -n 300 > /tmp/audit-meta/log.txt
           git ls-files > /tmp/audit-meta/files.txt
-      - id: pin
-        name: Pin the files the post step runs (checked again before it runs them)
-        run: |
-          { echo 'pins<<PINS_EOF'; sha256sum scripts/check-review-post.sh .gitleaks.toml /tmp/gitleaks; echo 'PINS_EOF'; } >> "$GITHUB_OUTPUT"
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -60,15 +60,43 @@ jobs:
           jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
                  | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
             "$EXEC_FILE" || true
-      - name: Post the report (secret-scanned) to the "Daily reports" issue
-        if: always() && steps.claude.outputs.execution_file != ''
+      - name: Hand the answer (text only, at most 60000 characters) to the post job
+        id: answer
+        if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS: ${{ steps.pin.outputs.pins }}
         run: |
           set -euo pipefail
-          printf '%s\n' "$PINS" | sha256sum --check --strict --quiet
+          if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
+            echo "has_result=true" >> "$GITHUB_OUTPUT"
+            d="ANSWER_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+            { echo "answer<<$d"; jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC_FILE" | head -c 60000; echo; echo "$d"; } >> "$GITHUB_OUTPUT"
+          else
+            echo "has_result=false" >> "$GITHUB_OUTPUT"
+          fi
+  post:
+    # The only job with a write scope; runs no Claude and reads only the answer (data) and main's post script.
+    needs: audit
+    if: always() && needs.audit.outputs.has_result == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: ./.github/actions/install-gitleaks
+      - name: Post the report (secret-scanned) to the "Daily reports" issue
+        env:
+          ANSWER: ${{ needs.audit.outputs.answer }}
+        run: |
+          set -euo pipefail
+          jq -n --arg r "$ANSWER" '[{type: "result", result: $r}]' > /tmp/answer.json
           n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
           [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
-          bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"
+          bash scripts/check-review-post.sh issue "$n" /tmp/answer.json

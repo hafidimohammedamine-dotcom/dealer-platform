@@ -32,6 +32,7 @@ case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$
   stub bwrap 'case " $* " in *" unshare -U "*) exit "${STUB_CHILD_USERNS_RC:-1}";; esac; exit "${STUB_BWRAP_RC:-0}"'
   echo 1 > "$T/userns"; printf 'nameserver 127.0.0.53\nnameserver 10.1.2.3\n' > "$T/resolv.conf"
   stub docker 'exit "${STUB_DOCKER_RC:-1}"'
+  stub systemctl 'exit "${STUB_SYSTEMCTL_RC:-1}"'; stub pkexec 'exit "${STUB_PKEXEC_RC:-1}"'
   stub id 'case "$*" in "-Gn") echo "runner adm docker bad;group";; "-u dnsmasq") echo 999;; "-u www-data") echo 33;; *) [ "${STUB_NO_WWW:-}" = 1 ] && [ "$1" = www-data ] && exit 1
   [ "${STUB_NO_DNSMASQ:-}" = 1 ] && [ "$1" = dnsmasq ] && exit 1; exit 0;; esac'
   stub ls '[ "${STUB_NO_MODULE:-}" = 1 ] && exit 2; echo /usr/lib/nginx/modules/ngx_stream_module.so'
@@ -43,8 +44,8 @@ case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$
 out=""; url=""; prev=""
 for a in "$@"; do [ "$prev" = -o ] && out=$a; case "$a" in http*) url=$a;; esac; prev=$a; done
 case "$url" in
-  https://downloads.claude.ai/*) cp "$STUB_BINARY" "$out"; exit 0;;
-  https://github.com/oven-sh/bun/releases/download/*) cp "$STUB_BUN_ZIP" "$out"; exit 0;;
+  https://downloads.claude.ai/*) [ "${STUB_CLAUDE_DL_RC:-0}" = 0 ] || exit "$STUB_CLAUDE_DL_RC"; cp "$STUB_BINARY" "$out"; exit 0;;
+  https://github.com/oven-sh/bun/releases/download/*) [ "${STUB_BUN_DL_RC:-0}" = 0 ] || exit "$STUB_BUN_DL_RC"; cp "$STUB_BUN_ZIP" "$out"; exit 0;;
   https://api.github.com/zen) exit "${STUB_ALLOWED_RC:-0}";;
 esac
 # Domain-fronting probe: STUB_FRONT="<host>=<code>[=<redirect url>] ..." answers for those hosts (whatever the Host header),
@@ -186,6 +187,13 @@ check "Ubuntu's unprivileged_userns and profiles without userns stay" bash -c '!
 fresh; aa; printf 'chrome (unconfined)\nquiet (enforce)\n' > "$T/aa-loaded"; run fail "a userns profile still loaded" "self-test: AppArmor profiles that allow user namespaces are still loaded: chrome"
 fresh; aa; printf 'quiet (enforce)\nunprivileged_userns (enforce)\n' > "$T/aa-loaded"; run ok "only allowed profiles loaded" "Agent egress lock on:"
 fresh; run fail "root in a user namespace outside bubblewrap" "self-test: a program outside bubblewrap can become root in a user namespace" STUB_UNSHARE_RC=0
+fresh; run fail "Claude Code download fails" "could not download Claude Code" STUB_CLAUDE_DL_RC=22
+fresh; run fail "Bun download fails" "could not download Bun" STUB_BUN_DL_RC=22
+fresh; printf 'not a zip' > "$T/fake-bun.zip"; run fail "corrupt Bun zip (its sha matches, it does not unpack)" "the Bun archive did not unpack" "BUN_SHA256=$(sha256sum "$T/fake-bun.zip" | cut -d' ' -f1)"
+fresh; run fail "systemd can start Docker again" "self-test: systemd lets this user start docker.socket" STUB_SYSTEMCTL_RC=0
+fresh; run fail "polkit runs commands as root" "self-test: polkit (pkexec) lets this user run commands as root" STUB_PKEXEC_RC=0
+fresh; KEEP=1 run ok "Docker units masked before sudo goes" "Agent egress lock on"
+check "systemctl mask of docker.socket, docker.service and containerd.service" grep -q "systemctl mask docker.socket docker.service containerd.service" "$T/sudo.log"; rm -rf "$T"
 STUB_PODMAN=1 fresh; run fail "podman becomes root in a user namespace" "self-test: podman can still become root in a user namespace" STUB_PODMAN_RC=0 STUB_PODMAN_UID=0
 STUB_PODMAN=1 fresh; run ok "podman blocked" "Agent egress lock on:"
 STUB_PODMAN=1 fresh; run ok "podman runs but is not root" "Agent egress lock on:" STUB_PODMAN_RC=0 STUB_PODMAN_UID=1001

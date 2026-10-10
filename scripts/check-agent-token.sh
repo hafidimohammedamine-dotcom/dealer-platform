@@ -22,7 +22,7 @@ esac
 who=$("$GH" api user --jq '"\(.id) \(.login)"' 2>/dev/null || true)
 read -r id login <<<"$who" || true
 [[ "${id:-}" =~ ^[0-9]+$ && "${login:-}" =~ ^[A-Za-z0-9-]+$ ]] || { echo "ERROR: could not read the token's GitHub login (is GH_TOKEN set and valid?)"; exit 1; }
-role=$(awk -v i="$id" '$1 == i {print $3}' <<<"$rows")
+role=$(account_field "$rows" "$id" 3)
 if [ "$role" = founder ]; then
   echo "ERROR: the agents' GH_TOKEN belongs to founder '$login'. Use the agents' own account's token (see docs/runbooks/agent-network-lock.md) in the AGENT_GH_TOKEN secret."
   exit 1

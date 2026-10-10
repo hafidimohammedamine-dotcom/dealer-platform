@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: guards-${{ github.event.pull_request.number }}
-  cancel-in-progress: false   # every push gets its pusher recorded (the ledger step below); guards is quick
+  cancel-in-progress: true   # the pusher ledger is written by pusher-ledger.yml (no concurrency group), not here
 
 jobs:
   guards:
@@ -17,7 +17,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read          # read-only token; nothing from the PR is run
-      statuses: write         # the pusher ledger: one `guards/pusher` status per commit, signed with GUARDS_LEDGER_KEY
     env:
       BASE_REF: ${{ github.base_ref }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -36,24 +35,18 @@ jobs:
         env:
           GIT_TOKEN: ${{ github.token }}
         run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
-      - name: Record who pushed the new commits (pusher ledger, signed statuses)
-        # The sender of an opened/synchronize event is the account that pushed; later runs (reopened, ready_for_review)
-        # only read the ledger. GitHub keeps no durable pusher per commit, and commit authors can be forged.
-        if: github.event.action == 'opened' || github.event.action == 'synchronize'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
-          SENDER_ID: ${{ github.event.sender.id }}
-        run: bash scripts/check-pushers.sh record "origin/$BASE_REF" refs/remotes/pr/head "$SENDER_ID"
       - name: Pinned Python packages for the guard scripts (hash-checked)
         run: bash scripts/check-python-deps.sh >> "$GITHUB_PATH"
-      - name: Who pushed each commit (from the ledger)
+      - name: Who pushed each commit (from the ledger written by pusher-ledger.yml)
         env:
           GH_TOKEN: ${{ github.token }}
           GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          bash scripts/check-pushers.sh verify "origin/$BASE_REF" refs/remotes/pr/head .github/accounts.txt | tee /tmp/pushers.txt
+          # This run judges the head the event names; a branch that moved since gets its own run.
+          [ "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" ] || { echo "ERROR: the fetched PR head is not this event's head sha ($HEAD_SHA); the PR moved, see the newer run"; exit 1; }
+          bash scripts/check-pushers.sh verify "origin/$BASE_REF" "$HEAD_SHA" .github/accounts.txt | tee /tmp/pushers.txt
       - name: Founder-only files (PR author and every pusher must be founders)
         run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$USER_IDS" .github/accounts.txt /tmp/pushers.txt
       - name: Skills match manifest and checksums

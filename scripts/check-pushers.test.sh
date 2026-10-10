@@ -11,6 +11,7 @@ cat > "$W/stub/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "gh $*" >> "$GH_LOG"
 [ "${STUB_GH_FAIL:-}" = 1 ] && exit 1
+[ "${STUB_GH_GET_FAIL:-}" = 1 ] && [ "$2" = --paginate ] && exit 1
 if [ "$1" = api ] && [ "$2" = -X ] && [ "$3" = POST ]; then
   sha=${4##*/}; d=""; for a in "$@"; do case "$a" in description=*) d=${a#description=};; esac; done
   echo "$d" >> "$STATUS_DIR/$sha"; exit 0
@@ -33,6 +34,7 @@ run() { # run <ok|fail> <name> <message> [VAR=value ...] -- <args...>
   assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 
 run fail "usage" "usage: check-pushers.sh" -- record main
+run fail "unknown subcommand" "usage: check-pushers.sh record|verify" -- bogus main HEAD x
 run fail "bad GH_REPO" "bad GH_REPO" GH_REPO="owner/re po" -- record main HEAD 111
 run fail "record: non-numeric pusher" "pusher id must be numeric" -- record main HEAD abc
 run fail "record: no key" "GUARDS_LEDGER_KEY is missing or shorter than 32" GUARDS_LEDGER_KEY= -- record main HEAD 111
@@ -55,5 +57,10 @@ rm -f "$W/statuses/$C1"; echo "id=999 mac=$(GUARDS_LEDGER_KEY="$KEY" MSG="$C1 99
 run ok "verify: a valid record for an id outside accounts.txt is 'unknown' role" "$C1 999 unknown" -- verify main HEAD "$W/accounts"
 run fail "verify: broken accounts file" "bad line" -- verify main HEAD "$SCRIPT"
 run fail "verify: no key" "GUARDS_LEDGER_KEY is missing" GUARDS_LEDGER_KEY= -- verify main HEAD "$W/accounts"
-run fail "record: gh fails" "could not record the pusher of" STUB_GH_FAIL=1 -- record main HEAD 111
+run fail "record: gh fails" "could not read the statuses of" STUB_GH_FAIL=1 -- record main HEAD 111
+rm -f "$W/statuses/$C2"; run fail "record: statuses unreadable is an error, not 'no record'" "could not read the statuses of $C2 (GitHub API error)" STUB_GH_GET_FAIL=1 -- record main HEAD 111
+check "no status was posted while the API failed" bash -c '[ ! -f "$1/$2" ]' _ "$W/statuses" "$C2"
+run fail "verify: statuses unreadable is an error, not 'unknown'" "could not read the statuses of" STUB_GH_GET_FAIL=1 -- verify main HEAD "$W/accounts"
+printf '#!/usr/bin/env bash\necho "gh $*" >> "$GH_LOG"; [ "$2" = --paginate ] && exit 0; exit 1\n' > "$W/stub/gh"
+run fail "record: posting the status fails" "could not record the pusher of" -- record main HEAD 111
 summary

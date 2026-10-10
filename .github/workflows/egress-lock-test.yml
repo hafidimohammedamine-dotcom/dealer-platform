@@ -1,8 +1,8 @@
 # Proves the agent egress lock on a real runner whenever it or the agent workflows change (founder-owned).
 # Runs the PR's own lock code, so it gets NO secrets and a read-only token. The lock's self-test fails the job if an allowed
 # host is unreachable, or if a blocked host, another name on an allowed IP (SNI), a raw IP, plain HTTP, outside DNS, IPv6,
-# sudo or Docker still works. A second job checks a run with id-token: write (its exact OIDC host is allowed), and a third
-# breaks the self-test on purpose and must see the lock fail.
+# sudo or Docker still works. A second job breaks the self-test on purpose and must see the lock fail. The id-token (OIDC)
+# job runs from main only (egress-lock-claude.yml): a PR must never run its own lock code next to an OIDC token.
 # The Claude part (real claude-code-action under the lock, Skill(payload) deny probe) needs a token, so it runs only from
 # main: .github/workflows/egress-lock-claude.yml.
 name: Agent egress lock test
@@ -54,28 +54,6 @@ jobs:
           [ -x /tmp/gitleaks ] && /tmp/gitleaks version || { echo "::error::the lock did not install gitleaks"; fail=1; }
           "$BUN" --version || { echo "::error::the lock did not install Bun"; fail=1; }
           exit "$fail"
-  oidc:
-    # Like claude.yml (id-token: write): the lock must allow exactly this run's OIDC token host, and nginx must accept its
-    # long generated name. Prints the HTTP status and the token's length only, never the token.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-      - id: lock
-        uses: ./.github/actions/agent-egress-lock
-      - name: An OIDC token can be fetched under the lock
-        run: |
-          set -u
-          body=$(curl -sS --max-time 20 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=lock-test") \
-            || { echo "::error::OIDC token request failed under the lock"; exit 1; }
-          len=$(python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("value") or ""))' <<<"$body" 2>/dev/null || echo 0)
-          echo "OIDC token length: $len"
-          [ "$len" -gt 100 ] || { echo "::error::no OIDC token under the lock"; exit 1; }
   break-on-purpose:
     runs-on: ubuntu-latest
     timeout-minutes: 15

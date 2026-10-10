@@ -195,7 +195,7 @@ if [ $rc != 0 ] && grep -q "bad argument '--manifest' (run through scripts/check
 fresh;                                                  expect fail "--accounts without a value" "--accounts needs a file" --accounts
 fresh;                                                  expect fail "unknown option" "bad argument '--x'" --x
 fresh; out=$(python3 -I -S "$PY" "$T" 2>&1); rc=$?
-if [ $rc != 0 ] && grep -q "PyYAML is required" <<<"$out"; then t PASS "fails closed without PyYAML"; else t FAIL "without PyYAML"; echo "$out"; fi; rm -rf "$T"
+if [ $rc != 0 ] && grep -q "PyYAML is missing; run through the venv from scripts/check-python-deps.sh" <<<"$out"; then t PASS "fails closed without PyYAML"; else t FAIL "without PyYAML"; echo "$out"; fi; rm -rf "$T"
 # Round 5: more PR-data forms, git moves, workflow_run, id-token, tag mode, pin check order
 for cmd in 'git fetch origin pull/7/head:pr' 'git fetch origin refs/pull/7/merge' 'gh pr checkout 7' 'echo ${{ github.event.pull_request.merge_commit_sha }}' 'echo ${{ github.event.issue.number }}'; do
   fx; before "      - run: $cmd"; expect fail "PR data in a run step: $cmd" "only the reviewed prepare step may touch /tmp/pr"

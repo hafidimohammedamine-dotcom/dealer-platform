@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TESTS=(check-founder-files check-skills check-skill-upstream check-skill-deletions check-skills-upstream-all
        check-skills-vs-base check-skills-lib check-workflows check-egress-lock check-review-prepare check-pr-ci-status
        check-review-post check-agent-token check-scrub-probe check-claude-probe check-coverage check-coverage-sh
-       check-workflows-people check-python-deps check-pushers check-main-push
+       check-workflows-people check-python-deps check-pushers check-main-push check-accounts-lib
        gitleaks-config)
 # COV_TESTS / COV_VENV: only for scripts/check-coverage-sh.test.sh (a small tree of its own, one shared venv).
 [ -z "${COV_TESTS:-}" ] || read -r -a TESTS <<<"$COV_TESTS"

@@ -14,7 +14,6 @@ PR_DATA = re.compile(r"/tmp/pr(?![\w-])|pull_request\.head|head_ref|merge_commit
 GIT_MOVE = re.compile(r"\bgit\b(?:\s+-{1,2}[\w-]+(?:[= ]\S+)?)*\s+(fetch|checkout|switch|worktree|pull|clone|reset|restore|"
                       r"submodule)\b")
 LATE_IF = re.compile(r"always\(\)|failure\(\)|cancelled\(\)")
-PINNED = core.PINNED
 
 
 def check_flag_value(fname, where, flag, value):
@@ -141,15 +140,7 @@ def check_job_settings(fname, jw, job):
         core.err(f"{jw}: runs-on must be {P['runs_on']}")
     if "defaults" in job:
         core.err(f"{jw}: 'defaults' not allowed in a job with a claude step")
-    perms = job.get("permissions", {})
-    if not isinstance(perms, dict):
-        core.err(f"{jw}: permissions must be a mapping of scopes (no read-all/write-all)")
-        perms = {}
-    for k, v in perms.items():
-        scope_ok = k in P["permission_scopes"] or fname in P["per_file_permission_scopes"].get(k, [])
-        if not scope_ok or v not in P["permission_values"]:
-            core.err(f"{jw}: permission {k}: {v} not allowed (scopes {', '.join(P['permission_scopes'])}; "
-                     f"per file {P['per_file_permission_scopes']}; read/write/none)")
+    # permissions: checked for every job (and the workflow level) by check_permissions in check-workflows-lib.py
 
 
 def check_other_steps(jw, steps, claude_at, ok_refs):
@@ -161,8 +152,7 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
             continue
         sw = f"{jw} step {i}"
         uses = str(step.get("uses", ""))
-        if uses and not uses.startswith("./") and not PINNED.match(uses):
-            core.err(f"{sw}: action must be pinned to a full commit SHA: {uses}")
+        core.require_pinned(sw, uses)
         if uses.startswith("actions/checkout@"):
             check_checkout(sw, step, ok_refs)
         for key in ("working-directory", "shell"):
@@ -191,8 +181,7 @@ def check_job(fname, jw, job, steps, required, triggers):
     lock_id = check_job_start(jw, steps, ok_refs)
     if lock_id is not None:
         check_checkout(f"{jw} step 1", steps[0], ok_refs)
-        if not PINNED.match(str(steps[0].get("uses", ""))):
-            core.err(f"{jw} step 1: action must be pinned to a full commit SHA: {steps[0].get('uses')}")
+        core.require_pinned(f"{jw} step 1", steps[0].get("uses"))
     check_job_settings(fname, jw, job)
     claude_at = next((i for i, s in enumerate(steps, 1) if isinstance(s, dict) and core.is_claude(s)), 0)
     check_other_steps(jw, steps, claude_at, ok_refs)

@@ -8,12 +8,14 @@ writes the full version here.
 PR opened / pushed
  ├─ CI (ci.yml, pull_request, from the PR, no secrets)
  │    guard-script tests · install · lint · typecheck · test · build · audit
+ ├─ Pusher ledger (pusher-ledger.yml, pull_request_target, from main, no concurrency): who pushed these commits → signed statuses
  ├─ Guards (guards.yml, pull_request_target, from main)
- │    PR fetched as data → pusher ledger (signed statuses) → founder-only files (author + every pusher) · skills manifest + checksums ·
+ │    PR fetched as data (must be the event's head) → founder-only files (author + every pusher from the ledger) · skills manifest + checksums ·
  │    third-party skills vs their pinned upstream · agent workflow denies · secret scan of PR commits
  └─ Review team (review.yml, pull_request_target, from main)
-      PR fetched as data (rule files removed) → wait for CI + Guards → reviewers read only → fixed step scans the answer,
-      posts it, labels PASS (ready-to-merge) or FAIL (changes-requested)
+      job review (read-only token): PR fetched as data (rule files removed) → wait for CI + Guards → reviewers read only →
+      answer handed over as text → job post (write scopes, no Claude) scans it, posts it, labels PASS (ready-to-merge) or
+      FAIL (changes-requested). The daily report and weekly audit post the same way.
 A founder reads the result and merges.
 Push to main (main-guard.yml): a founder's push (a merge) is fine; any other push is reverted, the manager disabled, a security issue opened.
 ```

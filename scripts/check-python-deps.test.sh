@@ -11,7 +11,7 @@ out=$(bash "$SCRIPT" "$W/v" 2>&1); rc=$?
 m1=$(stat -c %Y "$W/v/.guard-deps-ok"); sleep 1
 out=$(bash "$SCRIPT" "$W/v" 2>&1); rc=$?
 [ $rc = 0 ] && [ "$out" = "$W/v/bin" ] && [ "$(stat -c %Y "$W/v/.guard-deps-ok")" = "$m1" ] && t PASS "a set-up venv is reused, not rebuilt" || t FAIL "reuse"
-printf 'coverage==7.6.1 --hash=sha256:%s\n' "$(printf 'a%.0s' {1..64})" > "$W/bad.txt"
+printf 'coverage==7.16.2 --hash=sha256:%s\n' "$(printf 'a%.0s' {1..64})" > "$W/bad.txt"
 out=$(CHECK_PY_REQS="$W/bad.txt" bash "$SCRIPT" "$W/v2" 2>&1); rc=$?
 [ $rc = 1 ] && grep -q "could not install the pinned Python packages" <<<"$out" && [ ! -f "$W/v2/.guard-deps-ok" ] && t PASS "a wrong hash fails the install and leaves no marker" || { t FAIL "wrong hash ($rc)"; echo "$out"; }
 out=$(CHECK_PY_REQS="$W/bad.txt" bash "$SCRIPT" "$W/v" 2>&1); rc=$?

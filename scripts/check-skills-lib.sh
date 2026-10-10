@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Shared helpers for the skill guards (founder-owned). Sourced by check-skills.sh, check-skills-upstream-all.sh and
-# check-skills-vs-base.sh so they read the manifest and SKILLS-LOCK.md rows the same way.
+# Shared helpers for the skill guards (founder-owned). Sourced by check-skills.sh, check-skills-upstream-all.sh,
+# check-skills-vs-base.sh, check-skill-upstream.sh and check-workflows.sh so they read the manifest and SKILLS-LOCK.md rows
+# the same way.
 #
 # SKILLS-LOCK.md row: | <name> | <owner>/<repo> `<path in repo>`[, anything] | <40-hex commit, lower case> | ...
 #   - found by an exact match on the first cell;

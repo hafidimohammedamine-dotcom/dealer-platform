@@ -22,16 +22,17 @@ CTX=guards/pusher
 mac_of() { # mac_of <sha> <id>: HMAC-SHA256 with the ledger key, first 40 hex characters
   MSG="$1 $2" python3 -I -c 'import hashlib, hmac, os; print(hmac.new(os.environ["GUARDS_LEDGER_KEY"].encode(), os.environ["MSG"].encode(), hashlib.sha256).hexdigest()[:40])'
 }
-records_of() { # records_of <sha>: the descriptions of every guards/pusher status on the commit
-  gh api --paginate "repos/$GH_REPO/commits/$1/statuses" --jq ".[] | select(.context == \"$CTX\") | .description" 2>/dev/null || true
+records_of() { # records_of <sha>: the descriptions of every guards/pusher status on the commit; fails on an API error
+  gh api --paginate "repos/$GH_REPO/commits/$1/statuses" --jq ".[] | select(.context == \"$CTX\") | .description"
 }
-valid_id_of() { # valid_id_of <sha>: the pusher id of the first record whose mac verifies, else nothing
-  local d id mac
+valid_id_of() { # valid_id_of <sha>: the pusher id of the first record whose mac verifies, nothing if none; exit 1 on an API
+  local d id mac recs            # error (a network problem must never read as "no record")
+  recs=$(records_of "$1") || { echo "ERROR: could not read the statuses of $1 (GitHub API error); re-run the job" >&2; exit 1; }
   while read -r d; do
     [[ "$d" =~ ^id=([0-9]+)\ mac=([0-9a-f]{40})$ ]] || continue
     id="${BASH_REMATCH[1]}"; mac="${BASH_REMATCH[2]}"
     if [ "$(mac_of "$1" "$id")" = "$mac" ]; then echo "$id"; return 0; fi
-  done < <(records_of "$1")
+  done <<<"$recs"
   return 0
 }
 if ! commits=$(git rev-list "$BASE".."$HEAD" 2>/dev/null); then echo "ERROR: could not list commits $BASE..$HEAD"; exit 1; fi
@@ -43,7 +44,8 @@ case "$CMD" in
       || { echo "ERROR: GUARDS_LEDGER_KEY is missing or shorter than 32 characters: a founder sets this GitHub secret (any long random string)"; exit 1; }
     n=0
     for sha in $commits; do
-      [ -z "$(valid_id_of "$sha")" ] || continue
+      id=$(valid_id_of "$sha") || exit 1
+      [ -z "$id" ] || continue
       gh api -X POST "repos/$GH_REPO/statuses/$sha" -f state=success -f context="$CTX" -f description="id=$ARG mac=$(mac_of "$sha" "$ARG")" >/dev/null \
         || { echo "ERROR: could not record the pusher of $sha"; exit 1; }
       n=$((n+1))
@@ -54,9 +56,9 @@ case "$CMD" in
     [ -n "${GUARDS_LEDGER_KEY:-}" ] || { echo "ERROR: GUARDS_LEDGER_KEY is missing: a founder sets this GitHub secret"; exit 1; }
     rows=$(accounts_rows "$ARG") || { echo "$rows"; exit 1; }
     for sha in $commits; do
-      id=$(valid_id_of "$sha")
+      id=$(valid_id_of "$sha") || exit 1
       if [ -z "$id" ]; then echo "$sha - unknown"; continue; fi
-      role=$(awk -v i="$id" '$1 == i {print $3; exit}' <<<"$rows"); echo "$sha $id ${role:-unknown}"
+      role=$(account_field "$rows" "$id" 3); echo "$sha $id ${role:-unknown}"
     done
     ;;
   *) echo "usage: check-pushers.sh record|verify <base-ref> <head-ref> <pusher-id|accounts-file>"; exit 2;;

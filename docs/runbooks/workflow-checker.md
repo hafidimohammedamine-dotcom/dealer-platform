@@ -15,7 +15,9 @@ keys rejected), fails closed, and prints `Workflow denies OK (Skill denies: ...)
 the `main` copy, a PR cannot switch it off. Every message, with its fix:
 
 Files and arguments
-- `python3 PyYAML is required` - GitHub's Ubuntu runners include it; locally `python3 -m pip install pyyaml==6.0.2`.
+- `PyYAML is missing; run through the venv from scripts/check-python-deps.sh (pinned in scripts/check-python-requirements.txt)`
+  - guards and CI put that venv's `bin` on `PATH` first; locally run `bash scripts/check-python-deps.sh` and use the printed
+  folder's `python3`, or install PyYAML yourself.
 - `cannot read check-workflows-policy.json (...)` - restore the founder-owned policy file next to the script.
 - `bad argument '<x>'`, `--manifest needs a file`, `--accounts needs a file`, `manifest not found: <file>` - guards passes both
   manifests and the base branch's accounts file; an explicit manifest must exist. `run through scripts/check-workflows.sh` -
@@ -75,9 +77,11 @@ Jobs with a claude step
   runs never see the Claude token (the lock installs bubblewrap for it).
 - `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed` /
   `'shell' not allowed in a job with a claude step`.
-- `permissions must be a mapping of scopes (no read-all/write-all)`; `permission <scope>: <value> not allowed (...)` - only the
-  scopes in `permission_scopes`, plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
-  `claude.yml`), each read, write or none.
+- `permissions must be a mapping of scopes (no read-all/write-all)`; `permission <scope>: <value> not allowed (...)` - for
+  every job and the workflow level: only the scopes in `permission_scopes` (`actions`, `contents`, `issues`,
+  `pull-requests`, `statuses`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
+  `claude.yml` and `egress-lock-claude.yml`), each read, write or none. `id-token: write is not allowed in a workflow that
+  runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access.
 - `runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)` - no step may
   mention `/tmp/pr` (other than `/tmp/pr-meta`), the PR head, `head_ref`, `merge_commit_sha`, `refs/pull/`, `pull/<n>`,
   `gh pr checkout` or `event.issue.number`, except the exact prepare command in `pr_data_runs`.

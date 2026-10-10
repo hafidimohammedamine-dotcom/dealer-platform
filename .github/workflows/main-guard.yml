@@ -27,8 +27,8 @@ jobs:
         name: The guard's own inputs are the reviewed ones (pinned here, outside the pushed files' reach)
         run: |
           sha256sum --check --strict <<'EOF'
-          725451b00a9ae13836d93445803bc84ffaed527b0a4ba63e6e8222dcfbd4549b  scripts/check-main-push.sh
-          e1d14adbbb23446f85ca23ed74c99ec5d6c3bb91b1fdcbc0f653ce3611953c9c  scripts/check-accounts-lib.sh
+          fbc024b038445b9ae5959220cb5a0fed01281c9ef2c538cb5b82d58896a66897  scripts/check-main-push.sh
+          027dd973b7df69b70e10e6be03117b29e965cdcc8c2f77dabb816b6932ad5e4b  scripts/check-accounts-lib.sh
           c8de29b2df92ef4b1bf99604e07dbe04da582922c7a06a9ffcbe988f7a259bb5  .github/accounts.txt
           EOF
       - name: The pusher must be a founder; otherwise revert, stop the agents, open an issue
@@ -39,16 +39,35 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
         run: bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt
-      - name: If the pins did not match, stop the agents and alert from this file alone (no repo script involved)
+      - name: If the pins did not match, undo the push from this file alone (no repo script involved)
+        # The founders' user IDs are written here, outside the pushed files' reach: 238822878 (.github/accounts.txt).
         if: failure() && steps.pins.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PUSHER_ID: ${{ github.event.sender.id }}
+          BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
+          FOUNDER_IDS: "238822878"
         run: |
+          set -u
+          case " $FOUNDER_IDS " in *" $PUSHER_ID "*) echo "pins changed by a founder's push ($AFTER): update them in main-guard.yml"; exit 1;; esac
+          echo "::error::push to main by user ID $PUSHER_ID changed the main guard's inputs; undoing it from the workflow file"
+          git config user.name main-guard && git config user.email main-guard@users.noreply.github.com
+          done=""
+          if [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && ! git merge-base --is-ancestor "$BEFORE" "$AFTER"; then
+            git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" && done="restored main to $BEFORE after a force push"
+          else
+            n=0
+            for c in $(git rev-list --first-parent "$BEFORE".."$AFTER" 2>/dev/null || git rev-list --first-parent --max-count=50 "$AFTER"); do
+              if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then m="-m 1"; else m=""; fi
+              # shellcheck disable=SC2086
+              git revert --no-edit $m "$c" >/dev/null 2>&1 && n=$((n+1)) || { git revert --abort 2>/dev/null || true; break; }
+            done
+            [ "$n" = 0 ] || { git push origin HEAD:refs/heads/main && done="reverted $n pushed commit(s) with new commits"; }
+          fi
           gh workflow disable agent-manager.yml || true
           gh issue create --title "SECURITY: push to main changed the main guard's inputs (user ID $PUSHER_ID)" \
             --label area:security --label blocked --label priority:1 \
-            --body "A push to main ($AFTER by user ID $PUSHER_ID) changed scripts/check-main-push.sh, scripts/check-accounts-lib.sh or .github/accounts.txt without updating the pins in .github/workflows/main-guard.yml. The manager workflow is disabled. Founders: check that push, revert it if it was not yours, update the pins in a founder PR, re-enable the manager." || true
+            --body "A push to main ($BEFORE..$AFTER by user ID $PUSHER_ID) changed scripts/check-main-push.sh, scripts/check-accounts-lib.sh or .github/accounts.txt without updating the pins in .github/workflows/main-guard.yml. main-guard ${done:-could not undo it (see the job log)}; the manager workflow is disabled. Founders: check that push, finish undoing it if needed, re-enable the manager." || true
           exit 1

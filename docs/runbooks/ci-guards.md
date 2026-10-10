@@ -17,19 +17,24 @@ Runs on `pull_request_target`: GitHub always runs the copy on `main`, with `main
 `ERROR: bad PR number`, `already exists`, a git fetch error, or `rule files left in /tmp/pr`. Re-run the job once; if it fails
 again, tell a founder.
 
-### Step "Record who pushed the new commits (pusher ledger, signed statuses)" fails
-Runs on `opened` and `synchronize` events only (their sender is the account that pushed). `scripts/check-pushers.sh record`
-posts one commit status `guards/pusher` (`id=<user id> mac=<40 hex>`) on every commit of the PR that has no valid record
-yet; the mac is an HMAC-SHA256 of "<sha> <id>" with the secret `GUARDS_LEDGER_KEY`, which nobody with the agents' token can
-read, so a forged or copied status never verifies. `GUARDS_LEDGER_KEY is missing or shorter than 32 characters` - a founder
-creates that repository secret (any random string of 32+ characters; `openssl rand -hex 32`). `could not record the pusher of
-<sha>` - GitHub refused the status; re-run once. The job's concurrency never cancels a run in progress, so every push is
-recorded. Known limit: commits pushed before the ledger existed have no record (see the next step).
+### Workflow "Pusher ledger" (job `record`) fails
+Its own workflow (`pusher-ledger.yml`, no concurrency group, so no push is ever dropped or cancelled) runs on `opened` and
+`synchronize` (their sender is the account that pushed) with the base branch's scripts. It records exactly this event's
+commits - `before..after` on synchronize (after a force push, when `before` is gone, everything from the base), base..head
+on opened - as pushed by the event's sender: `scripts/check-pushers.sh record` posts one commit status `guards/pusher`
+(`id=<user id> mac=<40 hex>`) on every such commit without a valid record; the mac is an HMAC-SHA256 of "<sha> <id>" with
+the secret `GUARDS_LEDGER_KEY`, which nobody with the agents' token can read, so a forged or copied status never verifies.
+`GUARDS_LEDGER_KEY is missing or shorter than 32 characters` - a founder creates that repository secret (any random string
+of 32+ characters; `openssl rand -hex 32`). `could not record the pusher of <sha>` / `could not read the statuses of <sha>
+(GitHub API error)` - re-run the workflow once (nothing is recorded as "unknown" on an API error). `the event's after sha
+(...) is not the PR head` / `bad head sha` - the event is inconsistent; re-run once, then tell a founder. Known limit:
+commits pushed before the ledger existed have no record (see the founder-only step).
 
-### Step "Who pushed each commit (from the ledger)"
-`scripts/check-pushers.sh verify` prints `<sha> <id> <founder|agent|unknown>` per commit, or `<sha> - unknown` when no
-status carries a valid mac (none, deleted, or forged). It never fails by itself; the next step uses the list.
-`GUARDS_LEDGER_KEY is missing` - as above.
+### Step "Who pushed each commit (from the ledger written by pusher-ledger.yml)"
+First `the fetched PR head is not this event's head sha (...); the PR moved, see the newer run` - this run judges only the
+head its event names; the newer push has its own run. Then `scripts/check-pushers.sh verify` prints `<sha> <id>
+<founder|agent|unknown>` per commit, or `<sha> - unknown` when no status carries a valid mac (none, deleted, or forged);
+`could not read the statuses of <sha>` is a GitHub API error (re-run once). The next step uses the list.
 
 ### Step "Founder-only files (PR author and every pusher must be founders)" fails
 Message: `Not all of '<author id>,<pusher id>' are founders, and the PR changes founder-only files:` plus the paths. The IDs
@@ -85,9 +90,11 @@ Also `pull_request_target`, also from `main`.
 - **"Review (read-only)"** fails or times out - the post step runs only when the action produced an execution file; when
   it did, it posts `REVIEW TEAM RESULT: FAIL` saying there was no valid result. If no result comment appears and no label
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
-- **"Post the result (secret-scanned) and set labels"**: if the answer looked like it contained a secret, it posts FAIL without
-  the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
-- **"Start a fix round now (agent PRs that failed review)"**: runs only for a PR from this repository, opened by the agents'
+- The `review` job runs Claude with a read-only token and hands its answer (text, at most 60000 characters) to the job
+  `post`, the only one with write scopes, which runs no Claude.
+- **"Post the result (secret-scanned) and set labels"** (job `post`): if the answer looked like it contained a secret, it
+  posts FAIL without the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
+- **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'
   account (user ID 250452267 in `.github/accounts.txt`), on an `agent/` branch. When the PR has the label `changes-requested`
   it starts `agent-manager.yml` and prints `Manager shift started for PR #<n>`; otherwise `Review passed or no result; no fix
   round needed`.
@@ -100,7 +107,7 @@ runner itself on a small tree). A test passes only if it exits 0 and its last li
 above 0. Then it measures line coverage:
 - bash guard scripts (every `scripts/check-*.sh` except tests, plus `lock.sh`): each test run traces through a `BASH_ENV`
   hook, and `scripts/check-coverage.py` scores each command (a command that spans several lines counts once);
-- Python guard scripts: coverage.py 7.6.1 (with PyYAML 6.0.2), installed with pinned hashes from
+- Python guard scripts: coverage.py 7.16.2 (with PyYAML 6.0.3), installed with pinned hashes from
   `scripts/check-python-requirements.txt` by `scripts/check-python-deps.sh` into a private venv (no system site-packages) that
   is put in front of `PATH` as `python3` only for the tests.
 Messages: `ERROR: <test> tests failed` (the failing test's output is printed above it), `<script> ... <-- below minimum` with
@@ -127,11 +134,14 @@ push), pushes the reverts with its own token (which starts no workflow), disable
 founders. Founders then: read what the pushed commits contained, check the repositories the pusher's account owns, rotate
 `AGENT_GH_TOKEN` if the agents' account was involved, and re-enable the manager (Actions -> Agent - Manager shift -> Enable).
 `revert of <sha> did not apply cleanly` / `the revert could not be pushed` / `could not disable` / `could not open the security
-issue` - the job did what it could and prints the rest; a founder finishes by hand. Because the push itself could have
-changed the script, its library or `.github/accounts.txt`, the workflow pins all three by sha256 (step "The guard's own
-inputs are the reviewed ones"); on a mismatch it disables the manager and opens `SECURITY: push to main changed the main
-guard's inputs` from the workflow file alone. A founder PR that changes any of the three updates the pins in
-`main-guard.yml` (the test `scripts/check-main-push.test.sh` fails until they match).
+issue` - the job did what it could and prints the rest; a founder finishes by hand. A force push is undone by putting
+`main` back to the previous tip (`main was force-pushed and could not be restored` means a founder does it by hand).
+Because the push itself could have changed the script, its library or `.github/accounts.txt`, the workflow pins all three
+by sha256 (step "The guard's own inputs are the reviewed ones"); on a mismatch, the fallback step - written in the workflow
+file alone, with the founders' user IDs - undoes the push the same way (revert or restore), disables the manager and opens
+`SECURITY: push to main changed the main guard's inputs`; if the pusher was a founder it only fails with `pins changed by a
+founder's push`. A founder PR that changes any of the three updates the pins in `main-guard.yml` (the test
+`scripts/check-main-push.test.sh` fails until they match, and checks the fallback's condition, IDs and labels).
 
 ## After changing agent permissions (founder, manual)
 Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only)" step. Once vendored

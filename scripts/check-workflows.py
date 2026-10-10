@@ -12,7 +12,7 @@ import sys
 try:
     import yaml
 except ImportError:  # fail closed
-    print("ERROR: python3 PyYAML is required (python3 -m pip install pyyaml==6.0.2)")
+    print("ERROR: PyYAML is missing; run through the venv from scripts/check-python-deps.sh (pinned in scripts/check-python-requirements.txt)")
     sys.exit(1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -87,6 +87,7 @@ def check_job(fname, jname, job, required, triggers):
     for key in ("container", "services"):
         if key in job:
             err(f"{jw}: '{key}' not allowed")
+    LIB.check_permissions(fname, jw, job.get("permissions"), triggers)
     for key, val in job.items():
         if key != "steps":
             check_other(f"{jw} {key}", val)
@@ -117,8 +118,7 @@ def check_actions(root):
         for i, step in enumerate(steps, 1):
             check_other(f"{name} step {i}", step)
             u = str(step.get("uses", "")) if isinstance(step, dict) else ""
-            if u and not u.startswith("./") and not LIB.PINNED.match(u):
-                err(f"{name} step {i}: action must be pinned to a full commit SHA: {u}")
+            LIB.require_pinned(f"{name} step {i}", u)
 
 
 def load_yaml(path, name):
@@ -155,6 +155,7 @@ def check_file(path, required, accounts):
     PEOPLE.check_workflow_env(name, doc)
     PEOPLE.check_file_ifs(name, doc, accounts)
     triggers = triggers_of(doc)
+    LIB.check_permissions(name, name, doc.get("permissions"), triggers)
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
