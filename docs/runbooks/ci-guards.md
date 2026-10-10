@@ -212,7 +212,17 @@ run numbers from `MAIN_GUARD_RUNS_FROM` (a founder-owned constant in `scripts/ch
 retained" passes only for that first run. Founders never delete main-guard runs by hand. **Recovery after a gap** (a real
 deletion, or a founder's mistake): the gap stays until retention removes it from the old end, so after the investigation
 a founder PR raises `MAIN_GUARD_RUNS_FROM` to the current run number, runs `bash scripts/check-pins.sh update`, and
-re-enables the workflows after the merge; until then every hourly run keeps stopping the agents. `commit <sha> reached main without passing the main guard
+re-enables the workflows after the merge; until then every hourly run keeps stopping the agents. The same check treats a
+**re-run** (`run_attempt > 1`) or a **cancelled** main-guard run as tampering (`tampered main-guard run #n: re-run ...` /
+`cancelled`; issue `SECURITY: main-guard workflow runs were deleted, re-run or cancelled`): re-running a run and
+cancelling it rewrites its result without changing its number, which could erase the newest checked head. Founders never
+re-run or cancel a main-guard run either; a failed first-attempt run (an agent push the guard undid) is normal.
+
+**Heartbeat.** The hourly run is what detects all of this, and the agents' token could cancel it every hour instead. So
+every Claude job (`check-main-head.sh`) and every shift (`check-agent-token.sh`, start and end) first requires a scheduled
+main-guard run completed with success within the last 75 minutes (`main_guard_heartbeat`; in the first hour after the
+merge, before any scheduled run, the workflow's newest run must be that young): `the hourly main-guard run has not passed
+lately (stale: ...)` stops the job until a founder looks at the main-guard runs. `commit <sha> reached main without passing the main guard
 (missing <sha> (runs: ...))` means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or
 the workflow disabled at the time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to
 main passed no main-guard run (commit <sha>)` without reverting anything (it cannot tell what that push contained);

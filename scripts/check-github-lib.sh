@@ -71,30 +71,64 @@ main_guard_latest() {
 # number (and runs `bash scripts/check-pins.sh update`); until then every hourly run keeps stopping the agents.
 MAIN_GUARD_RUNS_FROM=1
 
-# main_guard_runs_intact <this-run-number>: no main-guard run has been deleted (the agents' classic `repo` token can delete
-# workflow runs, which is how the newest checked head could be erased: delete every run newer than an older commit's and
-# main_guard_latest points at that commit). Run numbers are sequential and never reused, and GitHub's retention removes
-# runs from the old end only, so the retained runs numbered from MAIN_GUARD_RUNS_FROM up to <this-run-number> - 1 must be
-# one unbroken sequence ending at <this-run-number> - 1; none retained is fine only for run number MAIN_GUARD_RUNS_FROM
-# itself. Runs numbered above this one (a push run started meanwhile; this run being a re-run of an older one) are left
-# out: they cannot hide anything from this run. Prints "ok ..." and returns 0, "deleted ..." and returns 1, or
-# "ERROR: ..." on an API error.
+# main_guard_runs_intact <this-run-number>: no main-guard run has been deleted, re-run or cancelled (the agents' classic
+# `repo` token can do all three; deleting runs, or re-running and cancelling them, is how the newest checked head could be
+# erased: with every run newer than an older commit's gone or no longer a success, main_guard_latest points at that
+# commit). Run numbers are sequential and never reused, and GitHub's retention removes runs from the old end only, so the
+# retained runs numbered from MAIN_GUARD_RUNS_FROM up to <this-run-number> - 1 must be one unbroken sequence ending at
+# <this-run-number> - 1, none of them re-run (run_attempt > 1) or cancelled; none retained is fine only for run number
+# MAIN_GUARD_RUNS_FROM itself. Runs numbered above this one (a push run started meanwhile; this run being a re-run of an
+# older one) are left out: they cannot hide anything from this run. Founders never re-run, cancel or delete a main-guard
+# run; after one, the recovery is a founder PR raising MAIN_GUARD_RUNS_FROM. Prints "ok ..." and returns 0, "deleted ..."
+# or "tampered ..." and returns 1, or "ERROR: ..." on an API error.
 main_guard_runs_intact() {
-  local me=$1 numbers n prev="" from=$MAIN_GUARD_RUNS_FROM
+  local me=$1 rows n a c prev="" first="" from=$MAIN_GUARD_RUNS_FROM
   [[ "$me" =~ ^[0-9]+$ ]] || { echo "ERROR: bad run number: '$me'"; return 1; }
-  numbers=$("$GH" api --paginate "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=100" --jq '.workflow_runs[].run_number' 2>/dev/null) \
+  rows=$("$GH" api --paginate "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=100" --jq '.workflow_runs[] | "\(.run_number) \(.run_attempt) \(.conclusion)"' 2>/dev/null) \
     || { echo "ERROR: could not list the main-guard runs."; return 1; }
-  numbers=$(tr -s ' \n' '\n' <<<"$numbers" | grep -x '[0-9]*' | sort -n | uniq | awk -v me="$me" -v from="$from" '$1 >= from && $1 < me' || true)
-  if [ -z "$numbers" ]; then
+  rows=$(grep -E '^[0-9]+ [0-9]+ ' <<<"$rows" | sort -n | uniq | awk -v me="$me" -v from="$from" '$1 >= from && $1 < me' || true)
+  if [ -z "$rows" ]; then
     [ "$me" -le "$from" ] && { echo "ok no earlier main-guard run from #$from is retained (this is run #$me)"; return 0; }
     echo "deleted main-guard run(s) #$from..#$((me-1)): none is retained before this run #$me; someone deleted workflow runs"; return 1
   fi
-  for n in $numbers; do
+  while read -r n a c; do
+    [ -n "$first" ] || first=$n
     [ -z "$prev" ] || [ "$n" = $((prev+1)) ] || { echo "deleted main-guard run(s) between #$prev and #$n: someone deleted workflow runs"; return 1; }
+    [ "$a" = 1 ] || { echo "tampered main-guard run #$n: re-run (attempt $a); a re-run can replace a passed run's result"; return 1; }
+    [ "$c" != cancelled ] || { echo "tampered main-guard run #$n: cancelled; a cancelled run checked nothing"; return 1; }
     prev=$n
-  done
+  done <<<"$rows"
   [ "$prev" = $((me-1)) ] || { echo "deleted main-guard run(s) between #$prev and this run #$me: someone deleted workflow runs"; return 1; }
-  echo "ok main-guard runs #$(head -n1 <<<"$numbers")..#$prev are all retained"
+  echo "ok main-guard runs #$first..#$prev are all retained, first attempts, none cancelled"
+}
+
+# MAIN_GUARD_HEARTBEAT: how old (seconds) the newest successful hourly main-guard run may be before every Claude job and
+# shift refuses to start: the hourly run is what detects deleted, re-run or cancelled runs (main_guard_runs_intact), and
+# the agents' token could cancel it every hour instead. 75 minutes: one hourly slot plus a margin.
+MAIN_GUARD_HEARTBEAT=4500
+
+# main_guard_heartbeat: a scheduled main-guard run completed with success within MAIN_GUARD_HEARTBEAT seconds (or none
+# has been scheduled yet and the workflow's newest run is that young: the first hour after the merge). Prints "ok ..." and
+# returns 0, "stale ..." and returns 1, or "ERROR: ..." on an API error.
+main_guard_heartbeat() {
+  local sched newest at now age
+  now=$(date -u +%s)
+  sched=$("$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?event=schedule&per_page=10" --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.created_at)"' 2>/dev/null) \
+    || { echo "ERROR: could not list the scheduled main-guard runs."; return 1; }
+  if [ -z "$sched" ]; then
+    newest=$("$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=1" --jq '.workflow_runs[0].created_at // empty' 2>/dev/null) \
+      || { echo "ERROR: could not list the main-guard runs."; return 1; }
+    at=$(date -u -d "$newest" +%s 2>/dev/null) || { echo "ERROR: could not read the newest main-guard run's time."; return 1; }
+    age=$((now-at))
+    [ "$age" -le "$MAIN_GUARD_HEARTBEAT" ] && { echo "ok no hourly main-guard run yet; the workflow's newest run is ${age}s old"; return 0; }
+    echo "stale: no hourly main-guard run exists although the workflow's newest run is ${age}s old (the schedule is not firing, or its runs were deleted)"; return 1
+  fi
+  at=$(awk '$1 == "completed" && $2 == "success" {print $3; exit}' <<<"$sched")
+  [ -n "$at" ] || { echo "stale: none of the last scheduled main-guard runs completed with success ($(tr '\n' ';' <<<"$sched"))"; return 1; }
+  at=$(date -u -d "$at" +%s 2>/dev/null) || { echo "ERROR: could not read the scheduled run's time."; return 1; }
+  age=$((now-at))
+  [ "$age" -le "$MAIN_GUARD_HEARTBEAT" ] && { echo "ok the last successful hourly main-guard run is ${age}s old"; return 0; }
+  echo "stale: the last successful hourly main-guard run is ${age}s old (more than ${MAIN_GUARD_HEARTBEAT}s): the hourly run was cancelled or stopped"; return 1
 }
 
 # MAIN_GUARD_FLOOR: the head of the default branch when the main guard was written (founder-owned constant, pinned with
@@ -158,16 +192,20 @@ main_guard_checked() {
   echo "missing $sha (runs: ${runs:-none})"; return 1
 }
 
-# main_head_passed <wait-seconds> <who-is-stopped> [checked-out-sha]: the default branch's head passed the main guard
-# (main_guard_passed); with <checked-out-sha> (what this job checked out), that commit must also be the default branch's
+# main_head_passed <wait-seconds> <who-is-stopped> [checked-out-sha]: the hourly main-guard run is alive
+# (main_guard_heartbeat) and the default branch's head passed the main guard (main_guard_passed); with <checked-out-sha> (what this job checked out), that commit must also be the default branch's
 # head as GitHub sees it, so the job judges exactly the tree it runs. Prints the reason and returns 1 otherwise, naming
 # who must not run until a founder looked.
 main_head_passed() {
-  local wait_max=$1 who=$2 local_sha=${3:-} head out
+  local wait_max=$1 who=$2 local_sha=${3:-} head out hb
   head=$("$GH" api "repos/$REPO/commits/HEAD" --jq .sha 2>/dev/null) || { echo "ERROR: could not read the default branch's head commit."; return 1; }
   [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: could not read the default branch's head commit."; return 1; }
   if [ -n "$local_sha" ] && [ "$local_sha" != "$head" ]; then
     echo "ERROR: this job checked out $local_sha but the default branch's head is $head now; start a fresh run."; return 1
+  fi
+  if ! hb=$(main_guard_heartbeat); then
+    case "$hb" in ERROR:*) echo "$hb";; *) echo "ERROR: the hourly main-guard run has not passed lately ($hb). A founder checks the main-guard runs (cancelled? the workflow disabled?) before $who.";; esac
+    return 1
   fi
   if ! out=$(main_guard_passed "$head" "$wait_max"); then
     case "$out" in

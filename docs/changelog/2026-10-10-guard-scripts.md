@@ -218,6 +218,9 @@
 - **Round 26:** the deletion check starts at `MAIN_GUARD_RUNS_FROM` (founder-owned; the recovery after a gap is a founder PR
   raising it), "nothing retained" passes only for that first run (every run deleted is a gap), and runs numbered above the
   current one (a push run started meanwhile, a re-run of an older number) are left out so they raise no false alarm.
+- **Round 27:** the hourly check also treats a re-run (`run_attempt > 1`) or a cancelled main-guard run as tampering (a
+  re-run then cancel rewrote a passed run's result without a gap); every Claude job and shift requires a successful hourly
+  main-guard run within 75 minutes (`main_guard_heartbeat`), so cancelling the hourly run no longer hides anything.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

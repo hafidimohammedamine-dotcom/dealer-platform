@@ -63,13 +63,16 @@ fresh; push_commits 1; run ok "a push whose previous tip is the newest checked h
 fresh; push_commits 1 2; run ok "a push whose previous tip descends from the newest checked head passes (compare: ahead)" "Push to main by founder" 111 "$(git -C "$W/clone" rev-parse HEAD~1)" "$HEAD" STUB_LATEST="$BASE"
 # The hourly run also requires every retained main-guard run to still exist (the agents' token can delete runs, which
 # would erase the newest checked head): run numbers are sequential, so a deleted run is a gap before this run's number
-fresh; push_commits 1; run ok "schedule: the retained runs are one unbroken sequence up to this run" "Runs: ok main-guard runs #9..#11 are all retained" schedule - - "STUB_NUMBERS=9 10 11 12"
+fresh; push_commits 1; run ok "schedule: the retained runs are one unbroken sequence up to this run" "Runs: ok main-guard runs #9..#11 are all retained, first attempts, none cancelled" schedule - - "STUB_NUMBERS=9 10 11 12"
 fresh; push_commits 1; run ok "schedule: the first run (nothing earlier retained)" "Runs: ok no earlier main-guard run from #1 is retained (this is run #1)" schedule - - STUB_NUMBERS=1 GITHUB_RUN_NUMBER=1
 fresh; push_commits 1; run fail "schedule: every earlier run deleted stops the agents" "deleted main-guard run(s) #1..#11: none is retained before this run #12" schedule - - STUB_NUMBERS=12
-fresh; push_commits 1; run ok "schedule: a push run numbered above this one is not a gap" "Runs: ok main-guard runs #9..#11 are all retained" schedule - - "STUB_NUMBERS=9 10 11 12 13"
+fresh; push_commits 1; run ok "schedule: a push run numbered above this one is not a gap" "Runs: ok main-guard runs #9..#11 are all retained, first attempts, none cancelled" schedule - - "STUB_NUMBERS=9 10 11 12 13"
 fresh; push_commits 1; run fail "schedule: a run deleted in the middle stops the agents" "deleted main-guard run(s) between #9 and #11" schedule - - "STUB_NUMBERS=9 11 12"
 check "deleted runs: 8 disables and the issue" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh issue create --title SECURITY: main-guard workflow runs were deleted" "$1"' _ "$W/gh.log"
 fresh; push_commits 1; run fail "schedule: the newest runs deleted (a gap before this run) stops the agents" "deleted main-guard run(s) between #9 and this run #12" schedule - - "STUB_NUMBERS=8 9 12"
+fresh; push_commits 1; run fail "schedule: a re-run among the retained runs stops the agents" "tampered main-guard run #10: re-run (attempt 2)" schedule - - "STUB_NUMBERS=9 11" "STUB_RUN_ROWS=10 2 success"
+check "tampered runs: 8 disables and the issue" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh issue create --title SECURITY: main-guard workflow runs were deleted, re-run or cancelled" "$1"' _ "$W/gh.log"
+fresh; push_commits 1; run fail "schedule: a cancelled run among the retained runs stops the agents" "tampered main-guard run #10: cancelled" schedule - - "STUB_NUMBERS=9 11" "STUB_RUN_ROWS=10 1 cancelled"
 fresh; push_commits 1; run fail "schedule: the run list fails: an error, nothing stopped" "could not list the main-guard runs" schedule - - STUB_NUMBERS_RC=1
 check "run list error: no disable, no issue" bash -c '! grep -q "workflow disable\|issue create" "$1"' _ "$W/gh.log"
 fresh; push_commits 1; run fail "a push run does not ask for the run numbers (only the hourly run does)" "restored main to the tree of" 333 "$BASE" "$HEAD" "STUB_NUMBERS=1 12"
