@@ -9,7 +9,7 @@ W=.github/workflows
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 # A fresh root: the real workflows, accounts.txt, and every pinned file with pins.txt (the pin steps must verify).
 fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github" "$T/scripts"; cp -r "$REPO/$W" "$REPO/.github/actions" "$T/.github/"
-  cp "$REPO/.github/accounts.txt" "$REPO/.github/pins.txt" "$T/.github/"; cp "$REPO/.gitleaks.toml" "$REPO/CLAUDE.md" "$T/"; cp -r "$REPO/.claude" "$T/"
+  cp "$REPO/.github/accounts.txt" "$REPO/.github/pins.txt" "$T/.github/"; cp "$REPO/.gitleaks.toml" "$REPO/CLAUDE.md" "$REPO/.yarnrc.yml" "$T/"; cp -r "$REPO/.claude" "$T/"
   local _pf; for _pf in "$REPO"/scripts/check-*; do case "$_pf" in *.test.sh|*testlib.sh) ;; *) cp "$_pf" "$T/scripts/";; esac; done; }
 PINS_HASH=$(sha256sum "$REPO/.github/pins.txt" | cut -c1-64)
 PIN_STEP="      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
@@ -53,6 +53,8 @@ jobs:
           ref: main
           persist-credentials: false
 PIN_STEP_HERE
+      - name: The default branch's head passed the main guard
+        run: bash scripts/check-main-head.sh
       - id: lock
         uses: ./.github/actions/agent-egress-lock
       - id: claude

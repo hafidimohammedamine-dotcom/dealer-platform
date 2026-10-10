@@ -123,6 +123,32 @@ def check_job(fname, jname, job, required, triggers):
     return 0
 
 
+def check_stop_list(root, files):
+    """The workflows the main guard cancels and disables after a bad push (policy `stop_workflows`) are every workflow
+    but main-guard.yml that holds a secret or a write scope, and both copies of that list - the `for w in ...` line of
+    main-guard.yml's fallback step and the MAIN_GUARD_WORKFLOWS default in scripts/check-main-push.sh - say exactly that."""
+    want = P["stop_workflows"]
+    skip = {"main-guard.yml", *P["checker_test_fixtures"]}   # the fixtures scripts/check-workflows*.test.sh add next to the real files
+    holding = sorted(os.path.basename(f) for f in files if os.path.basename(f) not in skip
+                     and re.search(r"secrets\.|:\s*write\b", open(f, encoding="utf-8").read()))
+    if sorted(want) != holding:
+        err(f"stop_workflows in the policy must be every workflow holding a secret or a write scope (except main-guard.yml): "
+            f"policy {sorted(want)}, workflows {holding}")
+    joined = " ".join(want)
+    wf = os.path.join(root, ".github", "workflows", "main-guard.yml")
+    if os.path.isfile(wf):
+        with open(wf, encoding="utf-8") as fh:
+            m = re.search(r"for w in ([^;\n]+); do", fh.read())
+        if not m or m.group(1).split() != want:
+            err(f"main-guard.yml: the fallback step's 'for w in ...' list must be exactly the policy's stop_workflows ({joined})")
+    sc = os.path.join(root, "scripts", "check-main-push.sh")
+    if os.path.isfile(sc):
+        with open(sc, encoding="utf-8") as fh:
+            m = re.search(r"MAIN_GUARD_WORKFLOWS:-([^}]+)\}", fh.read())
+        if not m or m.group(1).split() != want:
+            err(f"scripts/check-main-push.sh: the MAIN_GUARD_WORKFLOWS default must be exactly the policy's stop_workflows ({joined})")
+
+
 def check_actions(root):
     """Composite actions in .github/actions: same rules as other steps, and every remote action pinned by SHA."""
     for path in sorted(glob.glob(os.path.join(root, ".github", "actions", "*", "action.y*ml"))):
@@ -206,6 +232,7 @@ def main(argv):
     accounts = LIB.accounts_from_rows(os.environ["CW_ACCOUNT_ROWS"])
     counts = {os.path.basename(f): check_file(f, required, accounts) for f in files}
     check_actions(root)
+    check_stop_list(root, files)
     if counts.get(MANAGER, 0) != 1:
         err(f"expected exactly one claude step in {MANAGER} (found {counts.get(MANAGER, 0)})")
     for e in errors:

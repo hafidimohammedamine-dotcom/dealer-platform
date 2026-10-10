@@ -94,10 +94,12 @@ only to the exact names and that pattern.
 - `Claude answered under the lock, and Skill(payload) was denied` fails (job `probe`) - either Claude could not reach
   `api.anthropic.com` through the lock, or the Skill deny did not hold. Read the printed result and denials.
 - Job `scrub` fails - Claude ran `bash scripts/check-scrub-probe.sh` as a tool, and the check step (`scripts/check-claude-probe.py
-  scrub`) printed `probe: SCRUB-PROBE env-tokens=<n> proc-tokens=<n> pid=<n>` with a count above 0, or `probe: did not run`.
-  The probe counts Claude tokens (`sk-ant...`) visible to a tool, in its own environment and in every readable
-  `/proc/<pid>/environ`, and prints counts only. A count above 0 means the subprocess isolation is not working. Open an
-  `area:security` issue; do not turn the scrub off.
+  scrub`) printed `probe: SCRUB-PROBE env-tokens=<n> proc-tokens=<n> file-tokens=<n> pid=<n>` with a count above 0, or
+  `probe: did not run`. The probe counts Claude tokens (`sk-ant-<kind><nn>-...`) visible to a tool: in its own environment,
+  in every readable `/proc/<pid>/environ`, and in every readable text file under the home folder, `/tmp` and the runner's
+  temp folder (a token on disk would get around the environment scrub). It prints counts only. A count above 0 means the
+  subprocess isolation is not working, or the action or Claude Code wrote a token to disk. Open an `area:security` issue;
+  do not turn the scrub off.
 - Job `reads` fails - the check step (`scripts/check-claude-probe.py read-deny`) prints one `denied` / `NOT DENIED` line
   per probe read and `token-shaped strings in tool results and the answer: <n>`. A `NOT DENIED` line means a Read rule
   no longer holds (a Claude Code change, or an edited allow list): the Claude process, which holds the token, could be
@@ -220,10 +222,12 @@ permitted`, and bubblewrap still started.
 instruction (or a dependency's install script, which gets `GH_TOKEN` from the environment) needs no credentials of its own
 to post data there. With an attacker's own credentials, the other allowed services are open too: GitHub (a push, issue or
 gist), npm (a publish) or the Anthropic API (the attacker's key). Each run prints a `Known open routes` notice. What
-catches the first route: `scripts/check-agent-events.sh` runs after every manager shift (job `after`) and fails if the
-agents' account has any event outside this repository since the shift started; the manager denies `gh api`, `gh gist`
-and `gh repo` as hygiene. Prevention needs an organization-owned repository with a fine-grained token limited to this
-repository (founder decision 1).
+catches the first route: `scripts/check-agent-events.sh` runs before and after every manager shift (job `after`) and
+fails if the agents' account has any event outside this repository in the last 24 hours; the manager denies `gh api`,
+`gh gist` and `gh repo` as hygiene. It cannot see a token sent out by a dependency's install script with an attacker's
+own credentials, so the manager's installs run with lifecycle scripts off (`YARN_ENABLE_SCRIPTS: "false"` in its job env,
+which beats any `.yarnrc.yml` a PR brings; the founder-owned `.yarnrc.yml` says the same for everyone else). Prevention
+needs an organization-owned repository with a fine-grained token limited to this repository (founder decision 1).
 
 The job's processes keep the groups they started with (sudo, docker, adm); Linux cannot take them away mid-job. The lock makes
 them powerless instead:
@@ -268,15 +272,21 @@ merging founder. Review by 2026-11-08, or earlier if any of them changes.
    through `api.github.com`, which the lock allows: an agent misled by an injected instruction, or a dependency's install
    script, could post data (the token itself included) to a repository an attacker reads, with no credentials of its
    own. With an attacker's own credentials, GitHub (push, issue, gist), npm (publish) and the Anthropic API are open as
-   well. Accepted for now with these controls: `scripts/check-agent-events.sh` after every shift (job `after` of the
-   manager) fails on any event of the agents' account outside this repository and tells a founder to rotate the token;
+   well - and a dependency's install script, run by `yarn install` in the manager's job with the agents' token in the
+   environment, would be such an attacker: it could `npm publish` the token out, which no GitHub event shows. Accepted
+   for now with these controls: the manager's installs run with lifecycle scripts off (`YARN_ENABLE_SCRIPTS: "false"`,
+   checked by the workflow checker; the founder-owned `.yarnrc.yml` says the same, and a package that needs its build
+   script is allowed one by one by a founder with `dependenciesMeta`); `scripts/check-agent-events.sh` before and after
+   every shift (job `after` of the manager) fails on any event of the agents' account outside this repository in the last
+   24 hours and tells a founder to rotate the token;
    the manager denies `gh api`, `gh gist`, `gh repo`, `gh workflow` and `gh run cancel/delete` (hygiene: `bash -c` gets
    around prefix denies); the reviews. The check looks at a rolling 24 hours before and after each shift, because the
    events feed can lag (the reviewer recalls delays of hours; a founder may confirm against GitHub's documentation). This
    detects after the fact. Prevention - an organization-owned repository with a
    fine-grained token limited to this repository, a read-only package mirror and a GitHub proxy that accepts only this
    job's own token - is founder issue #35 ("Move the repository to an organization and give the agents a fine-grained
-   token"), not this PR.
+   token"; once the token is fine-grained, `scripts/check-agent-token.sh` should reject classic `ghp_` tokens), not this
+   PR.
 2. **Pins and measurements.** The pins were compared with the vendors' sources on 2026-10-10 in the PR's session (see
    "Evidence"); the measurements in this runbook were taken on GitHub's runners on 2026-10-09 and 2026-10-10 (run IDs are
    cited where they matter) and cannot be reproduced from this repository alone: they need a runner, the lock and, for the

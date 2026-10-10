@@ -17,12 +17,14 @@
 #       "<sha> - unknown" when no record has a valid mac, or when valid records name more than one pusher (a commit never
 #       passes on a founder's record if another valid record names someone else); check-founder-files.sh then requires
 #       every line to be a founder when founder-only files changed
-# A GitHub API error is an error (exit 1), never "no record". Needs gh with GH_TOKEN (statuses: write for record) and
-# GH_REPO. Rules: docs/runbooks/ci-guards.md.
+# A GitHub API error is an error (exit 1), never "no record". Needs gh with GH_TOKEN (statuses: write for record); the
+# repository comes from GITHUB_REPOSITORY inside Actions (gh_context in check-github-lib.sh; GH_REPO/GH_BIN in tests). Rules: docs/runbooks/ci-guards.md.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
+# shellcheck source=scripts/check-github-lib.sh
+. "$HERE/check-github-lib.sh"
 CMD="${1:-}"
 usage() { echo "usage: check-pushers.sh record <push-event-json> | verify <base-ref> <head-ref> <accounts-file>"; exit 2; }
 case "$CMD" in
@@ -30,8 +32,7 @@ case "$CMD" in
   verify) BASE="${2:-}"; HEAD="${3:-}"; ARG="${4:-}"; [ -n "$BASE" ] && [ -n "$HEAD" ] && [ -n "$ARG" ] || usage;;
   *) usage;;
 esac
-: "${GH_REPO:?GH_REPO (owner/repo)}"
-[[ "$GH_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "ERROR: bad GH_REPO '$GH_REPO'"; exit 2; }
+gh_context || exit 2
 CTX=guards/pusher
 
 push_event_fields() { # push_event_fields <event.json>: ref, before, after, sender id, deleted, count (tab-separated), then one distinct commit id per line
@@ -47,7 +48,7 @@ mac_of() { # mac_of <sha> <id>: HMAC-SHA256 with the ledger key, first 40 hex ch
   MSG="$1 $2" python3 -I -c 'import hashlib, hmac, os; print(hmac.new(os.environ["GUARDS_LEDGER_KEY"].encode(), os.environ["MSG"].encode(), hashlib.sha256).hexdigest()[:40])'
 }
 records_of() { # records_of <sha>: the descriptions of every guards/pusher status on the commit; fails on an API error
-  gh api --paginate "repos/$GH_REPO/commits/$1/statuses" --jq ".[] | select(.context == \"$CTX\") | .description"
+  "$GH" api --paginate "repos/$REPO/commits/$1/statuses" --jq ".[] | select(.context == \"$CTX\") | .description"
 }
 valid_id_of() { # valid_id_of <sha>: the one pusher id every valid record agrees on; nothing if none; "conflict" if the
   local d id mac recs ids=""     # valid records name different ids; exit 1 on an API error (never read as "no record")
@@ -85,7 +86,7 @@ case "$CMD" in
       git merge-base --is-ancestor "$sha" "$AFTER" 2>/dev/null || { echo "ERROR: the event lists $sha, which is not on the pushed branch"; exit 1; }
       id=$(valid_id_of "$sha") || exit 1
       [ -z "$id" ] || continue
-      gh api -X POST "repos/$GH_REPO/statuses/$sha" -f state=success -f context="$CTX" -f description="id=$ARG mac=$(mac_of "$sha" "$ARG")" >/dev/null \
+      "$GH" api -X POST "repos/$REPO/statuses/$sha" -f state=success -f context="$CTX" -f description="id=$ARG mac=$(mac_of "$sha" "$ARG")" >/dev/null \
         || { echo "ERROR: could not record the pusher of $sha"; exit 1; }
       n=$((n+1))
     done

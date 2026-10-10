@@ -16,8 +16,8 @@
   Closes #31.
 - **Claude Code's subprocess isolation is on in every agent job** (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"`, bubblewrap from
   the lock): the tools agents run never see the Claude token. Answer-only jobs may allow only read-only tools and a fixed list of Bash
-  commands (`gh` views and lists, `yarn npm audit/info`, `yarn why`, `date`; no `git`, `find`, `sort`, `cat` or anything that
-  can write a file). The review job no longer allows `Bash(git -C /tmp/pr grep:*)`, `Bash(find /tmp/pr:*)` or any git command:
+  commands (`gh` views and lists and exactly `date -u`; no yarn, no `git`, `find`, `sort`, `cat` or anything that can
+  write a file). The review job no longer allows `Bash(git -C /tmp/pr grep:*)`, `Bash(find /tmp/pr:*)` or any git command:
   the PR's diff, commits and commit patches are written as plain files to `/tmp/pr-meta` before Claude starts (the weekly audit
   gets `/tmp/audit-meta`). `bypassPermissions` is only for the manager, `--add-dir` only those folders, and claude jobs take only
   allow-listed env names, `runs-on: ubuntu-latest`, allow-listed permissions, SHA-pinned actions and no `defaults`. The policy lists live in `scripts/check-workflows-policy.json`.
@@ -154,6 +154,18 @@
   the break-on-purpose test proves the deliberate break was the only failure (`failed-checks` output); shared
   `gh_context`/`token_account` helpers; the coverage runner's and three tests' assertions through `assert_result`;
   architecture lists every guard script and the `after` job.
+- **Round 15:** every Claude job checks that the checked-out head of `main` passed the main guard before the lock
+  (`scripts/check-main-head.sh`), and between the lock and the Claude step only pinned `scripts/check-*.sh` one-liners and
+  a downloaded artifact may run (checker rules `main_head_guard`, `pre_claude_run`, `pre_claude_actions`; the manager's
+  setup, the audit's history files and the probe skill became pinned scripts); the weekly audit's `yarn npm audit` runs in
+  its own job without a secret and arrives as an artifact; the manager's installs run with lifecycle scripts off
+  (`YARN_ENABLE_SCRIPTS: "false"`, checked; founder-owned `.yarnrc.yml`, pinned, `.yarn/` founder-only); the scrub probe
+  also counts tokens in files under the home, temp and runner folders; the main guard's floor is the oldest passed run
+  plus GitHub's compare API, never a commit date; GitHub helpers in `scripts/check-github-lib.sh` (own tests), git
+  filter settings in `scripts/check-git-lib.sh`, the ledger through `gh_context`; `stop_workflows` lives once in the
+  policy (checker rule); the pushers file is a required argument of `check-founder-files.sh`; `check-pr-ci-status.sh`
+  writes its own step output; checker clean-ups (`LOCK_OUTPUTS`, `check_job_start` signature, docstring); docs (24-hour
+  window wording, the allow-list, founder decision 1 names the install-script route).
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

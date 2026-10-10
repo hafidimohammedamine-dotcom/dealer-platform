@@ -5,10 +5,9 @@
 # Usage: scripts/check-skills-upstream-all.sh <repo-root-with-.claude> [work-dir]
 #   UPSTREAM_BASE (default https://github.com/) is only overridden by the tests (file:// fixtures).
 set -euo pipefail
-# No filters or hooks while an upstream's files are written (a .gitattributes/.lfsconfig there must not make git-lfs fetch
-# from a URL it chooses, nor a hook run).
-NOFILTER=(-c core.hooksPath=/dev/null -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false -c filter.lfs.clean=)
-export GIT_LFS_SKIP_SMUDGE=1
+# No filters or hooks while an upstream's files are written (NOFILTER, scripts/check-git-lib.sh).
+# shellcheck source=scripts/check-git-lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/check-git-lib.sh"
 ROOT="${1:?repo root}"; WORK="${2:-$(mktemp -d "${TMPDIR:-/tmp}/up-all.XXXXXX")}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-skills-lib.sh

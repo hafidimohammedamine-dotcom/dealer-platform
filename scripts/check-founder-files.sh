@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails if a pull request from someone who is not a founder changes founder-only files.
-# Usage: scripts/check-founder-files.sh <base-ref> <head-ref> <user-ids> <accounts-file> [pushers-file]
+# Usage: scripts/check-founder-files.sh <base-ref> <head-ref> <user-ids> <accounts-file> <pushers-file>
 #   base-ref / head-ref: git refs to compare (merge-base of base and head .. head).
 #   user-ids: comma-separated numeric GitHub user IDs taken from the pull_request event, not from anything the PR controls:
 #             the PR author and the account that triggered this run (opened it or pushed the latest commits).
@@ -14,7 +14,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
-BASE="${1:?base ref}"; HEAD="${2:?head ref}"; IDS="${3:?user ids}"; ACCOUNTS="${4:?accounts file}"; PUSHERS="${5:-}"
+BASE="${1:?base ref}"; HEAD="${2:?head ref}"; IDS="${3:?user ids}"; ACCOUNTS="${4:?accounts file}"; PUSHERS="${5:?pushers file}"
 
 rows=$(accounts_rows "$ACCOUNTS") || { echo "$rows"; exit 1; }
 founders=$(awk '$3 == "founder" {print $1}' <<<"$rows")
@@ -26,18 +26,15 @@ for i in "${who[@]}"; do
   [[ "$i" =~ ^[0-9]+$ ]] && grep -qxF -- "$i" <<<"$founders" || all_founders=0
 done
 # Commits pushed by someone else (the pusher ledger): founder-only changes need every commit pushed by a founder.
-not_founder_pushes=""
-if [ -n "$PUSHERS" ]; then
-  [ -f "$PUSHERS" ] || { echo "ERROR: pushers file not found: $PUSHERS"; exit 1; }
-  not_founder_pushes=$(awk 'NF != 3 || $3 != "founder" {print}' "$PUSHERS")
-fi
+[ -f "$PUSHERS" ] || { echo "ERROR: pushers file not found: $PUSHERS"; exit 1; }
+not_founder_pushes=$(awk 'NF != 3 || $3 != "founder" {print}' "$PUSHERS")
 if [ "$all_founders" = 1 ] && [ -z "$not_founder_pushes" ]; then
   echo "All of '$IDS' are founders (and every commit was pushed by a founder): founder-only files may change; founders review them."
   exit 0
 fi
 
 # Founder-only paths (regex on repo-relative paths), at any depth where it matters.
-PATTERN='(^|/)CLAUDE(\.local)?\.md$|(^|/)\.mcp\.json$|(^|/)\.claude/|^\.github/|^scripts/check-|^scripts/gitleaks-config|(^|/)\.gitleaks(\.toml|ignore)$|^packages/data/override-allowlist\.txt$'
+PATTERN='(^|/)CLAUDE(\.local)?\.md$|(^|/)\.mcp\.json$|(^|/)\.claude/|^\.github/|^scripts/check-|^scripts/gitleaks-config|(^|/)\.gitleaks(\.toml|ignore)$|^packages/data/override-allowlist\.txt$|(^|/)\.yarnrc\.yml$|(^|/)\.yarn/'
 
 # -z: raw paths (no quoting); --no-renames: a rename lists both old and new paths. Fail closed if git fails.
 if ! changed=$(git -c core.quotepath=off diff -z --no-renames --name-only "$BASE...$HEAD" | tr '\0' '\n'; exit "${PIPESTATUS[0]}"); then

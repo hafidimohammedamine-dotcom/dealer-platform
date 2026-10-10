@@ -31,11 +31,13 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push runs next to a Claude token)
+        run: bash scripts/check-main-head.sh
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
@@ -58,7 +60,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -83,7 +85,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

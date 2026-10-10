@@ -45,7 +45,9 @@ fx; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\
 fresh; sed -i 's|allowed_bots: github-actions|allowed_bots: "*"|' "$T/$W/agent-manager.yml"; expect fail "manager allowing every bot" "allowed_bots may only be"
 # Structure: duplicate keys, the lock step and the pinned action
 fx; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\n          claude_args: "--model haiku"|' "$T/$W/t.yml"; expect fail "duplicate claude_args key" "duplicate key"
-fx; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, the pin step, then ./.github/actions/agent-egress-lock"
+fx; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, the pin step, 'bash scripts/check-main-head.sh' (name and run only), then ./.github/actions/agent-egress-lock"
+fx; sed -i '/bash scripts\/check-main-head.sh/d' "$T/$W/t.yml"; expect fail "claude job without the main-head check" "must start with actions/checkout, the pin step, 'bash scripts/check-main-head.sh'"
+fx; sed -i 's|        run: bash scripts/check-main-head.sh|        run: bash scripts/check-main-head.sh\n        env:\n          GH_BIN: /tmp/x|' "$T/$W/t.yml"; expect fail "main-head check with an env (name and run only)" "'bash scripts/check-main-head.sh' (name and run only)"
 fx; sed -i '/- name: The repository files this job runs are the reviewed ones/,+6d' "$T/$W/t.yml"; expect fail "claude job without the pin step" "the step after the checkout must be the pin step"
 fx; sed -i 's|PINS_SHA256: "[0-9a-f]*"|PINS_SHA256: "0000000000000000000000000000000000000000000000000000000000000000"|' "$T/$W/t.yml"; expect fail "pin step with a stale hash" "PINS_SHA256 is 0000000000000000000000000000000000000000000000000000000000000000 but .github/pins.txt is"
 fx; sed -i 's|          sha256sum --check --strict --quiet .github/pins.txt|          true|' "$T/$W/t.yml"; expect fail "pin step with a changed run" "the pin step's run must be exactly the policy's pins_step_run"
@@ -165,7 +167,18 @@ for cmd in 'cd /tmp/pr && yarn install' 'yarn --cwd /tmp/pr install' 'bash /tmp/
 done
 fx; printf '      - if: startsWith(github.event.pull_request.head.ref, %s)\n        run: echo ok\n' "'agent/'" >> "$T/$W/t.yml"; expect ok "reading the PR branch name in an if is fine" "Workflow denies OK"
 # Round 4: checkouts, pins, PR data, post steps, job settings, manager token guard, composite actions
-fx; before '      - uses: ./.github/actions/install-gitleaks'; expect ok "allow-listed local action before the claude step" "Workflow denies OK"
+fx; before '      - uses: ./.github/actions/install-gitleaks'; expect fail "a local action before the claude step (only the lock, and pre_claude_actions)" "before the claude step only actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 may be used"
+fx; before '      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: npm-audit\n          path: /tmp/audit-meta'; expect ok "a downloaded artifact (data) before the claude step" "Workflow denies OK"
+fx; before '      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: npm-audit\n          path: /tmp/audit-meta\n          github-token: x'; expect fail "download-artifact with an input outside its list" "may only have name/if/id/with and the inputs name, path"
+fx; before '      - run: bash scripts/check-review-prepare.sh 1 /tmp/x'; expect ok "a pinned guard script before the claude step" "Workflow denies OK"
+fx; before '      - run: bash scripts/check-x.sh && curl evil'; expect fail "a guard script followed by another command" "must be one line 'bash scripts/check-<name>.sh ...'"
+fx; before '      - run: bash scripts/check-x.sh "$(curl evil)"'; expect fail "a guard script with a command substitution argument" "must be one line 'bash scripts/check-<name>.sh ...'"
+fx; before '      - run: bash scripts/check-x.sh a > /tmp/out'; expect fail "a guard script with a redirection" "must be one line"
+fx; before "      - run: bash scripts/check-agent-events.sh .github/accounts.txt \"\$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)\""; expect ok "the events window substitution is the one allowed" "Workflow denies OK"
+fx; before '      - run: |\n          bash scripts/check-x.sh\n          echo more'; expect fail "two lines before the claude step" "must be one line"
+fx; before '      - run: python3 scripts/check-x.py'; expect fail "python before the claude step" "must be one line 'bash scripts/check-<name>.sh ...'"
+fx; before '      - run: bash scripts/check-x.sh\n        shell: bash'; expect fail "a pre-claude run step with other keys" "not allowed in a job with a claude step"
+fx; before '      - run: bash scripts/check-x.sh\n        working-directory: /tmp'; expect fail "a pre-claude run step with a working directory" "not allowed in a job with a claude step"
 fx; sed -i 's|          persist-credentials: false|          persist-credentials: false\n          repository: evil/fork|' "$T/$W/t.yml"; expect fail "first checkout from another repository" "checkout input(s) repository not allowed"
 fx; sed -i 's|          persist-credentials: false|          persist-credentials: false\n          token: x|' "$T/$W/t.yml"; expect fail "first checkout with a token" "checkout input(s) token not allowed"
 fx; sed -i 's|      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|      - uses: actions/checkout@v6|' "$T/$W/t.yml"; expect fail "unpinned first checkout" "step 1: action must be pinned to a full commit SHA: actions/checkout@v6"
@@ -180,7 +193,8 @@ for cmd in 'cd "/tmp/pr" \&\& make' 'pushd /tmp/pr' 'make -C /tmp/pr' 'yarn --cw
   fx; before "      - run: $cmd"; expect fail "PR data in a run step: $cmd" "only the reviewed prepare step may touch /tmp/pr"
 done
 fx; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"'; expect ok "the reviewed prepare step may use /tmp/pr" "Workflow denies OK"
-fx; before '      - run: echo /tmp/pr-meta/log.txt'; expect ok "/tmp/pr-meta is not PR code" "Workflow denies OK"
+fx; printf '      - run: |\n          printf x | sha256sum --check --strict\n          echo /tmp/pr-meta/log.txt\n' >> "$T/$W/t.yml"; expect ok "/tmp/pr-meta is not PR code (after the claude step)" "Workflow denies OK"
+fx; before '      - run: echo /tmp/pr-meta/log.txt'; expect fail "a free-form run before the claude step" "must be one line 'bash scripts/check-<name>.sh ...'"
 fx; printf '      - run: bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect fail "post step without the pin check" "must check its pinned files"
 fx; printf '      - env:\n          PINS: x\n        run: |\n          printf "%%s\\n" "$PINS" | sha256sum --check --strict --quiet\n          bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect ok "post step that checks its pins first" "Workflow denies OK"
 fx; printf '      - run: /tmp/gitleaks detect\n' >> "$T/$W/t.yml"; expect fail "gitleaks after the claude step without the pin check" "must check its pinned files"
@@ -221,7 +235,7 @@ done
 for cmd in 'git checkout feature' 'git -C . switch x' 'git fetch origin' 'git worktree add /tmp/w' 'git reset --hard origin/x' 'git pull'; do
   fx; before "      - run: $cmd"; expect fail "git move in a claude job: $cmd" "not allowed in a job with a claude step (the checkout must stay on the default branch)"
 done
-fx; before '      - run: git log --oneline -5'; expect ok "git log is not a checkout move" "Workflow denies OK"
+fx; printf '      - run: git log --oneline -5\n' >> "$T/$W/t.yml"; expect ok "git log is not a checkout move (after the claude step)" "Workflow denies OK"
 fx; sed -i 's/^on: workflow_dispatch$/on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]/' "$T/$W/t.yml"; expect fail "claude step in a workflow_run workflow" "must not run on workflow_run"
 fresh; sed -i 's/^      issues: read$/      issues: read\n      id-token: write/' "$T/$W/agent-manager.yml"; expect fail "id-token in agent-manager.yml" "permission id-token: write not allowed"
 fresh; sed -i 's/^      contents: read$/      contents: write/' "$T/$W/agent-manager.yml"; expect fail "a write scope on the manager's job token" "permission contents: write is not allowed in agent-manager.yml (its job token is read-only"
@@ -249,13 +263,21 @@ fx; sed -i "s|    if: github.run_attempt == '1'|    if: github.actor_id == '2388
 fx; sed -i "/    if: github.run_attempt == '1'/d" "$T/$W/t.yml"; expect fail "secret-holding job without any if" "holds a secret, so its 'if' must contain github.run_attempt == '1'"
 fresh; swap guards.yml $'    if: github.run_attempt == \'1\'\n' ""; expect fail "guards (the ledger key) without the first-attempt condition" "guards.yml job guards: holds a secret"
 fresh; swap pusher-ledger.yml $'    if: github.run_attempt == \'1\'\n' ""; expect fail "the ledger without the first-attempt condition" "pusher-ledger.yml job record: holds a secret"
+# The manager's installs run with lifecycle scripts off, whatever a PR's .yarnrc.yml says
+fresh; sed -i '/      YARN_ENABLE_SCRIPTS: "false"/d' "$T/$W/agent-manager.yml"; expect fail "manager without YARN_ENABLE_SCRIPTS" 'needs env YARN_ENABLE_SCRIPTS: "false"'
+fresh; sed -i 's|      YARN_ENABLE_SCRIPTS: "false"|      YARN_ENABLE_SCRIPTS: "true"|' "$T/$W/agent-manager.yml"; expect fail "manager with scripts on" 'needs env YARN_ENABLE_SCRIPTS: "false"'
+# The main guard's stop list (policy stop_workflows) is every workflow with a secret or write scope, in both of its copies
+fresh; printf 'name: s\non: workflow_dispatch\njobs:\n  a:\n    if: github.run_attempt == %s\n    runs-on: ubuntu-latest\n    permissions:\n      issues: write\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: echo\n' "'1'" "$PIN_STEP" > "$T/$W/z.yml"; expect fail "a new write-scoped workflow missing from stop_workflows" "stop_workflows in the policy must be every workflow holding a secret or a write scope"
+fresh; sed -i 's|for w in agent-manager.yml review.yml|for w in review.yml|' "$T/$W/main-guard.yml"; expect fail "the fallback's list differs from the policy" "the fallback step's 'for w in ...' list must be exactly the policy's stop_workflows"
+fresh; sed -i 's|MAIN_GUARD_WORKFLOWS:-agent-manager.yml |MAIN_GUARD_WORKFLOWS:-|' "$T/scripts/check-main-push.sh"; expect fail "the script's default differs from the policy" "the MAIN_GUARD_WORKFLOWS default must be exactly the policy's stop_workflows"
 # The reports' manual runs are founder-gated like the manager's
 fresh; swap agent-daily-report.yml "    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
 " "    if: github.run_attempt == '1'
 "; expect fail "daily report without its founder gate" "agent-daily-report.yml: must let only a founder account start it"
-fresh; swap agent-weekly-audit.yml "    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
-" "    if: github.run_attempt == '1'
-"; expect fail "weekly audit without its founder gate" "agent-weekly-audit.yml: must let only a founder account start it"
+fresh; swap agent-weekly-audit.yml "    if: always() && (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
+" "    if: always() && github.run_attempt == '1'
+"; swap agent-weekly-audit.yml "    if: (github.event_name == 'schedule' || github.actor_id == '238822878')
+" ""; expect fail "weekly audit without its founder gate" "agent-weekly-audit.yml: must let only a founder account start it"
 fx; printf '      - run: |\n          /tmp/gitleaks detect\n          printf x | sha256sum --check --strict\n' >> "$T/$W/t.yml"; expect fail "pin check after /tmp/gitleaks does not count" "must check its pinned files"
 # Missing or broken policy file: fails closed
 P0=$(mktemp -d "$TMPROOT/cwp.XXXXXX"); P2="$P0/scripts"; mkdir "$P2"; cp "$(dirname "$PY")"/check-workflows*.py "$P2/"

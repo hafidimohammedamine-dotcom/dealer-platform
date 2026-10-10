@@ -3,7 +3,8 @@
 # `repo` token can comment on or open issues in any repository the account can see, which the lock cannot stop
 # (api.github.com is allowed), so an injected instruction could post data to a repository an attacker reads. This check
 # reads the account's own event feed (private events included, since the token is the account's) and fails if any event
-# since the shift started names another repository. Detection after the fact, not prevention (founder decision 1 in
+# since <since> names another repository; the caller passes a rolling window (the manager: the last 24 hours, before and
+# after each shift, because the feed can lag). Detection after the fact, not prevention (founder decision 1 in
 # docs/runbooks/agent-network-lock.md); the fix is an organization-owned repository with a fine-grained token.
 # Usage: scripts/check-agent-events.sh <accounts-file> <since: ISO-8601 UTC, e.g. 2026-10-10T05:00:00Z>
 # Needs gh with GH_TOKEN (the agents' token). Inside GitHub Actions (GITHUB_ACTIONS set) gh comes from PATH and the
@@ -12,6 +13,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
+# shellcheck source=scripts/check-github-lib.sh
+. "$HERE/check-github-lib.sh"
 ACCOUNTS="${1:?accounts file}"; SINCE="${2:?since (ISO-8601 UTC)}"
 gh_context || exit 1
 [[ "$SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "ERROR: since must be an ISO-8601 UTC time like 2026-10-10T05:00:00Z"; exit 1; }

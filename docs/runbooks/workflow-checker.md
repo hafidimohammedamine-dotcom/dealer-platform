@@ -55,6 +55,11 @@ Any workflow or composite action
 - `holds a secret, so its 'if' must contain github.run_attempt == '1' (a re-run of an old run would get today's secrets)`
   (policy `rerun_guard`) - every job whose body mentions `secrets.` runs only on a run's first attempt: a re-run keeps the
   original commit and workflow file but gets today's secrets.
+- `stop_workflows in the policy must be every workflow holding a secret or a write scope (except main-guard.yml): ...`,
+  `main-guard.yml: the fallback step's 'for w in ...' list must be exactly the policy's stop_workflows`,
+  `scripts/check-main-push.sh: the MAIN_GUARD_WORKFLOWS default must be exactly the policy's stop_workflows` - the list of
+  workflows the main guard cancels and disables after a bad push lives once in the policy; a new workflow with a secret or
+  write scope must be added there (the checker's own fixtures, `checker_test_fixtures`, are left out).
 - `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
   token before the main guard could act; use schedule or a founder-gated `workflow_dispatch`.
 - `--disallowedTools does not deny <x> (every claude step must)` - every Claude step denies the policy's `claude_denies`
@@ -95,9 +100,24 @@ Who may start what, and the agents' token (any workflow)
   set in a job's env, after its token check` - never at workflow level.
 
 Jobs with a claude step
-- `a job with a claude step must start with actions/checkout, then ./.github/actions/agent-egress-lock`; `the
-  ./.github/actions/agent-egress-lock step may only have id/uses/name (found ...)`; `... step needs an id` - checkout first,
-  then the bare lock step (no `with`, `env`, `if` or `continue-on-error`, so its test hooks cannot be set).
+- `a job with a claude step must start with actions/checkout, the pin step, 'bash scripts/check-main-head.sh' (name and
+  run only), then ./.github/actions/agent-egress-lock`; `the ./.github/actions/agent-egress-lock step may only have
+  id/uses/name (found ...)`; `... step needs an id` - checkout, the pin step, the main-head check (the checked-out head of
+  the default branch passed the main guard: a push whose head said `[skip ci]` has no run and must not run next to a Claude
+  token; policy `main_head_guard`), then the bare lock step (no `with`, `env`, `if` or `continue-on-error`, so its test
+  hooks cannot be set).
+- `a run step before the claude step must be one line 'bash scripts/check-<name>.sh ...' (a pinned guard), not: ...` /
+  `may only have name/if/id/run/env`; `before the claude step only <actions> may be used (found ...)` / `<action> may only
+  have name/if/id/with and the inputs ...` - between the lock and the claude step nothing free-form runs: every `run` is
+  one line calling a pinned `scripts/check-*.sh` with plain arguments (no `&&`, `;`, pipes, redirections, backticks or
+  `$(...)`, except the one substitution in `pre_claude_run_allowed_substitutions`, the events check's 24-hour window), and
+  every `uses` is in `pre_claude_actions` (`actions/download-artifact`, pinned, inputs `name` and `path` only: a downloaded
+  artifact is data). So no repository or third-party code - a `.yarnrc.yml`'s `yarnPath`, a plugin, an install script -
+  runs next to a Claude token, and nothing can write `$GITHUB_ENV` or `$GITHUB_PATH` for the Claude step. The weekly
+  audit's `yarn npm audit` therefore runs in its own job (`deps`, no secret) and arrives as an artifact.
+- `needs env YARN_ENABLE_SCRIPTS: "false"` (policy `manager_env_required`) - the manager's installs run with lifecycle
+  scripts off whatever a PR's `.yarnrc.yml` says (the environment beats rc files): a dependency's install script would run
+  with the agents' token in the environment.
 - `checkout input(s) <x> not allowed in a claude job (only fetch-depth, persist-credentials, ref)` - no `repository`, `path`,
   `token` or other inputs on any checkout in the job.
 - `the checkout needs an explicit ref of the default branch (...), never the PR's code` / `the checkout needs

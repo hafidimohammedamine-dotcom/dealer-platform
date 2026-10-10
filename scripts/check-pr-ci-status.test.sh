@@ -16,7 +16,7 @@ STUB
 chmod +x "$W/gh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 run() { # run <name> <expected-output> [timeout]
-  out=$(GH_BIN="$W/gh" bash "$SCRIPT" 21 "$SHA" "${3:-0}" 0 2>/dev/null); rc=$?
+  out=$(GITHUB_OUTPUT= GH_BIN="$W/gh" bash "$SCRIPT" 21 "$SHA" "${3:-0}" 0 2>/dev/null); rc=$?
   if [ $rc = 0 ] && [ "$out" = "$2" ]; then t PASS "$1"; else t FAIL "$1: got '$out' (rc $rc), want '$2'"; fi
 }
 ci()     { printf '%s' "$1" > "$W/ci.json"; }
@@ -56,4 +56,7 @@ chmod +x "$W/gh-later"
 out=$(GH_BIN="$W/gh-later" bash "$SCRIPT" 21 "$SHA" 60 0 2>/dev/null); rc=$?
 if [ $rc = 0 ] && [ "$out" = "ci=success guards=success" ] && [ "$(cat "$W/polls")" = 2 ]; then t PASS "polls again until both finish"
 else t FAIL "polls again: got '$out' (rc $rc, polls $(cat "$W/polls" 2>/dev/null))"; fi
+# The workflow step's output: result=<line> appended to $GITHUB_OUTPUT when it is set
+: > "$W/out"; out=$(GITHUB_OUTPUT="$W/out" GH_BIN="$W/gh" bash "$SCRIPT" 21 "$SHA" 0 0 2>/dev/null); rc=$?
+if [ $rc = 0 ] && [ "$(cat "$W/out")" = "result=$out" ] && [ -n "$out" ]; then t PASS "writes result=<line> to GITHUB_OUTPUT"; else t FAIL "GITHUB_OUTPUT ($rc): '$(cat "$W/out")' vs '$out'"; fi
 summary

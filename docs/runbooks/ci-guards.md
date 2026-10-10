@@ -145,7 +145,12 @@ Also `pull_request_target`, also from `main`.
   (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
   naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread
   with `gh issue view`, and its answer is posted by the `post` job after the scan. The daily and weekly runs, like the
-  manager's, start only from their schedule or a founder's manual run.
+  manager's, start only from their schedule or a founder's manual run. The weekly audit has a `deps` job first (no secret)
+  that runs `yarn npm audit` and uploads `npm-audit.json`; the `audit` job downloads it as data.
+- **"The default branch's head passed the main guard"** (every Claude job, before the lock: `scripts/check-main-head.sh`)
+  fails with `the default branch's head (<sha>) has no successful main-guard run (...)` - the push that put that head on
+  `main` was never checked (a `[skip ci]` head commit, a cancelled run): a founder looks before any Claude job runs again
+  (see "Main guard"); `the main-guard run for <sha> has not finished after 120s` - right after a merge, start a fresh run.
 - **"Post the result (secret-scanned) and set labels"** (job `post`): if the answer looked like it contained a secret, it
   posts FAIL without the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
 - **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'

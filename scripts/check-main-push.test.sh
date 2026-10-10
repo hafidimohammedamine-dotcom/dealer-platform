@@ -16,8 +16,8 @@ case "$1 $2" in
   "run list") [ "$4" = agent-manager.yml ] && [ "$6" = in_progress ] && echo "${STUB_RUNNING_ID:-}"; exit 0;;   # one running manager shift
   "run cancel") exit "${STUB_CANCEL_RC:-0}";;
   "api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha="*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}"; exit 0;;
-  "api repos/owner/repo/actions/workflows/main-guard.yml") printf '%s\n' "${STUB_FLOOR:-2000-01-01T00:00:00Z}"; exit 0;;
-  "api repos/owner/repo/commits/"*) printf '%s\n' "${STUB_DATE:-2030-01-01T00:00:00Z}"; exit 0;;
+  "api --paginate") case "$3" in "repos/owner/repo/actions/workflows/main-guard.yml/runs?status=success&per_page=100") printf '%s\n' "${STUB_FLOOR-ffffffffffffffffffffffffffffffffffffffff}"; exit 0;; esac; exit 9;;
+  "api repos/owner/repo/compare/"*) printf '%s\n' "${STUB_REL:-behind}"; exit 0;;
 esac
 exit 9
 STUB
@@ -42,7 +42,8 @@ check "founder push: nothing reverted, nothing disabled, no issue (only the chai
 fresh; push_commits 1; run fail "a founder's push after an unchecked push: the agents are stopped, an issue opened, nothing reverted" "reached main without passing the main guard (missing $BASE (runs: none))" 111 "$BASE" "$HEAD" STUB_RUNS=
 check "unchecked push: 8 workflows disabled, the issue names the commit, main untouched" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run (commit $3)" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
 fresh; push_commits 1; run fail "a cancelled run on the previous head counts as unchecked" "missing $BASE (runs: completed/cancelled)" 111 "$BASE" "$HEAD" STUB_RUNS=completed/cancelled
-fresh; push_commits 1; run ok "a previous head committed before the main guard existed is fine" "was committed before the main guard existed" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_DATE=1999-12-31T00:00:00Z
+fresh; push_commits 1; run ok "a previous head older than the guard's first passed commit is fine" "is on the default branch before the main guard's first passed commit" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_REL=ahead
+fresh; push_commits 1; run ok "the guard's very first run (no passed run yet) accepts the previous head" "has not passed any run yet" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_FLOOR=
 fresh; push_commits 1; run ok "a previous head whose run is still going: waited, then passed" "passed the main guard" 111 "$BASE" "$HEAD" "STUB_RUNS=completed/success in_progress/" MAIN_GUARD_WAIT=10
 fresh; push_commits 1; run fail "the previous head's runs cannot be listed: an error, not a pass" "could not list the main-guard runs of $BASE" 111 "$BASE" "$HEAD" STUB_RUNS_RC=1
 check "API error: nothing disabled, no issue" bash -c '! grep -q "gh workflow disable" "$1" && ! grep -q "gh issue create" "$1"' _ "$W/gh.log"
@@ -127,11 +128,8 @@ assert "git revert --no-edit" in fb["run"] and "force-with-lease" in fb["run"]
 wfs = re.search(r"for w in ([^;\n]+); do", fb["run"]).group(1).split()
 src = open(f"{root}/scripts/check-main-push.sh").read()
 assert wfs == re.search(r'MAIN_GUARD_WORKFLOWS:-([^}]+)\}', src).group(1).split(), (wfs, "must equal the script's list")
-# ... and that list is every workflow that holds a secret or a write scope, except the main guard itself: a new one must be added
-import glob, os
-holding = sorted(os.path.basename(f) for f in glob.glob(f"{root}/.github/workflows/*.yml")
-                 if os.path.basename(f) != "main-guard.yml" and re.search(r"secrets\.|: write", open(f).read()))
-assert sorted(wfs) == holding, (sorted(wfs), "must equal the workflows with secrets. or ': write'", holding)
+# (that both equal the policy's stop_workflows, and that the policy lists every workflow with a secret or write scope, is
+# the workflow checker's rule: scripts/check-workflows.py check_stop_list)
 main = [s for s in steps if s.get("name", "").startswith("The pusher must be a founder")][0]
 assert main["run"].strip() == 'bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt'
 assert wf.get("on", wf.get(True)) == {"push": {"branches": ["main"]}, "schedule": [{"cron": "37 * * * *"}]} and wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write"}

@@ -36,6 +36,5 @@ jobs:
       - name: Record the commits this push brought (GitHub's list of what is new) as this push's sender
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
         run: bash scripts/check-pushers.sh record "$GITHUB_EVENT_PATH"

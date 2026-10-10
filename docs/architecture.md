@@ -49,6 +49,10 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   job): the token must belong to the `agent` account in `.github/accounts.txt` (by numeric ID) and be classic with exactly
   `repo`, or fine-grained with no classic scopes; the account owns no repository; the guard workflows are active; `main`'s
   head passed the main guard.
+- `scripts/check-main-head.sh` (every Claude job, before the lock): the checked-out head of `main` passed the main guard.
+  `scripts/check-shift-setup.sh`, `scripts/check-audit-prepare.sh`, `scripts/check-probe-skill.sh`: the only things that
+  run between the lock and a Claude step, as pinned one-line scripts (the manager's setup, the audit's history files, the
+  probe skill); the audit's dependency scan runs in a separate job without a secret and arrives as an artifact.
 - `scripts/check-agent-events.sh` (the manager, before and after each shift): the agents' account has no event outside this
   repository in the last 24 hours (the token can comment anywhere GitHub lets it).
 - `scripts/check-review-prepare.sh` (review and guards): fetches the PR as data into `/tmp/pr` with no credentials stored,
@@ -75,8 +79,9 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
   answer to the post job as a job output.
 - `scripts/check-accounts-lib.sh` (sourced by the guards that read `.github/accounts.txt`): the one parser of that file and
-  the one lookup (`account_field`), plus the GitHub helpers the token-holding guards share (`gh_context`, `token_account`,
-  `main_guard_passed`). `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
+  the one lookup (`account_field`). `scripts/check-github-lib.sh`: the GitHub helpers the token-holding guards share
+  (`gh_context`, `token_account`, `main_guard_passed`). `scripts/check-git-lib.sh`: the no-filter, no-hook git settings for
+  checkouts of other people's files. `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
 - `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny, scrub and read-deny
   probes from the claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard

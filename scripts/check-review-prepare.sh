@@ -17,10 +17,10 @@ auth=()
 if [ -n "${GIT_TOKEN:-}" ]; then
   auth=(-c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)")
 fi
-# No filters or hooks while the PR's files are written: a PR's .gitattributes/.lfsconfig could otherwise make git-lfs (if
-# installed on the runner) fetch from a URL the PR chose, and this job has no network lock.
-NOFILTER=(-c core.hooksPath=/dev/null -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false -c filter.lfs.clean=)
-export GIT_LFS_SKIP_SMUDGE=1
+# No filters or hooks while the PR's files are written (NOFILTER, scripts/check-git-lib.sh): this job has no network lock.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/check-git-lib.sh
+. "$HERE/check-git-lib.sh"
 git "${auth[@]}" "${NOFILTER[@]}" fetch -q "$REMOTE" "+refs/pull/$PR/head:refs/remotes/pr/head"
 git "${NOFILTER[@]}" worktree add -q --detach "$DEST" refs/remotes/pr/head
 find "$DEST" -path "$DEST/.git" -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json \) -print0 | xargs -0 -r rm -rf

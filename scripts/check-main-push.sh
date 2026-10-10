@@ -16,6 +16,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
+# shellcheck source=scripts/check-github-lib.sh
+. "$HERE/check-github-lib.sh"
 PUSHER="${1:?pusher id or schedule}"; BEFORE="${2:?before sha}"; AFTER="${3:?after sha}"; ACCOUNTS="${4:?accounts file}"
 # Every workflow that holds a secret or acts with write scopes: all of them stop until a founder re-enables them, so no job
 # runs tampered code with a token even if the revert below fails.

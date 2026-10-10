@@ -13,10 +13,11 @@ setup() {
   git add -A && git commit -qm base && git checkout -qb work
 }
 commit() { git add -A && git commit -qm change >/dev/null; }
-expect() { # expect <ok|fail> <author> <name> [message-substring]
-  out=$(bash "$SCRIPT" main HEAD "$2" "$R.founders" 2>&1); rc=$?
+expect() { # expect <ok|fail> <author> <name> [message-substring]   (every commit pushed by a founder: the ledger's file)
+  git log --format='%H 111 founder' main..HEAD > "$R.allfounder"
+  out=$(bash "$SCRIPT" main HEAD "$2" "$R.founders" "$R.allfounder" 2>&1); rc=$?
   assert_result "$1" "$rc" "$3" "${4:-}" "$out"
-  cd /; rm -rf "$R" "$R.founders"
+  cd /; rm -rf "$R" "$R.founders" "$R.allfounder"
 }
 A=333   # the agents' account ID
 setup; echo b > src/a.ts; commit;                          expect ok   $A "normal code change"
@@ -27,6 +28,10 @@ setup; echo b > CLAUDE.local.md; commit;                   expect fail $A "CLAUD
 setup; echo '{}' > .mcp.json; commit;                      expect fail $A ".mcp.json"
 setup; echo b > .claude/agents/x.md; commit;               expect fail $A ".claude file"
 setup; mkdir -p apps/admin/.claude; echo b > apps/admin/.claude/settings.json; commit; expect fail $A "nested .claude folder" "apps/admin/.claude"
+setup; echo 'enableScripts: true' > .yarnrc.yml; commit;   expect fail $A ".yarnrc.yml (lifecycle scripts stay off)" ".yarnrc.yml"
+setup; mkdir -p apps/admin; echo 'x' > apps/admin/.yarnrc.yml; commit; expect fail $A "a nested .yarnrc.yml" "apps/admin/.yarnrc.yml"
+setup; mkdir -p .yarn/plugins; echo 'x' > .yarn/plugins/p.cjs; commit; expect fail $A "a yarn plugin (.yarn/)" ".yarn/plugins/p.cjs"
+setup; echo b > yarn.lock; commit;                         expect ok   $A "yarn.lock is not founder-only"
 setup; mkdir -p .github/workflows; echo b > .github/workflows/ci.yml; commit; expect fail $A "any workflow (ci.yml)"
 setup; echo b > scripts/check-skills.sh; commit;           expect fail $A "check script"
 setup; echo b > scripts/gitleaks-config.test.sh; commit;   expect fail $A "gitleaks-config test changed"
@@ -62,9 +67,9 @@ setup; echo b > CLAUDE.md; commit; printf '111 founder-one owner\n' > "$R.founde
 setup; echo b > CLAUDE.md; commit; printf '111 founder-one founder extra\n' > "$R.founders"; expect fail 111 "extra field" "bad line 1"
 setup; echo b > CLAUDE.md; commit; printf '# only comments\n333 agents-bot agent\n' > "$R.founders"; expect fail 333 "no founder listed" "no founder listed"
 setup; echo b > CLAUDE.md; commit; printf '111 founder-one founder' > "$R.founders"; expect ok 111 "last line without a newline still counts" "are founders"
-setup; out=$(bash "$SCRIPT" no-such-ref HEAD $A "$R.founders" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
+setup; : > "$R.allfounder"; out=$(bash "$SCRIPT" no-such-ref HEAD $A "$R.founders" "$R.allfounder" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders" "$R.allfounder"
 if [ $rc != 0 ] && grep -qF "could not diff" <<<"$out"; then t PASS "bad base ref fails closed"; else t FAIL "bad base ref fails closed"; echo "$out"; fi
-setup; out=$(bash "$SCRIPT" main HEAD $A /nonexistent 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
+setup; : > "$R.allfounder"; out=$(bash "$SCRIPT" main HEAD $A /nonexistent "$R.allfounder" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders" "$R.allfounder"
 if [ $rc != 0 ] && grep -qF "accounts file not found" <<<"$out"; then t PASS "missing accounts file fails closed"; else t FAIL "missing accounts file"; echo "$out"; fi
 # The pusher ledger (5th argument): founder-only changes need every commit pushed by a founder
 expectp() { # expectp <ok|fail> <author> <name> <pushers text> [message-substring]
@@ -81,6 +86,8 @@ setup; echo b > src/a.ts; commit; H=$(git rev-parse HEAD);  expectp ok   111 "co
 setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp fail 333 "agent author with a founder's push still fails" "$H 111 founder\n" "Not all of '333' are founders"
 setup; echo b > CLAUDE.md; commit; out=$(bash "$SCRIPT" main HEAD 111 "$R.founders" "$R.nofile" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
 if [ $rc != 0 ] && grep -qF "pushers file not found" <<<"$out"; then t PASS "missing pushers file fails closed"; else t FAIL "missing pushers file"; echo "$out"; fi
+setup; echo b > CLAUDE.md; commit; out=$(bash "$SCRIPT" main HEAD 111 "$R.founders" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
+if [ $rc != 0 ] && grep -qF "pushers file" <<<"$out"; then t PASS "the pushers file argument is required (no fail-open form)"; else t FAIL "pushers file required ($rc)"; echo "$out"; fi
 # The real accounts file is well formed
 out=$(bash -c '. "$1"; accounts_rows "$2"' _ "$(dirname "$SCRIPT")/check-accounts-lib.sh" "$(cd "$(dirname "$SCRIPT")/.." && pwd)/.github/accounts.txt" 2>&1); rc=$?
 if [ $rc = 0 ] && grep -qE '^[0-9]+ [A-Za-z0-9-]+ founder$' <<<"$out"; then t PASS "the real .github/accounts.txt is well formed"; else t FAIL "real accounts file"; echo "$out"; fi

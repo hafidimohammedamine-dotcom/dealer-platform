@@ -19,6 +19,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
+# shellcheck source=scripts/check-github-lib.sh
+. "$HERE/check-github-lib.sh"
 ACCOUNTS="${1:?accounts file}"
 GUARD_WFS="main-guard.yml pusher-ledger.yml guards.yml review.yml"
 gh_context || exit 1

@@ -6,7 +6,7 @@ Usage: check-claude-probe.py skill-deny <execution-file>
          Claude answered under the lock (EGRESS-LOCK-OK), did not load the probe skill (no PROBE-LOADED), and the Skill call
          for 'payload' is among the permission denials.
        check-claude-probe.py scrub <execution-file>
-         A Bash tool result holds "SCRUB-PROBE env-tokens=0 proc-tokens=0 pid=<n>" (scripts/check-scrub-probe.sh).
+         A Bash tool result holds "SCRUB-PROBE env-tokens=0 proc-tokens=0 file-tokens=0 pid=<n>" (scripts/check-scrub-probe.sh).
        check-claude-probe.py read-deny <execution-file>
          Claude finished (READ-PROBE-DONE); the permission denials hold a Read of /proc/self/environ, of the /dev/fd alias
          of it, of /dev/stdin, under /home/runner/runners, of /etc/hostname and under /home/runner/work/_temp, a Grep and a
@@ -17,7 +17,7 @@ import json
 import re
 import sys
 
-SCRUB = re.compile(r"SCRUB-PROBE env-tokens=(\d+) proc-tokens=(\d+) pid=(\d+)")
+SCRUB = re.compile(r"SCRUB-PROBE env-tokens=(\d+) proc-tokens=(\d+) file-tokens=(\d+) pid=(\d+)")
 TOKEN = re.compile(r"sk-ant-[a-z]+[0-9]{2}-[A-Za-z0-9_-]{20,}")
 # (tool, input key, label, is the denied path the one asked for): the reads probe's paths as Claude Code records them
 # (it normalises /dev/fd/../environ to /dev/environ before the rule match).
@@ -63,7 +63,7 @@ def tool_results(msgs):
 def scrub(msgs):
     m = SCRUB.search(tool_results(msgs))
     print("probe:", m.group(0) if m else "did not run")
-    return bool(m) and m.group(1) == "0" and m.group(2) == "0"
+    return bool(m) and m.group(1) == "0" and m.group(2) == "0" and m.group(3) == "0"
 
 
 def read_deny(msgs):

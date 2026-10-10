@@ -76,8 +76,12 @@
   "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
   "GH_TOKEN",
   "HEAD_SHA",
-  "PR_NUMBER"
+  "PR_NUMBER",
+  "YARN_ENABLE_SCRIPTS"
  ],
+ "manager_env_required": {
+  "YARN_ENABLE_SCRIPTS": "false"
+ },
  "manager_denies": [
   "Bash(npx:*)",
   "Bash(npm:*)",
@@ -176,6 +180,23 @@
   "agent-manager.yml"
  ],
  "rerun_guard": "github.run_attempt == '1'",
+ "main_head_guard": "bash scripts/check-main-head.sh",
+ "pre_claude_run": "^bash scripts/check-[a-z0-9-]+\\.sh( (?:[^\\n&|;<>`$]|\\$(?!\\())*)?$",
+ "pre_claude_run_allowed_substitutions": ["$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"],
+ "pre_claude_actions": {
+  "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093": ["name", "path"]
+ },
+ "checker_test_fixtures": ["t.yml", "s.yml", "p.yml"],
+ "stop_workflows": [
+  "agent-manager.yml",
+  "review.yml",
+  "claude.yml",
+  "agent-daily-report.yml",
+  "agent-weekly-audit.yml",
+  "egress-lock-claude.yml",
+  "pusher-ledger.yml",
+  "guards.yml"
+ ],
  "after_shift": {
   "agent-manager.yml": {
    "job": "after",
@@ -209,7 +230,7 @@
  "pins_required": {
   "dirs": [".github/actions"],
   "globs": ["scripts/check-*"],
-  "files": [".gitleaks.toml", ".github/accounts.txt"],
+  "files": [".gitleaks.toml", ".github/accounts.txt", ".yarnrc.yml"],
   "exclude_suffixes": [".test.sh", "testlib.sh"],
   "rule_files": ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json"],
   "rule_dirs": [".claude"],

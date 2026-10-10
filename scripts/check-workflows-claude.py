@@ -7,8 +7,8 @@ import shlex
 
 import check_workflows_lib as core  # loaded into sys.modules by check-workflows.py before this module
 
-LOCK_OUT_RE = {key: re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\." + out + r"\s*\}\}$")
-               for key, out in (("path_to_claude_code_executable", "claude-path"), ("path_to_bun_executable", "bun-path"))}
+LOCK_OUTPUTS = {"path_to_claude_code_executable": "claude-path", "path_to_bun_executable": "bun-path"}   # action input -> lock output
+LOCK_OUT_RE = {key: re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\." + out + r"\s*\}\}$") for key, out in LOCK_OUTPUTS.items()}
 PR_DATA = re.compile(r"/tmp/pr(?![\w-])|pull_request\.head|head_ref|merge_commit_sha|refs/pull/|\bpull/|gh\s+pr\s+checkout|"
                      r"event\.issue\.number")
 GIT_MOVE = re.compile(r"\bgit\b(?:\s+-{1,2}[\w-]+(?:[= ]\S+)?)*\s+(fetch|checkout|switch|worktree|pull|clone|reset|restore|"
@@ -68,8 +68,7 @@ def check_inputs(fname, where, w, lock_id):
     for key, rx in LOCK_OUT_RE.items():  # the binaries the lock installed and checked, never a download inside the action
         m = rx.match(str(w.get(key, "")))
         if not m or (lock_id and m.group(1) != lock_id):
-            out = "claude-path" if "claude" in key else "bun-path"
-            core.err(f"{where}: {key} must be ${{{{ steps.{lock_id or '<lock id>'}.outputs.{out} }}}}")
+            core.err(f"{where}: {key} must be ${{{{ steps.{lock_id or '<lock id>'}.outputs.{LOCK_OUTPUTS[key]} }}}}")
 
 
 def check_claude_step(fname, where, step, required, lock_id):
@@ -118,14 +117,22 @@ def check_checkout(where, step, ok_refs):
         core.err(f"{where}: the checkout needs persist-credentials: false")
 
 
-def check_job_start(fname, jw, steps, ok_refs):
-    """Checkout of the default (or base) branch without credentials, then the bare lock step. Returns the lock id."""
+def is_main_head_step(step):
+    """The pinned check that the default branch's head passed the main guard (only name and run)."""
+    return isinstance(step, dict) and str(step.get("run", "")).strip() == core.P["main_head_guard"] and not (set(step) - {"name", "run"})
+
+
+def check_job_start(fname, jw, steps):
+    """Checkout of the default (or base) branch without credentials, the pin step, the main-head check (the checked-out
+    head passed the main guard: no unchecked push runs next to a Claude token), then the bare lock step. Returns the lock id."""
     first = steps[0] if steps and isinstance(steps[0], dict) else {}
     pins = steps[1] if len(steps) > 1 and isinstance(steps[1], dict) else {}
-    second = steps[2] if len(steps) > 2 and isinstance(steps[2], dict) else {}
+    head = steps[2] if len(steps) > 2 and isinstance(steps[2], dict) else {}
+    second = steps[3] if len(steps) > 3 and isinstance(steps[3], dict) else {}
     if (not str(first.get("uses", "")).startswith("actions/checkout@") or not core.is_pins_step(pins, fname)
-            or second.get("uses") != core.P["lock_action"]):
-        core.err(f"{jw}: a job with a claude step must start with actions/checkout, the pin step, then {core.P['lock_action']}")
+            or not is_main_head_step(head) or second.get("uses") != core.P["lock_action"]):
+        core.err(f"{jw}: a job with a claude step must start with actions/checkout, the pin step, '{core.P['main_head_guard']}' "
+                 f"(name and run only), then {core.P['lock_action']}")
         return None
     extra = set(second) - {"id", "uses", "name"}
     if extra:
@@ -136,8 +143,7 @@ def check_job_start(fname, jw, steps, ok_refs):
 
 
 def check_job_settings(fname, jw, job):
-    """Env allow-list with the subprocess scrub on, permissions allow-list (some scopes only in listed files), runner, no
-    defaults."""
+    """Env allow-list with the subprocess scrub on, runner, no defaults."""
     P = core.P
     env = job.get("env") if isinstance(job.get("env"), dict) else {}
     for k in env:
@@ -145,11 +151,14 @@ def check_job_settings(fname, jw, job):
             core.err(f"{jw}: env {k!r} not allowed in a job with a claude step (allowed: {', '.join(sorted(P['job_env']))})")
     if str(env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "")) != "1":
         core.err(f'{jw}: needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" (tool subprocesses must not see the Claude token)')
+    if fname == P["manager"]:
+        for k, v in P["manager_env_required"].items():   # no dependency lifecycle script next to the agents' token
+            if str(env.get(k, "")) != v:
+                core.err(f'{jw}: needs env {k}: "{v}" (a PR\'s .yarnrc.yml must not turn lifecycle scripts back on next to the agents\' token)')
     if job.get("runs-on") != P["runs_on"]:
         core.err(f"{jw}: runs-on must be {P['runs_on']}")
     if "defaults" in job:
         core.err(f"{jw}: 'defaults' not allowed in a job with a claude step")
-    # permissions: checked for every job (and the workflow level) by check_permissions in check-workflows-lib.py
 
 
 def check_other_steps(jw, steps, claude_at, ok_refs):
@@ -157,11 +166,13 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
     and post steps that check their pinned files before running repo scripts."""
     P = core.P
     for i, step in enumerate(steps, 1):
-        if not isinstance(step, dict) or core.is_claude(step) or i <= 3:
+        if not isinstance(step, dict) or core.is_claude(step) or i <= 4:
             continue
         sw = f"{jw} step {i}"
         uses = str(step.get("uses", ""))
         core.require_pinned(sw, uses)
+        if claude_at and i < claude_at:
+            check_pre_claude_step(sw, step)
         if uses.startswith("actions/checkout@"):
             check_checkout(sw, step, ok_refs)
         for key in ("working-directory", "shell"):
@@ -183,11 +194,37 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
                 core.err(f"{sw}: a step after the claude step must check its pinned files ({P['post_pin_check']}) before running repo scripts")
 
 
+def check_pre_claude_step(sw, step):
+    """Between the lock and the claude step nothing free-form runs: a `run` is one line calling a pinned scripts/check-*.sh
+    (the pin step proved those files), and a `uses` is one of the policy's pre_claude_actions with only its listed inputs
+    (a downloaded artifact is data). So no repository or third-party code runs next to a Claude token before the lock's
+    self-test and the pinned guards have had their say, and nothing can write $GITHUB_ENV or $GITHUB_PATH for the step."""
+    P = core.P
+    uses = str(step.get("uses", ""))
+    if uses:
+        allowed = P["pre_claude_actions"].get(uses)
+        if allowed is None:
+            core.err(f"{sw}: before the claude step only {', '.join(P['pre_claude_actions'])} may be used (found {uses})")
+        else:
+            w = step.get("with") if isinstance(step.get("with"), dict) else {}
+            extra = sorted(set(w) - set(allowed))
+            if extra or (set(step) - {"name", "if", "uses", "with", "id"}):
+                core.err(f"{sw}: {uses} may only have name/if/id/with and the inputs {', '.join(allowed)} (found {', '.join(extra) or 'other keys'})")
+        return
+    run = str(step.get("run", "")).strip()
+    for sub in P["pre_claude_run_allowed_substitutions"]:   # the one computed argument the policy allows (the events window)
+        run = run.replace(sub, "SUBST")
+    if not re.match(P["pre_claude_run"], run):
+        core.err(f"{sw}: a run step before the claude step must be one line 'bash scripts/check-<name>.sh ...' (a pinned guard), not: {run[:80]!r}")
+    if set(step) - {"name", "if", "id", "run", "env"}:
+        core.err(f"{sw}: a run step before the claude step may only have name/if/id/run/env")
+
+
 def check_job(fname, jw, job, steps, required, triggers):
     """All rules for a job that has a claude step. Returns the number of claude steps."""
     P = core.P
     ok_refs = set(P["default_refs"]) | ({P["base_ref"]} if triggers == {"pull_request_target"} else set())
-    lock_id = check_job_start(fname, jw, steps, ok_refs)
+    lock_id = check_job_start(fname, jw, steps)
     if lock_id is not None:
         check_checkout(f"{jw} step 1", steps[0], ok_refs)
         core.require_pinned(f"{jw} step 1", steps[0].get("uses"))

@@ -37,12 +37,12 @@ printf '111 founder-one founder\n333 agents-bot agent\n' > "$W/accounts"
 KEY=not-a-real-key-not-a-real-key-not-a-real-key   # 32+ characters, low entropy on purpose (secret scanners)
 Z=0000000000000000000000000000000000000000
 mac() { GUARDS_LEDGER_KEY="$KEY" MSG="$1 $2" python3 -I -c 'import hashlib,hmac,os; print(hmac.new(os.environ["GUARDS_LEDGER_KEY"].encode(), os.environ["MSG"].encode(), hashlib.sha256).hexdigest()[:40])'; }
-call() { (cd "$R" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" STATUS_DIR="$W/statuses" GH_REPO=owner/repo GUARDS_LEDGER_KEY="$KEY" bash "$SCRIPT" "$@" 2>&1); }
+call() { (cd "$R" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" STATUS_DIR="$W/statuses" GH_REPO=owner/repo GUARDS_LEDGER_KEY="$KEY" bash "$SCRIPT" "$@" 2>&1); }
 prints() { local line=$1; shift; call "$@" | grep -xF -- "$line" >/dev/null; }     # prints <exact line> <args...> (pipefail: grep reads all)
 mentions() { local text=$1; shift; call "$@" | grep -F -- "$text" >/dev/null; }   # mentions <substring> <args...>
 run() { # run <ok|fail> <name> <message> [VAR=value ...] -- <args...>
   local want=$1 name=$2 msg=$3; shift 3; local envs=(); while [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
-  out=$(cd "$R" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" STATUS_DIR="$W/statuses" GH_REPO=owner/repo GUARDS_LEDGER_KEY="$KEY" "${envs[@]}" bash "$SCRIPT" "$@" 2>&1); rc=$?
+  out=$(cd "$R" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" STATUS_DIR="$W/statuses" GH_REPO=owner/repo GUARDS_LEDGER_KEY="$KEY" "${envs[@]}" bash "$SCRIPT" "$@" 2>&1); rc=$?
   assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 
 # ev <before> <after> <sender-id> [distinct-sha ...] [--all sha ...] [--deleted] [--ref refs/heads/x] [--count n]: a push

@@ -65,7 +65,7 @@ $GUARD"; expect fail "token check not the first step after the lock" "its first 
 guards_step() { python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1]))
 print(next(s["run"] for s in d["jobs"]["guards"]["steps"] if "check-workflows.sh" in str(s.get("run", ""))))' "$1"; }
 W2=$(mktemp -d "$TMPROOT/gw.XXXXXX"); mkdir -p "$W2/base" "$W2/pr-skills"
-cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$REPO/.gitleaks.toml" "$REPO/CLAUDE.md" "$W2/base/"; rm -rf "$W2/base/scripts/__pycache__"
+cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$REPO/.gitleaks.toml" "$REPO/CLAUDE.md" "$REPO/.yarnrc.yml" "$W2/base/"; rm -rf "$W2/base/scripts/__pycache__"
 ( cd "$W2/base" && git init -q . && git add -A && git -c user.email=a@b -c user.name=t commit -qm base && git update-ref refs/remotes/pr/head HEAD
   git archive refs/remotes/pr/head .claude | tar -x -C "$W2/pr-skills" )
 step=$(guards_step "$REPO/.github/workflows/guards.yml" | sed "s#/tmp/pr-wf#$W2/pr-wf#g; s#/tmp/pr-skills#$W2/pr-skills#g")
@@ -98,6 +98,6 @@ expect fail "after job without the token re-check" "must run exactly 'bash scrip
 fresh; swap agent-manager.yml '      - name: Show blocked tool calls (names and commands only, pinned script)' $'      - run: bash scripts/check-agent-events.sh .github/accounts.txt "$SINCE"\n      - name: Show blocked tool calls (names and commands only, pinned script)'; expect fail "event check inside the shift job after Claude" "after Claude ran, the event check belongs in job 'after' only"
 fresh; grep -q "Before the shift, the agents' account did nothing outside" "$T/$W/agent-manager.yml" && expect ok "the event check before Claude in the shift job is fine" "Workflow denies OK"
 fresh; swap agent-manager.yml "        run: bash scripts/check-agent-events.sh .github/accounts.txt \"\$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)\"
-      - run: corepack enable" "        run: bash scripts/check-agent-events.sh .github/accounts.txt \"\$SINCE\"
-      - run: corepack enable"; expect fail "the event check before the shift with another window" "the event check before the shift must run exactly"
+      - name: Shift setup" "        run: bash scripts/check-agent-events.sh .github/accounts.txt \"\$SINCE\"
+      - name: Shift setup"; expect fail "the event check before the shift with another window" "the event check before the shift must run exactly"
 summary

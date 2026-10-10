@@ -6,9 +6,43 @@ on:
   workflow_dispatch:
 
 jobs:
+  deps:
+    # The dependency audit runs yarn, which runs repository code (.yarnrc.yml, .yarn/plugins, lifecycle scripts): it gets
+    # its own job with no secret at all, and hands its output to the audit job as an artifact (data).
+    if: (github.event_name == 'schedule' || github.actor_id == '238822878')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: Dependency audit as a file (no secret in this job)
+        run: |
+          mkdir -p /tmp/deps
+          if [ -f package.json ]; then
+            corepack enable && (yarn npm audit --all --recursive --json > /tmp/deps/npm-audit.json 2> /tmp/deps/npm-audit.err || true)
+          else
+            echo "no package.json yet: no dependency audit" > /tmp/deps/npm-audit.json
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-audit
+          path: /tmp/deps/npm-audit.json
+          retention-days: 7
   audit:
     # The schedule, or a founder's manual run (the agents' token could otherwise start it: each run spends Claude turns).
-    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
+    needs: deps
+    if: always() && (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
@@ -32,27 +66,24 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push runs next to a Claude token)
+        run: bash scripts/check-main-head.sh
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
-      - name: Write the repo history and the dependency audit as plain files for the auditors (they read these instead of running git or yarn)
-        # yarn runs code from .yarnrc.yml and .yarn/plugins, so it never runs in the Claude step: its audit is taken here,
-        # under the lock and with no secret in the environment, and read as data.
-        run: |
-          mkdir -p /tmp/audit-meta
-          git log --stat -n 300 > /tmp/audit-meta/log.txt
-          git ls-files > /tmp/audit-meta/files.txt
-          date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/audit-meta/date.txt
-          if [ -f package.json ]; then
-            corepack enable && (env -u GH_TOKEN yarn npm audit --all --recursive --json > /tmp/audit-meta/npm-audit.json 2> /tmp/audit-meta/npm-audit.err || true)
-          else
-            echo "no package.json yet: no dependency audit" > /tmp/audit-meta/npm-audit.json
-          fi
+      - name: The dependency audit from the deps job (data; nothing of it runs here)
+        if: needs.deps.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-audit
+          path: /tmp/audit-meta
+      - name: Write the repo history and the date as plain files for the auditors (pinned script; they read these instead of running git)
+        run: bash scripts/check-audit-prepare.sh /tmp/audit-meta
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -73,7 +104,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -98,7 +129,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
+          PINS_SHA256: "499c607d846088f66f399c5e0e0fa25fda44e470d6c49a77abb35a9a7751b6a5"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
