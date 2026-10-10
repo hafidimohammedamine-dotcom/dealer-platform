@@ -6,30 +6,21 @@ TMPROOT="${TMPDIR:-/tmp}"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 T=$(mktemp -d "$TMPROOT/at.XXXXXX") || exit 2; trap 'rm -rf "$T"' EXIT
 printf '# accounts\n111 Founder-One founder\n  222 founder-two founder  # second\n333 agents-bot agent\n' > "$T/accounts"
-cat > "$T/gh" <<'STUB'
-#!/usr/bin/env bash
+write_gh_stub "$T"; cat > "$T/gh-extra" <<'EXTRA'
 case "$*" in
-  'api user --jq "\(.id) \(.login)"') printf '%s\n' "$STUB_WHO"; exit "${STUB_RC:-0}";;
-  'api -i user') printf 'HTTP/2.0 200 OK\r\n'; [ -n "${STUB_SCOPES:-}" ] && printf '%s: %s\r\n' "${STUB_HDR:-X-Oauth-Scopes}" "$STUB_SCOPES"; printf '\r\n{}\n';;
+  'api -i user') printf 'HTTP/2.0 200 OK\r\n'; [ -n "${STUB_SCOPES:-}" ] && printf '%s: %s\r\n' "${STUB_HDR:-X-Oauth-Scopes}" "$STUB_SCOPES"; printf '\r\n{}\n'; exit 0;;
   'api user/repos?type=owner&per_page=100 --jq [.[].full_name] | join(", ")') printf '%s\n' "${STUB_OWNED:-}"; exit "${STUB_OWNED_RC:-0}";;
-  'api repos/owner/repo/compare/'*' --jq .status') printf '%s\n' "${STUB_REL:-behind}"; exit "${STUB_REL_RC:-0}";;
   'api repos/owner/repo/actions/workflows/'*'.yml --jq .state')
     w=${2##*/}; [ "$w" = "${STUB_DISABLED:-}" ] && echo disabled_manually && exit 0; [ "${STUB_STATE_RC:-0}" = 0 ] && echo active; exit "${STUB_STATE_RC:-0}";;
-  'api repos/owner/repo/commits/HEAD --jq .sha') printf '%s\n' "${STUB_HEAD:-$(printf 'c%.0s' {1..40})}"; exit "${STUB_HEAD_RC:-0}";;
-  'api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha='*)
-    [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); echo $((n+1)) > "$STUB_COUNT"
-    if [ -n "${STUB_RUNS_LATER:-}" ] && [ "$n" -ge 1 ]; then printf '%s\n' "$STUB_RUNS_LATER"; else printf '%s\n' "${STUB_RUNS-completed/success}"; fi;;
-  *) exit 9;;
 esac
-STUB
-chmod +x "$T/gh"
+EXTRA
 FG=github_pat_test_not_a_real_token; CL=ghp_classic_test_not_real
 expect() { # expect <ok|fail> <name> <message> [env...]
   local want=$1 name=$2 msg=$3; shift 3
   echo 0 > "$T/count"
   out=$(env -u GITHUB_ACTIONS GH_BIN="$T/gh" GH_TOKEN="$FG" ACC="$T/accounts" GH_REPO=owner/repo STUB_COUNT="$T/count" AGENT_TOKEN_WAIT=10 "$@" bash -c 'bash "$0" "$ACC"' "$SCRIPT" 2>&1); rc=$?
   assert_result "$want" "$rc" "$name" "$msg" "$out"
-  check "no token in the output of: $name" bash -c '! grep -qe "$1" -e "$2" -e gho_oauth_test <<<"$3"' _ "$FG" "$CL" "$out"; }
+  assert_no_token "$name" "$out" "$FG" "$CL" gho_oauth_test; }
 expect ok   "agents' fine-grained token"       "Agent token OK: fine-grained, runs as agent account 'agents-bot', owns no repositories; guard workflows active, main head: ok cccc" "STUB_WHO=333 agents-bot"
 expect ok   "agents' classic token, only repo" "Agent token OK: classic, runs as agent account 'agents-bot', owns no repositories" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo
 expect ok   "lower-case scopes header"         "Agent token OK: classic" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo STUB_HDR=x-oauth-scopes
@@ -71,7 +62,7 @@ expect fail "no repository name"               "GH_REPO or GITHUB_REPOSITORY (ow
 expect fail "bad GH_REPO"                      "bad GH_REPO" "$OK" "GH_REPO=owner/re po"
 # Inside GitHub Actions the environment overrides are ignored (a Claude step before could have written $GITHUB_ENV):
 # gh comes from PATH, the repository from GITHUB_REPOSITORY, the workflow list and the wait are fixed.
-mkdir -p "$T/path"; cp "$T/gh" "$T/path/gh"
+mkdir -p "$T/path"; cp "$T/gh" "$T/gh-extra" "$T/path/"
 expect ok   "in Actions: gh from PATH, repo from GITHUB_REPOSITORY" "main head: ok" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GH_REPO=other/repo "PATH=$T/path:$PATH"
 expect fail "in Actions: GH_BIN is ignored (a stub there does not count)" "could not read the token's GitHub login" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo "PATH=$T/nowhere:/usr/bin:/bin"
 expect fail "in Actions: GUARD_WORKFLOWS cannot drop a workflow" "workflow main-guard.yml is 'disabled_manually'" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo "PATH=$T/path:$PATH" GUARD_WORKFLOWS=review.yml STUB_DISABLED=main-guard.yml

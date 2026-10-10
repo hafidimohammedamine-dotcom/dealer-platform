@@ -9,17 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 A=$(mktemp "${TMPDIR:-/tmp}/gl-accounts.XXXXXX"); printf '111 founder-one founder\n333 agents-bot agent\n' > "$A"; rows=$(accounts_rows "$A"); rm -f "$A"
 # The GitHub helpers the token-holding guards share
 D=$(mktemp -d "${TMPDIR:-/tmp}/al.XXXXXX"); trap 'rm -rf "$D"' EXIT; mkdir -p "$D/bin"
-cat > "$D/bin/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  'api user --jq "\(.id) \(.login)"') printf '%s\n' "${STUB_WHO-333 agents-bot}"; exit "${STUB_RC:-0}";;
-  "api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha="*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}";;
-  "api repos/owner/repo/compare/"*) [ -z "${STUB_LOG:-}" ] || echo "$*" >> "$STUB_LOG"; [ "${STUB_REL_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_REL:-behind}";;
-  "api repos/owner/repo/commits/HEAD --jq .sha") printf '%s\n' "${STUB_HEAD-cccccccccccccccccccccccccccccccccccccccc}"; exit "${STUB_HEAD_RC:-0}";;
-  *) exit 9;;
-esac
-STUB
-chmod +x "$D/bin/gh"
+write_gh_stub "$D/bin"
 ctx() { ( unset GITHUB_ACTIONS GITHUB_REPOSITORY GH_REPO GH_BIN; export "$@"; gh_context && echo "GH=$GH REPO=$REPO" ) 2>&1; }
 check "gh_context outside Actions: GH_BIN and GH_REPO" test "$(ctx GH_BIN=/x/gh GH_REPO=o/r)" = "GH=/x/gh REPO=o/r"
 check "gh_context outside Actions: GITHUB_REPOSITORY as the fallback" test "$(ctx GH_BIN=/x/gh GITHUB_REPOSITORY=o/r)" = "GH=/x/gh REPO=o/r"
@@ -45,7 +35,7 @@ case "$(mgp2 "$S40" STUB_RUNS= STUB_REL=identical)" in "ok $S40 is on the defaul
 check "main_guard_passed: diverged history is missing" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL=diverged)" = "missing $S40 (runs: none)"
 check "main_guard_passed: behind the floor with no run is missing" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL=behind)" = "missing $S40 (runs: none)"
 check "main_guard_passed: the compare call fails" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL_RC=1)" = "ERROR: could not compare $S40 with the main guard's floor commit $FLOOR."
-check "main_guard_passed: the compare asks for <sha>...<floor>" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; STUB_RUNS=; STUB_REL=ahead; export STUB_RUNS STUB_REL; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_LOG="$1/log" main_guard_passed "$3" 0 >/dev/null ); grep -q "compare/$3...$4" "$1/log"' _ "$D" "$HERE" "$S40" "$FLOOR"
+check "main_guard_passed: the compare asks for <sha>...<floor>" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; STUB_RUNS=; STUB_REL=ahead; export STUB_RUNS STUB_REL; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log" main_guard_passed "$3" 0 >/dev/null ); grep -q "compare/$3...$4" "$1/log"' _ "$D" "$HERE" "$S40" "$FLOOR"
 mhp() { ( GH="$D/bin/gh"; REPO=owner/repo; [ $# -lt 2 ] || export "${@:2}"; main_head_passed 0 "$1" ) 2>&1; }
 check "main_head_passed: the head passed" test "$(mhp 'anything runs')" = "ok $S40 passed the main guard"
 check "main_head_passed: names who must not run" test "$(mhp 'any agent runs' STUB_RUNS=)" = "ERROR: the default branch's head ($S40) has no successful main-guard run (missing $S40 (runs: none)). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before any agent runs."

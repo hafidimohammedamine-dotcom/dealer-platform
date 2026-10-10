@@ -8,6 +8,8 @@ writes the full version here.
 PR opened / pushed
  ├─ CI (ci.yml; pull_request: from the PR; push to main: from main; no secrets)
  │    guard-script tests · install · lint · typecheck · test · build · audit
+ ├─ Agent egress lock test (egress-lock-test.yml, pull_request on lock changes, from the PR, no secrets): the lock on a real runner,
+ │    plus break-on-purpose
  ├─ Pusher ledger (pusher-ledger.yml, every push to a branch but main, scripts from main, no concurrency): who pushed → signed statuses
  ├─ Guards (guards.yml, pull_request_target, from main)
  │    PR fetched as data (must be the event's head) → founder-only files (author + every pusher from the ledger) · skills manifest + checksums ·
@@ -17,6 +19,8 @@ PR opened / pushed
       answer handed over as text → job post (write scopes, no Claude) scans it, posts it, labels PASS (ready-to-merge) or
       FAIL (changes-requested). The daily report and weekly audit post the same way.
 A founder reads the result and merges.
+Founder @claude on an issue (claude.yml, issue_comment by a founder, from main): job answer (read-only token, prompt mode)
+reads the thread with gh → answer as text → job post scans and posts it on the issue.
 Push to main (main-guard.yml, also hourly): a founder's push (a merge) is fine; any other push is reverted, every workflow that holds a
 secret or write scope cancelled and disabled, a security issue opened; a push that passed no main-guard run (a [skip ci] head
 commit, a cancelled run) stops the agents the same way at the next push or within the hour.

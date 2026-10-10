@@ -43,11 +43,11 @@ if [ -n "$BASE" ]; then
   git -C "$DEST" rev-parse -q --verify "$BASE^{commit}" >/dev/null || { echo "ERROR: base ref not found: $BASE"; exit 1; }
   mkdir "$META"
   git -C "$DEST" diff --stat "$BASE...HEAD" > "$META/diff-stat.txt"
-  git -C "$DEST" diff "$BASE...HEAD" > "$META/diff.patch"
+  git -C "$DEST" diff --text "$BASE...HEAD" > "$META/diff.patch"   # --text: never "Binary files differ", whatever the PR's attributes say
   git -C "$DEST" diff --name-status "$BASE...HEAD" > "$META/files.txt"
   git -C "$DEST" log --format='%H %an <%ae> %aI%n    %s' "$BASE..HEAD" > "$META/log.txt"
   # --cc: merge commits too (as combined diffs), so a secret added and removed again inside a merge still shows.
-  git -C "$DEST" log -p --cc "$BASE..HEAD" > "$META/log-patch.txt"
+  git -C "$DEST" log -p --cc --text "$BASE..HEAD" > "$META/log-patch.txt"
   echo "PR history written to $META"
 fi
 echo "PR #$PR head $(git -C "$DEST" rev-parse HEAD) ready in $DEST (rule files removed)"

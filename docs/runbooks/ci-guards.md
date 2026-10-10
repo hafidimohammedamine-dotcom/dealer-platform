@@ -189,8 +189,8 @@ change takes effect only after it merges, so the **next** PR's guards log must s
 
 ## Workflow "Main guard" (job `guard`)
 Runs on every push to `main` and hourly (`schedule`). First, every run checks the chain: the previous push's head (hourly:
-`main`'s head) must have passed the main guard itself (`Chain: ok <sha> passed the main guard`, or `... was committed
-before the main guard existed (floor <sha>)`: the floor is `MAIN_GUARD_FLOOR` in `scripts/check-github-lib.sh`, main's head
+`main`'s head) must have passed the main guard itself (`Chain: ok <sha> passed the main guard`, or `Chain: ok <sha> is on the
+default branch before the main guard existed (floor <sha>)`: the floor is `MAIN_GUARD_FLOOR` in `scripts/check-github-lib.sh`, main's head
 when the guard was written, and a commit passes without a run only if GitHub's compare API says it is an ancestor of it). `commit <sha> reached main without passing the main guard (missing <sha> (runs: ...))`
 means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or the workflow disabled at the
 time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to main passed no main-guard

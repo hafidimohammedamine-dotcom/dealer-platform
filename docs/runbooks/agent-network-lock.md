@@ -167,8 +167,8 @@ The command deny lists are a second layer. They block `npm`, `npx`, `yarn npm pu
 auth`, `gh secret`, `curl` and `wget` in the manager. They match command prefixes, so they are not a boundary on their own.
 
 ## Measured limits
-Measured from GitHub runners on 2026-10-09 and 2026-10-10 in the session that built PR #30 (the run logs are the record;
-they are not reproducible from this repository alone, see "Founder decisions" 2). The test sent
+Measured from GitHub runners on 2026-10-09 and 2026-10-10 while PR #30 was built (the run logs under Actions are the
+record; they are not reproducible from this repository alone, see "Founder decisions" 2). The test sent
 `curl -H 'Host: <other site>' https://<allowed name>/` through the lock.
 
 **Not used for fronting.** These did not answer for another site, and the self-test repeats the check against every exact
@@ -265,10 +265,10 @@ them powerless instead:
 
 Re-check when a pin changes.
 
-## Founder decisions (accepted risks)
-Proposed in PR #30 (written there by the agent session that built it; the PR thread holds the founder's instructions). A
-founder accepts them by merging PR #30, and that merge is the record of acceptance; until then they are pending. Owner: the
-merging founder. Review by 2026-11-08, or earlier if any of them changes.
+## Founder decisions (proposed here; accepted by merging PR #30)
+Proposed in PR #30 and accepted by its merge, which is the record of acceptance (the PR's own thread holds the review
+rounds). Open follow-ups live in issue #35. Owner: the merging founder. Review by 2026-11-08, or earlier if any of them
+changes.
 1. **Open exit routes.** The agents' own token can comment on or open issues in any repository its account can see
    through `api.github.com`, which the lock allows: an agent misled by an injected instruction, or a dependency's install
    script, could post data (the token itself included) to a repository an attacker reads, with no credentials of its
@@ -281,8 +281,9 @@ merging founder. Review by 2026-11-08, or earlier if any of them changes.
    every shift (job `after` of the manager) fails on any event of the agents' account outside this repository in the last
    24 hours and tells a founder to rotate the token;
    the manager denies `gh api`, `gh gist`, `gh repo`, `gh workflow` and `gh run cancel/delete` (hygiene: `bash -c` gets
-   around prefix denies); the reviews. The check looks at a rolling 24 hours before and after each shift, because the
-   events feed can lag (the reviewer recalls delays of hours; a founder may confirm against GitHub's documentation). This
+   around prefix denies); the reviews. The check looks at a rolling 24 hours before and after each shift - a design
+   choice: GitHub's events API is documented as not real-time (its documentation says events may take time to appear and
+   are polled, not streamed), and a day covers that with room, at the price of re-reading a day of events each time. This
    detects after the fact. Prevention - an organization-owned repository with a
    fine-grained token limited to this repository, a read-only package mirror and a GitHub proxy that accepts only this
    job's own token - is founder issue #35 ("Move the repository to an organization and give the agents a fine-grained

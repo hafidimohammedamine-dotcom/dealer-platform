@@ -94,6 +94,13 @@ tail = tail.replace("      - name: The default branch's head passed the main gua
 open(p, "w").write(s[:i] + tail)
 PYEOF
 expect fail "oidc job without the main-head check" "job oidc: id-token: write, so it must run 'bash scripts/check-main-head.sh' before the lock"
+fresh; python3 - "$T/$W/egress-lock-claude.yml" <<'PYEOF'
+import sys; p = sys.argv[1]; s = open(p).read(); i = s.index("  oidc:\n"); tail = s[i:]
+step = "      - name: The default branch's head passed the main guard (no unchecked push mints a token)\n        run: bash scripts/check-main-head.sh\n"
+tail = tail.replace(step, "", 1).replace("      - name: An OIDC token can be fetched under the lock\n", step + "      - name: An OIDC token can be fetched under the lock\n", 1)
+open(p, "w").write(s[:i] + tail)
+PYEOF
+expect fail "oidc job with the main-head check after the lock" "job oidc: id-token: write, so it must run 'bash scripts/check-main-head.sh' before the lock"
 fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p = sys.argv[1]; s = open(p).read()
 i = s.index("  after:\n"); after = s[i:]

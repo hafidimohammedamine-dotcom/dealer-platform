@@ -85,4 +85,8 @@ out=$(cd "$W/base" && bash "$SCRIPT" 7 "$W/p13" "" origin notasha 2>&1); rc=$?
 cd "$W/base" && git checkout -q -b attrs main && mkdir -p docs && printf '*.txt ident export-subst\n' > .gitattributes && printf '$Id$ and $Format:%%H$\n' > docs/k.txt && git add -A && git commit -qm attrs && git push -q origin "HEAD:refs/pull/11/head" 2>/dev/null && git checkout -q main
 out=$(bash "$SCRIPT" 11 "$W/p14" 2>&1); rc=$?
 [ $rc = 0 ] && [ "$(cat "$W/p14/docs/k.txt")" = '$Id$ and $Format:%H$' ] && ok "ident and export-subst in the PR's .gitattributes do not rewrite files" || bad "attributes off" "$out $(cat "$W/p14/docs/k.txt" 2>&1)"
+# A PR that marks a file binary (-diff) cannot hide its content from the reviewers' history files
+cd "$W/base" && git checkout -q -b bindiff main && printf '*.conf -diff\n' > .gitattributes && printf 'SECRET-LOOKING-LINE\n' > app.conf && git add -A && git commit -qm bindiff && git push -q origin "HEAD:refs/pull/12/head" 2>/dev/null && git checkout -q main
+out=$(bash "$SCRIPT" 12 "$W/p15" main 2>&1); rc=$?
+[ $rc = 0 ] && grep -q '^+SECRET-LOOKING-LINE' "$W/p15-meta/diff.patch" && grep -q '^+SECRET-LOOKING-LINE' "$W/p15-meta/log-patch.txt" && ! grep -q 'Binary files' "$W/p15-meta/diff.patch" && ok "a -diff attribute in the PR does not hide content from diff.patch and log-patch.txt" || bad "-diff attribute" "$out $(grep -c . "$W/p15-meta/diff.patch" 2>&1)"
 summary

@@ -177,6 +177,11 @@
   (repository-scoped, no organization needed) added to founder issue #35; CODEOWNERS, the manifest's license wording, comments
   and docs brought in line (pinned-file and founder-only lists with `.yarnrc.yml`, `.yarn/`, `.gitattributes`; the lock's
   place in the job; the scrub line; the `agent/` branch condition; this entry dated by its merge day).
+- **Round 17:** the attributes override also forces `diff` on and the reviewers' history files are written with `--text`
+  (a `-diff`/`binary` attribute cannot hide content); `check-main-head.sh` requires the checked-out commit to be main's
+  head as GitHub sees it; the `id-token: write` rule requires the main-head check before the lock, by position; the
+  tests share one fake `gh` (`write_gh_stub`) and `assert_no_token` from `check-testlib.sh`; founder decisions heading and
+  wording, the 24-hour window as a design choice, the diagram with the lock test and the founder @claude path.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

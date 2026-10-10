@@ -7,20 +7,15 @@ TMPROOT="${TMPDIR:-/tmp}"
 W=$(mktemp -d "$TMPROOT/mp.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null   # the test's local pushes must not pick up proxy/negotiation settings
 mkdir -p "$W/nogit"; printf '#!/usr/bin/env bash\ncase "$1" in revert) [ "$2" = --abort ] && exit 0; exit 1;; esac; exec "%s" "$@"\n' "$(command -v git)" > "$W/nogit/git"; chmod +x "$W/nogit/git"
-mkdir -p "$W/stub"; cat > "$W/stub/gh" <<'STUB'
-#!/usr/bin/env bash
+mkdir -p "$W/stub"; write_gh_stub "$W/stub"; cat > "$W/stub/gh-extra" <<'EXTRA'
 echo "gh $*" >> "$GH_LOG"
 case "$1 $2" in
   "workflow disable") [ "$3" = "${STUB_WF_FAIL:-}" ] && exit 1; exit "${STUB_WF_RC:-0}";;
   "issue create") exit "${STUB_ISSUE_RC:-0}";;
   "run list") [ "$4" = agent-manager.yml ] && [ "$6" = in_progress ] && echo "${STUB_RUNNING_ID:-}"; exit 0;;   # one running manager shift
   "run cancel") exit "${STUB_CANCEL_RC:-0}";;
-  "api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha="*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}"; exit 0;;
-  "api repos/owner/repo/compare/"*) printf '%s\n' "${STUB_REL:-behind}"; exit 0;;
 esac
-exit 9
-STUB
-chmod +x "$W/stub/gh"
+EXTRA
 printf '111 founder-one founder\n222 founder-two founder\n333 agents-bot agent\n' > "$W/accounts"
 fresh() { # a bare origin with main = base; a clone where the "pushed" commits are made and pushed to origin main
   rm -rf "$W/origin" "$W/clone"; git init -q --bare -b main "$W/origin"

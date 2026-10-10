@@ -5,11 +5,11 @@
 # Usage: scripts/check-skills-upstream-all.sh <repo-root-with-.claude> [work-dir]
 #   UPSTREAM_BASE (default https://github.com/) is only overridden by the tests (file:// fixtures).
 set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
 # No filters or hooks while an upstream's files are written (NOFILTER, scripts/check-git-lib.sh).
 # shellcheck source=scripts/check-git-lib.sh
-. "$(cd "$(dirname "$0")" && pwd)/check-git-lib.sh"
+. "$HERE/check-git-lib.sh"
 ROOT="${1:?repo root}"; WORK="${2:-$(mktemp -d "${TMPDIR:-/tmp}/up-all.XXXXXX")}"
-HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-skills-lib.sh
 . "$HERE/check-skills-lib.sh"
 BASE="${UPSTREAM_BASE:-https://github.com/}"

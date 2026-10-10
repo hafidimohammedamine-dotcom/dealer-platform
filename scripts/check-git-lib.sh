@@ -7,8 +7,9 @@
 #   its code. Use: `git "${NOFILTER[@]}" fetch ...` / `git "${NOFILTER[@]}" worktree add ...` / `... checkout ...`.
 # - git_no_attributes <git-dir>: the tree's own .gitattributes must not change what the guards see either - `export-ignore`
 #   would drop a file from `git archive` (a skill or workflow the checks never see but the merge brings), `export-subst`,
-#   `ident`, `eol`/`text` and `working-tree-encoding` would rewrite file contents. $GIT_DIR/info/attributes outranks every
-#   in-tree .gitattributes, so one line there turns all of that off for every path.
+#   `ident`, `eol`/`text` and `working-tree-encoding` would rewrite file contents, and `-diff`/`binary` would hide a
+#   file's changes as "Binary files differ" in the reviewers' history files. $GIT_DIR/info/attributes outranks every
+#   in-tree .gitattributes, so one line there turns all of that off (and `diff` on) for every path.
 # Pinned in .github/pins.txt. Tests: through the scripts' own tests (an LFS-filtered file stays a pointer, a post-checkout
 # hook does not run, an export-ignored file is still unpacked).
 NOFILTER=(-c core.hooksPath=/dev/null -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false -c filter.lfs.clean=)
@@ -17,5 +18,5 @@ git_no_attributes() {
   local dir=$1
   [ -d "$dir" ] || { echo "ERROR: not a git directory: $dir"; return 1; }
   mkdir -p "$dir/info"
-  echo '* -export-ignore -export-subst -ident -text -eol -working-tree-encoding -filter' > "$dir/info/attributes"
+  echo '* -export-ignore -export-subst -ident -text -eol -working-tree-encoding -filter diff' > "$dir/info/attributes"
 }

@@ -134,6 +134,8 @@ def check_id_token_jobs(name, doc):
             continue
         if want not in str(job.get("if", "")):
             core.err(f"{name} job {jn}: id-token: write, so its 'if' must contain {want}")
-        runs = [str(s.get("run", "")).strip() for s in (job.get("steps") or []) if isinstance(s, dict)]
-        if head not in runs:
+        steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
+        head_at = next((i for i, s in enumerate(steps) if str(s.get("run", "")).strip() == head), None)
+        lock_at = next((i for i, s in enumerate(steps) if s.get("uses") == core.P["lock_action"]), None)
+        if head_at is None or lock_at is None or head_at > lock_at:
             core.err(f"{name} job {jn}: id-token: write, so it must run '{head}' before the lock")

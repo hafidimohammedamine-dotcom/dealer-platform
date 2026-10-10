@@ -65,12 +65,17 @@ main_guard_passed() {
   echo "missing $sha (runs: ${runs:-none})"; return 1
 }
 
-# main_head_passed <wait-seconds> <who-is-stopped>: the default branch's head passed the main guard (main_guard_passed);
-# prints the reason and returns 1 otherwise, naming who must not run until a founder looked.
+# main_head_passed <wait-seconds> <who-is-stopped> [checked-out-sha]: the default branch's head passed the main guard
+# (main_guard_passed); with <checked-out-sha> (what this job checked out), that commit must also be the default branch's
+# head as GitHub sees it, so the job judges exactly the tree it runs. Prints the reason and returns 1 otherwise, naming
+# who must not run until a founder looked.
 main_head_passed() {
-  local wait_max=$1 who=$2 head out
+  local wait_max=$1 who=$2 local_sha=${3:-} head out
   head=$("$GH" api "repos/$REPO/commits/HEAD" --jq .sha 2>/dev/null) || { echo "ERROR: could not read the default branch's head commit."; return 1; }
   [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: could not read the default branch's head commit."; return 1; }
+  if [ -n "$local_sha" ] && [ "$local_sha" != "$head" ]; then
+    echo "ERROR: this job checked out $local_sha but the default branch's head is $head now; start a fresh run."; return 1
+  fi
   if ! out=$(main_guard_passed "$head" "$wait_max"); then
     case "$out" in ERROR:*) echo "$out";; *) echo "ERROR: the default branch's head ($head) has no successful main-guard run ($out). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before $who.";; esac
     return 1
