@@ -203,41 +203,46 @@ founders read that commit and the pushes after it (`git log --first-parent`), re
 run for <sha> has not finished after 120s; re-run this job later` - the previous run is still going (rare; the hourly run
 will check).
 
-**The `guards/main-guard` commit status** stands in for a run on commits that can have none: the revert commit the guard
-pushes (a push made with a workflow's token starts no workflow) is marked right after the push (`revert by main-guard run
+**The `guards/main-guard` commit status** stands in for a run on commits that can have none: the undo commit the guard
+pushes (a push made with a workflow's token starts no workflow) is marked right after the push (`undo by main-guard run
 <id>`), and a commit a founder has read is marked by running the workflow by hand: Actions -> Main guard -> Run workflow,
 `accept_sha` = the 40-hex sha (`Accepted: commit <sha> now carries the guards/main-guard status (founder ID <id>)`). The
 script posts the status only when the account that started the run is a `founder` row (`only a founder may accept a
-commit; user ID <id> is not one` - the agents' token can start the workflow, but is refused) and only for a commit on
+commit; user ID <id> is not one` - the agents' token can start the workflow, but is refused), only for a commit on
 `main` (`is not on main (this checkout)`) and only from a run started on the `main` branch (`run this workflow from the
-main branch`: a by-hand run uses the chosen branch's workflow file). The chain check accepts the status only when its creator is github-actions[bot]
-(user ID 41898282): a status the agents' token posts carries the agents' account as creator, and the workflow checker lets
-`statuses: write` into `main-guard.yml` and `pusher-ledger.yml` only, whose scripts are pinned. `could not be marked with
-the guards/main-guard status` - the revert went up but the status post failed; the next run flags the revert commit as
-unchecked, and a founder accepts it by hand. Only a **complete** revert is marked: when one pushed commit would not revert
-(`did not apply cleanly ... the head is left unmarked (the pushed commits are only partly undone)`; the fallback says
-`reverted <n> of <total> ...; the head stays unmarked`), the reverts made so far are pushed but the head carries no
-status, so the next push or hourly run stops the agents again until a founder has finished the revert by hand and
-accepted the head. A re-run of a main-guard job, or a run whose push `main` has already moved past,
-reverts nothing (`main is no longer at <sha> (a later push, or a re-run of this job); nothing reverted`): reverting the same
-commits again would put them back. Then `scripts/check-main-push.sh` compares the
-pusher's user ID with the `founder` rows: a founder's push (every merge) prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder
-approval were bypassed (the agents' token can push to `main`; the free plan cannot block it): the job prints `::error::push to
-main by user ID <id> ...`, reverts the pushed first-parent commits with new commits (a merge commit against its first parent;
-never a force push), pushes the reverts with its own token (which starts no workflow), cancels every running or queued run
-of the eight workflows that hold a secret or judge pushes (the manager, review team, founder mentions, daily report, weekly
-audit, the Claude lock probe, the pusher ledger and guards) and disables them (`cancelled <n> running or queued run(s);
-disabled ...`) so nothing runs tampered code with a token even if the revert failed, and opens an issue `SECURITY: non-founder push to main
-by user ID <id>` labeled `area:security`, `blocked`, `priority:1`, mentioning the founders. Founders then: read what the
-pushed commits contained, check the repositories the pusher's account owns, rotate `AGENT_GH_TOKEN_V2` if the agents' account
-was involved, and re-enable the workflows (Actions -> each workflow -> Enable).
-`revert of <sha> did not apply cleanly` / `the revert could not be pushed` / `could not disable` / `could not open the security
-issue` - the job did what it could and prints the rest; a founder finishes by hand. A force push is undone by putting
-`main` back to the previous tip (`main was force-pushed and could not be restored` means a founder does it by hand); the
-guard restores only a tip that passed the main guard itself (the chain check runs first), never an unchecked commit.
+main branch`: a by-hand run uses the chosen branch's workflow file). The chain check accepts the status only when its
+creator is github-actions[bot] (user ID 41898282): a status the agents' token posts carries the agents' account as
+creator, and the workflow checker lets `statuses: write` into `main-guard.yml` and `pusher-ledger.yml` only, whose
+scripts are pinned. `could not be marked with the guards/main-guard status` - the undo went up but the status post
+failed; the next run flags the undo commit as unchecked, and a founder accepts it by hand. A re-run of a main-guard job,
+or a run whose push `main` has already moved past, undoes nothing (`main is no longer at <sha> (a later push, or a re-run
+of this job); nothing undone`): undoing again would undo more than the push.
+
+Then `scripts/check-main-push.sh` compares the pusher's user ID with the `founder` rows: a founder's push (every merge)
+prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder approval were
+bypassed (the agents' token can push to `main`; the free plan cannot block it): the job prints `::error::push to main by
+user ID <id> ...`, **undoes the push with one commit whose tree is exactly the previous tip's** (`git read-tree --reset -u
+<before>`, then a commit - empty if the push changed no file - and `git diff --quiet <before> HEAD` before anything is
+pushed or marked; never per-commit reverts: a pushed merge whose first parent is an older `main` commit would make `git
+revert -m 1` roll `main` back to that older tree, every founder change since gone and the head marked checked, and a
+revert can conflict or stop halfway), pushes it with its own token (which starts no workflow), marks it, cancels every
+running or queued run of the eight workflows that hold a secret or judge pushes (the manager, review team, founder
+mentions, daily report, weekly audit, the Claude lock probe, the pusher ledger and guards) and disables them (`cancelled
+<n> running or queued run(s); disabled ...`) so nothing runs tampered code with a token even if the undo failed, and
+opens an issue `SECURITY: non-founder push to main by user ID <id>` labeled `area:security`, `blocked`, `priority:1`,
+mentioning the founders (`restored main to the tree of <before> with one undo commit (<sha>)`). Founders then: read what
+the pushed commits contained (they stay in `main`'s history under the undo commit), check the repositories the pusher's
+account owns, rotate `AGENT_GH_TOKEN_V2` if the agents' account was involved, and re-enable the workflows (Actions -> each
+workflow -> Enable). `the undo commit could not be made` / `the undo commit could not be pushed` / `main was created by
+this push; there is no previous tip to restore` / `the previous tip <sha> is not in this checkout and could not be
+fetched` / `could not disable` / `could not open the security issue` - the job did what it could and prints the rest
+(`Left to do:` in the issue); a founder finishes by hand, and the head stays unmarked until a founder accepts it. A force
+push is undone by putting `main` back to the previous tip (`main was force-pushed and could not be restored` means a
+founder does it by hand); the guard restores only a tip that passed the main guard itself (the chain check runs first),
+never an unchecked commit.
 Because the push itself could have changed the script, its library or `.github/accounts.txt`, the job's pin step (above)
 runs first; on a mismatch, the fallback step - written in the workflow file alone, with the founders' user IDs - undoes the
-push the same way (revert or restore), cancels and disables the same workflows and opens `SECURITY: push to main changed pinned files`;
+push the same way (one undo commit with the previous tip's tree, or the restore after a force push), cancels and disables the same workflows and opens `SECURITY: push to main changed pinned files`;
 if the pusher was a founder it only fails with `pinned files changed by a founder's push ... run scripts/check-pins.sh
 update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs, labels and that its workflow list equals
 the script's.
@@ -251,7 +256,7 @@ issue for the founders.
 ## Known limits
 - Pushes by the agents' account cannot be blocked by a ruleset on the current plan (rulesets for a private repo need a paid
   plan). What holds instead: the token has no `workflow` scope (it cannot change `.github/workflows/`); a non-founder push to
-  `main` is reverted by "Main guard" (above) and stops the agents; founder-only changes need every commit pushed by a founder
+  `main` is undone by "Main guard" (above) and stops the agents; founder-only changes need every commit pushed by a founder
   (the pusher ledger); the agents' account may own no repository, the four guard workflows must be active and the default
   branch's head must have passed the main guard (`scripts/check-agent-token.sh`, start of every shift and again in the
   manager's job `after`: the token could disable those workflows or cancel their runs, and this is what turns that into a

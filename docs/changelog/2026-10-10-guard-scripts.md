@@ -194,6 +194,10 @@
   workflow (the default token could hold `statuses: write`); the two jq filters are tested with real jq (a schedule run
   of the same head, the agents' own status, a pending one and another context all count for nothing); the main-push
   tests carry a token sentinel and `assert_no_token`.
+- **Round 20:** a non-founder push is undone with one commit carrying the previous tip's tree (`git read-tree --reset -u
+  <before>`, tree equality checked before the push and the mark), never per-commit reverts: a pushed merge whose first
+  parent was an older `main` commit made `git revert -m 1` roll `main` back to that older tree and mark the head; script and
+  inline fallback; a push that creates `main` or whose previous tip cannot be fetched is left to the founders, unmarked.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

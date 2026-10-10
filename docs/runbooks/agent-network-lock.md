@@ -153,7 +153,7 @@ checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the j
 **What the agents' own token can do, and what catches it.** A classic `repo` token on a collaborator account can push to any
 branch of this repository, `main` included, and the free plan cannot block that with a ruleset. So `main` is guarded after
 the fact: `main-guard.yml` runs on every push to `main` (`scripts/check-main-push.sh`); when the pusher's user ID is not a
-`founder` row of `.github/accounts.txt` it reverts the pushed commits with new commits (never a force push), cancels and
+`founder` row of `.github/accounts.txt` it undoes the push with one commit carrying the previous tip's tree (never a force push), cancels and
 disables every workflow that holds a secret or write scope and opens an `area:security` + `blocked` issue for the founders
 (`docs/runbooks/ci-guards.md`). The agents'
 token cannot change that workflow (no `workflow` scope), and pushes made with the workflow's own token start no workflow.
@@ -305,7 +305,7 @@ changes.
    hand (Actions -> Run workflow) and reads its result; a failure there is a revert trigger (the founder reverts the merge
    in the web UI and the fix comes as a new founder PR).
 4. **What the agents' token can still do (2026-10-10).** The free plan cannot block pushes to `main` or repository
-   creation by the agents' account. Accepted with these controls: `main-guard.yml` reverts any non-founder push to
+   creation by the agents' account. Accepted with these controls: `main-guard.yml` undoes any non-founder push to
    `main`, cancels and disables every workflow that holds a secret or write scope and opens a blocked security issue;
    the pusher ledger in `guards` keeps non-founder commits out of founder-only changes; the owns-no-repositories check
    stops every agent job (hourly with the manager; the daily report lists the failed runs) if the agents' account ever

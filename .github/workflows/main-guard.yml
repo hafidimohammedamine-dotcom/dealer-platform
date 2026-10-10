@@ -1,11 +1,11 @@
-# Only founders may push to main (they merge pull requests). Any other push is reverted, the agents are stopped and a
+# Only founders may push to main (they merge pull requests). Any other push is undone (one commit with the previous tip's tree), the agents are stopped and a
 # security issue is opened: scripts/check-main-push.sh. Founder-owned file. The agents' token has no `workflow` scope, so it
 # cannot change this file; pushes made here with the workflow's token start no workflow (no loop).
 # The push itself could have changed the script, its library or the accounts list, so this job's pin step (.github/pins.txt,
 # whose hash sits in this file) must pass first. On a mismatch the fallback step, written here with the founders' IDs, undoes
-# the push without running any repository file. Every run also checks that the previous push's head passed the main guard
+# the push without running any repository file. Both undo a push with one commit carrying the previous tip's tree. Every run also checks that the previous push's head passed the main guard
 # itself (a push whose head commit says [skip ci] starts no workflow; a cancelled run passed nothing), and the hourly schedule
-# checks main's head the same way, so an unchecked push stops the agents within the hour. The revert commit pushed here
+# checks main's head the same way, so an unchecked push stops the agents within the hour. The undo commit pushed here
 # starts no run (a workflow's token starts none), so it is marked with the guards/main-guard commit status instead; a
 # founder who has read an unchecked commit marks it the same way by running this workflow by hand with its sha (the status
 # is posted only when the run was started by a founder's account; the agents' token cannot post it as github-actions[bot]).
@@ -23,10 +23,10 @@ on:
         required: true
         type: string
 permissions:
-  contents: write   # revert commits on main
+  contents: write   # the undo commit on main
   actions: write    # cancel and disable every workflow that holds a secret or write scope after a bad push
   issues: write     # the security issue
-  statuses: write   # the guards/main-guard status on the revert commit, or on a commit a founder accepts
+  statuses: write   # the guards/main-guard status on the undo commit, or on a commit a founder accepts
 jobs:
   guard:
     runs-on: ubuntu-latest
@@ -36,16 +36,16 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          persist-credentials: true   # the revert push uses the job token
+          persist-credentials: true   # the undo push uses the job token
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "94046a4782f4a56fb701aa02a7fa8bfc95465c4b67bdeeaeb4bce0bf168861a9"
+          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
-      - name: The pusher must be a founder; otherwise revert, stop the agents, open an issue
+      - name: The pusher must be a founder; otherwise undo, stop the agents, open an issue
         # Push: <pusher id> <before> <after>. Schedule: schedule - -. Run by hand: accept <actor id> <sha to accept>.
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,26 +70,18 @@ jobs:
           echo "::error::push to main by user ID $PUSHER_ID changed pinned files; undoing it from the workflow file"
           git config user.name main-guard && git config user.email main-guard@users.noreply.github.com
           done=""
-          if [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && ! git merge-base --is-ancestor "$BEFORE" "$AFTER"; then
+          if [ "$BEFORE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            done="no previous tip to restore ($BEFORE); the founders restore main by hand"
+          elif ! git merge-base --is-ancestor "$BEFORE" "$AFTER"; then
             git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" && done="restored main to $BEFORE after a force push"
           elif [ "$(git rev-parse HEAD)" != "$AFTER" ]; then
-            done="main is no longer at $AFTER (a later push, or a re-run of this job); nothing reverted"
+            done="main is no longer at $AFTER (a later push, or a re-run of this job); nothing undone"
+          # One undo commit with exactly the previous tip's tree (never per-commit reverts: a pushed merge with an older first parent would roll main further back)
+          elif git read-tree --reset -u "$BEFORE" && git commit -q --allow-empty --no-verify -m "main-guard: undo push $BEFORE..$AFTER by user ID $PUSHER_ID" && git diff --quiet "$BEFORE" HEAD && git push origin HEAD:refs/heads/main; then
+            done="restored main to the tree of $BEFORE with one undo commit"
+            gh api -X POST "repos/$GH_REPO/statuses/$(git rev-parse HEAD)" -f state=success -f context=guards/main-guard -f "description=undo by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the undo commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"
           else
-            n=0
-            if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then commits=$(git rev-list --first-parent --max-count=50 "$AFTER")
-            else commits=$(git rev-list --first-parent "$BEFORE".."$AFTER" 2>/dev/null) || { commits=""; done="could not list the pushed commits ($BEFORE..$AFTER); revert them by hand"; }; fi
-            for c in $commits; do
-              if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then m="-m 1"; else m=""; fi
-              # shellcheck disable=SC2086
-              git revert --no-edit $m "$c" >/dev/null 2>&1 && n=$((n+1)) || { git revert --abort 2>/dev/null || true; break; }
-            done
-            total=$(wc -w <<<"$commits")
-            if [ "$n" != 0 ] && git push origin HEAD:refs/heads/main; then
-              done="reverted $n of $total pushed commit(s) with new commits"
-              # Only a complete revert is marked checked: a partial one leaves pushed commits on main, so the chain check must keep flagging its head
-              if [ "$n" != "$total" ]; then done="$done; the head stays unmarked (partly undone) until a founder accepts it"
-              else gh api -X POST "repos/$GH_REPO/statuses/$(git rev-parse HEAD)" -f state=success -f context=guards/main-guard -f "description=revert by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the revert commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"; fi
-            fi
+            done="the undo commit could not be made or pushed (see the job log); the founders restore main by hand"
           fi
           for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml; do
             for st in in_progress queued; do for id in $(gh run list --workflow "$w" --status "$st" --json databaseId --jq '.[].databaseId' 2>/dev/null); do gh run cancel "$id" || true; done; done

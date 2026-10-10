@@ -21,9 +21,9 @@ PR opened / pushed
 A founder reads the result and merges.
 Founder @claude on an issue (claude.yml, issue_comment by a founder, from main): job answer (read-only token, prompt mode)
 reads the thread with gh → answer as text → job post scans and posts it on the issue.
-Push to main (main-guard.yml, also hourly): a founder's push (a merge) is fine; any other push is reverted, every workflow that holds a
+Push to main (main-guard.yml, also hourly): a founder's push (a merge) is fine; any other push is undone (one commit with the previous tip's tree), every workflow that holds a
 secret or write scope cancelled and disabled, a security issue opened; a push that passed no main-guard run (a [skip ci] head
-commit, a cancelled run) stops the agents the same way at the next push or within the hour. The guard's own revert commit, and
+commit, a cancelled run) stops the agents the same way at the next push or within the hour. The guard's own undo commit, and
 a commit a founder accepts by running the workflow by hand, carry the `guards/main-guard` commit status instead of a run.
 Manager shift (agent-manager.yml, hourly): job shift (token check, event check, Claude with the agents' token) → job after
 (fresh runner, always): token and guard-workflow check again, the account's events in the last 24 hours all in this repository.
@@ -74,11 +74,12 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   and every commit was pushed by a founder according to the ledger.
 - `scripts/check-pushers.sh` (`pusher-ledger.yml` records, guards verifies): records who pushed each commit as a commit status
   signed with `GUARDS_LEDGER_KEY` (HMAC), and reads it back; GitHub keeps no durable pusher per commit and commit authors can be forged.
-- `scripts/check-main-push.sh` (main-guard, every push to `main` and hourly): a non-founder push is reverted, every
+- `scripts/check-main-push.sh` (main-guard, every push to `main` and hourly): a non-founder push is undone with one commit
+  carrying the previous tip's tree (never per-commit reverts), every
   workflow that holds a secret or write scope cancelled and disabled, a blocked security issue opened; every run also
   requires the previous push's head (hourly: `main`'s head) to have passed the main guard itself, so a push whose head
   commit says `[skip ci]` (no run) or whose run was cancelled stops the agents at the next push or within the hour; the
-  revert commit it pushes and a commit a founder accepts (`workflow_dispatch`) are marked with the `guards/main-guard`
+  undo commit it pushes and a commit a founder accepts (`workflow_dispatch`) are marked with the `guards/main-guard`
   commit status (posted as github-actions[bot] only).
 - `scripts/check-python-deps.sh` (guards and CI): the guard scripts' Python packages (PyYAML, coverage.py) from a hash-pinned
   requirements file into a private venv.
