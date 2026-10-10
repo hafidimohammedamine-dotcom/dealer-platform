@@ -9,9 +9,7 @@ run() { # run <ok|fail> <name> <upstream text (printf)> <removed numbers> <messa
   D=$(mktemp -d "$TMPROOT/sd.XXXXXX") || exit 2
   printf "$text" > "$D/up.md"
   out=$(printf '%s\n' $nums | python3 -I "$PY" "$D/up.md" "$@" 2>&1); rc=$?
-  got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"
-  else t FAIL "$name ($got, rc=$rc)"; echo "$out"; fi
+  assert_result "$want" "$rc" "$name" "$msg" "$out"
   rm -rf "$D"; }
 # Arguments and input
 D0=$(mktemp -d "$TMPROOT/sd.XXXXXX"); out=$(python3 -I "$PY" 2>&1); rc=$?

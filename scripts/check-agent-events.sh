@@ -13,14 +13,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
 ACCOUNTS="${1:?accounts file}"; SINCE="${2:?since (ISO-8601 UTC)}"
-if [ -n "${GITHUB_ACTIONS:-}" ]; then GH=gh; REPO="${GITHUB_REPOSITORY:-}"; else GH="${GH_BIN:-gh}"; REPO="${GH_REPO:-${GITHUB_REPOSITORY:-}}"; fi
-[[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || { echo "ERROR: GH_REPO or GITHUB_REPOSITORY (owner/repo) is missing or bad"; exit 1; }
+gh_context || exit 1
 [[ "$SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "ERROR: since must be an ISO-8601 UTC time like 2026-10-10T05:00:00Z"; exit 1; }
 rows=$(accounts_rows "$ACCOUNTS") || { echo "$rows"; exit 1; }
-who=$("$GH" api user --jq '"\(.id) \(.login)"' 2>/dev/null || true)
-read -r id login <<<"$who" || true
-[[ "${id:-}" =~ ^[0-9]+$ && "${login:-}" =~ ^[A-Za-z0-9-]+$ ]] || { echo "ERROR: could not read the token's GitHub login (is GH_TOKEN set and valid?)"; exit 1; }
-[ "$(account_field "$rows" "$id" 3)" = agent ] || { echo "ERROR: GH_TOKEN belongs to '$login' (ID $id), which is not an agent account in $ACCOUNTS."; exit 1; }
+token_account "$rows" || exit 1
+login=$TOKEN_LOGIN
+[ "$TOKEN_ROLE" = agent ] || { echo "ERROR: GH_TOKEN belongs to '$login' (ID $TOKEN_ID), which is not an agent account in $ACCOUNTS."; exit 1; }
 # The account's events (the API keeps about 90 days / 300 events; the token's own account sees its private events too)
 events=$("$GH" api --paginate "users/$login/events?per_page=100" --jq '.[] | "\(.created_at) \(.type) \(.repo.name)"' 2>/dev/null) \
   || { echo "ERROR: could not read the events of '$login' (GitHub API error)."; exit 1; }
@@ -34,7 +32,7 @@ done <<<"$events"
 if [ -n "$outside" ]; then
   echo "ERROR: the agents' account '$login' acted outside $REPO since $SINCE:"
   printf '%s' "$outside"
-  echo "A founder reads those events (what was posted where), rotates AGENT_GH_TOKEN and checks the shift's log; agents must not run until then."
+  echo "A founder reads those events (what was posted where), rotates AGENT_GH_TOKEN_V2 and checks the shift's log; agents must not run until then."
   exit 1
 fi
 echo "Agent events OK: $total event(s) by '$login' since $SINCE, all in $REPO"

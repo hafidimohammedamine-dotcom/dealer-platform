@@ -21,8 +21,7 @@ tree() { # a fresh tree: scripts/check-a.sh (bash), scripts/check-b.py (Python),
 run() { # run <ok|fail> <name> <message> [args...]   (COV_TESTS from the caller's environment)
   local want=$1 name=$2 msg=$3; shift 3
   out=$(env COV_INNER=1 COV_VENV="$W/venv" COV_TESTS="${TESTS-check-a check-b check-coverage}" bash "$T/scripts/check-coverage.sh" "$@" 2>&1); rc=$?
-  got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"; else t FAIL "$name ($got)"; echo "$out" | tail -n 12; fi; }
+  assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 tree; run ok   "full coverage passes" "Coverage OK (every guard script at least 90%)"
 tree; run fail "bad minimum" "bad minimum percent" ninety
 tree; printf '#!/usr/bin/env bash\necho "0 passed, 1 failed"; exit 1\n' > "$T/scripts/check-c.test.sh"; TESTS= run fail "every test file runs (a new failing one is not skipped)" "ERROR: check-c tests failed"

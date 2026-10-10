@@ -16,7 +16,7 @@ jobs:
   review:
     # Claude reads untrusted PR data with a read-only token; posting and labels happen in the `post` job below, which has
     # the write scopes and runs no Claude.
-    if: github.event.pull_request.draft == false
+    if: (github.event.pull_request.draft == false) && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -60,7 +60,7 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
@@ -77,7 +77,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -106,7 +106,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

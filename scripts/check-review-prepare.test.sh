@@ -56,7 +56,17 @@ out=$(cd "$W/base" && bash "$SCRIPT" 8 "$W/p8" main 2>&1); rc=$?
 mkdir -p "$W/bin" && printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/git.log"\nexec %s "$@"\n' "$W" "$(command -v git)" > "$W/bin/git" && chmod +x "$W/bin/git"
 out=$(cd "$W/base" && PATH="$W/bin:$PATH" GIT_TOKEN=tok-test-not-real bash "$SCRIPT" 7 "$W/p9" 2>&1); rc=$?
 hdr=$(printf 'x-access-token:%s' tok-test-not-real | base64 -w0)
-[ $rc = 0 ] && grep -qF -- "-c http.extraheader=AUTHORIZATION: basic $hdr fetch" "$W/git.log" && ok "GIT_TOKEN is passed as a one-time auth header" || bad "GIT_TOKEN header" "$out"
+[ $rc = 0 ] && grep -qF -- "-c http.extraheader=AUTHORIZATION: basic $hdr -c core.hooksPath=/dev/null -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false -c filter.lfs.clean= fetch" "$W/git.log" && ok "GIT_TOKEN is passed as a one-time auth header, with filters and hooks off" || bad "GIT_TOKEN header" "$(cat "$W/git.log")"
+# A PR that marks a file for git-lfs with a smudge filter configured on the runner: the filter never runs (the pointer stays as is)
+cd "$W/base" && git checkout -q pr && printf '*.bin filter=lfs diff=lfs merge=lfs -text\n' > .gitattributes && printf 'version https://git-lfs.github.com/spec/v1\noid sha256:0000\nsize 4\n' > big.bin \
+  && git add -A && git commit -qm lfs && git push -q origin "HEAD:refs/pull/10/head" 2>/dev/null && git checkout -q main && git fetch -q origin
+git config filter.lfs.smudge 'printf SMUDGED-BY-FILTER'; git config filter.lfs.required true; git config filter.lfs.process ''
+out=$(bash "$SCRIPT" 10 "$W/p10" 2>&1); rc=$?
+[ $rc = 0 ] && grep -q '^version https://git-lfs' "$W/p10/big.bin" && ! grep -rq SMUDGED-BY-FILTER "$W/p10" && ok "an LFS-filtered file is checked out as its pointer (no filter ran)" || bad "LFS filter" "$out $(cat "$W/p10/big.bin" 2>&1)"
+git config --unset filter.lfs.smudge; git config --unset filter.lfs.required; git config --unset filter.lfs.process
+printf '#!/usr/bin/env bash\necho HOOK-RAN > "%s/hook-ran"\n' "$W" > "$W/base/.git/hooks/post-checkout"; chmod +x "$W/base/.git/hooks/post-checkout"
+out=$(bash "$SCRIPT" 10 "$W/p10b" 2>&1); rc=$?
+[ $rc = 0 ] && [ ! -f "$W/hook-ran" ] && ok "repository hooks do not run during the checkout" || bad "hooks off" "$out"
 ! grep -q 'tok-test-not-real' <<<"$out" && ok "the token is never printed" || bad "token printed" "$out"
 [ "$(git -C "$W/base" config --get-regexp 'http\..*extraheader' || true)" = "" ] && ok "the token is not stored in git config" || bad "token stored"
 # A PR with a symlink (docs/x.md -> /proc/self/environ would leak the job's environment to a reader) is refused

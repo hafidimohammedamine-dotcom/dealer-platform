@@ -22,7 +22,7 @@ Flow: Issue -> manager -> builder -> pull request -> review team -> fixes (up to
 
 Pace (max): manager every hour, up to 4 builder jobs per shift, review on every pull request.
 On Max, Fable can use up to half of the weekly limit and uses it faster than Opus.
-With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_TOKEN_REVIEW`.
+With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD_V2` and `CLAUDE_TOKEN_REVIEW_V2`.
 
 ## 1. Repo
 1. Create a **private** GitHub repo (e.g. `itri/dealer-platform`).
@@ -31,12 +31,15 @@ With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_T
 ## 2. Accounts and secrets (Settings -> Secrets and variables -> Actions)
 | Secret | How to get it |
 |---|---|
-| `CLAUDE_TOKEN_BUILD` | **Founder 1** (Max plan) runs `claude setup-token` on their computer, pastes the token. Runs the manager, weekly audit, @claude |
-| `CLAUDE_TOKEN_REVIEW` | **Founder 2** (Max plan) runs `claude setup-token`, pastes the token. Runs reviews and the daily report |
+| `CLAUDE_TOKEN_BUILD_V2` | **Founder 1** (Max plan) runs `claude setup-token` on their computer, pastes the token. Runs the manager, weekly audit, @claude |
+| `CLAUDE_TOKEN_REVIEW_V2` | **Founder 2** (Max plan) runs `claude setup-token`, pastes the token. Runs reviews and the daily report |
 | `GUARDS_LEDGER_KEY` | Any random string of 32+ characters (`openssl rand -hex 32`). Signs the guards' record of who pushed each commit; the agents can never read it |
-| `AGENT_GH_TOKEN` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). That account must own no repository of its own. Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
+| `AGENT_GH_TOKEN_V2` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). That account must own no repository of its own. Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
 
 On one plan, use the same token for both. With two plans, splitting the tokens spreads the work over both.
+The `_V2` names are deliberate: a GitHub re-run of an old workflow run uses that run's old workflow file with today's
+secrets, so old secret names must hold nothing. If you ever rotate for that reason again, bump the suffix in the workflows
+and the policy (`agent_token_secret`), create the new secrets and delete the old ones.
 
 3. Install the Claude GitHub App on the repo: https://github.com/apps/claude
 
@@ -82,7 +85,7 @@ one that is not listed, and the agents cannot change that check.
 
 ## First-week checks
 - After the first manager shift, read its log. If a tool was refused, add it to `--allowedTools` in the workflow.
-- If the review didn't start on an agent's PR, check `AGENT_GH_TOKEN` is set (pushes with the default token don't start workflows).
+- If the review didn't start on an agent's PR, check `AGENT_GH_TOKEN_V2` is set (pushes with the default token don't start workflows).
 - Check one PR end to end: issue -> PR -> review comment -> fix round -> `ready-to-merge`.
 
 ## Payload rules (keep dealers apart)

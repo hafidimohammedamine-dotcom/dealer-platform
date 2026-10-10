@@ -27,13 +27,13 @@ expect ok   "older events are not counted"              "Agent events OK: 1 even
 expect ok   "an event exactly at 'since' counts"        "Agent events OK: 1 event(s)" "STUB_EVENTS=2026-10-10T05:00:00Z PushEvent owner/repo\n"
 expect fail "a comment in another repository"           "acted outside owner/repo since 2026-10-10T05:00:00Z:" "STUB_EVENTS=${IN}2026-10-10T06:20:00Z IssueCommentEvent attacker/inbox\n"
 expect fail "the offending event is listed"             "2026-10-10T06:20:00Z IssueCommentEvent attacker/inbox" "STUB_EVENTS=${IN}2026-10-10T06:20:00Z IssueCommentEvent attacker/inbox\n"
-expect fail "an issue opened elsewhere"                 "rotates AGENT_GH_TOKEN" "STUB_EVENTS=2026-10-10T06:20:00Z IssuesEvent someone/else\n"
+expect fail "an issue opened elsewhere"                 "rotates AGENT_GH_TOKEN_V2" "STUB_EVENTS=2026-10-10T06:20:00Z IssuesEvent someone/else\n"
 expect fail "a fork or push elsewhere"                  "acted outside" "STUB_EVENTS=2026-10-10T06:20:00Z ForkEvent agents-bot/dealer-platform\n"
 expect fail "events unreadable is an error"             "could not read the events of 'agents-bot'" STUB_EVENTS_RC=1
 expect fail "a founder's token"                         "belongs to 'founder-one' (ID 111), which is not an agent account" "STUB_WHO=111 founder-one"
 expect fail "gh fails"                                  "could not read the token's GitHub login" STUB_RC=1 STUB_WHO=
 expect fail "bad since"                                 "since must be an ISO-8601 UTC time" SINCE=yesterday
-expect fail "bad repository name"                       "GH_REPO or GITHUB_REPOSITORY (owner/repo) is missing or bad" "GH_REPO=owner/re po"
+expect fail "bad repository name"                       "bad GH_REPO" "GH_REPO=owner/re po"
 expect fail "missing accounts file"                     "accounts file not found" ACC="$T/nope"
 mkdir -p "$T/path"; cp "$T/gh" "$T/path/gh"
 expect ok   "in Actions: gh from PATH, repo from GITHUB_REPOSITORY" "all in owner/repo" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GH_REPO=other/repo "PATH=$T/path:$PATH" "STUB_EVENTS=$IN"

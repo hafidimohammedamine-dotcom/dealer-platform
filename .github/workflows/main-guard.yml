@@ -3,12 +3,16 @@
 # cannot change this file; pushes made here with the workflow's token start no workflow (no loop).
 # The push itself could have changed the script, its library or the accounts list, so this job's pin step (.github/pins.txt,
 # whose hash sits in this file) must pass first. On a mismatch the fallback step, written here with the founders' IDs, undoes
-# the push without running any repository file.
+# the push without running any repository file. Every run also checks that the previous push's head passed the main guard
+# itself (a push whose head commit says [skip ci] starts no workflow; a cancelled run passed nothing), and the hourly schedule
+# checks main's head the same way, so an unchecked push stops the agents within the hour.
 name: Main guard
 run-name: "Main guard @ ${{ github.sha }} by user ID ${{ github.event.sender.id }}"
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "37 * * * *"   # hourly: main's head must have passed the main guard
 permissions:
   contents: write   # revert commits on main
   actions: write    # cancel and disable every workflow that holds a secret or write scope after a bad push
@@ -26,7 +30,7 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -35,9 +39,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PUSHER_ID: ${{ github.event.sender.id }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
+          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || github.event.sender.id }}
+          BEFORE: ${{ github.event.before || '-' }}
+          AFTER: ${{ github.event.after || '-' }}
         run: bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt
       - name: If the pins did not match, undo the push from this file alone (no repo script involved)
         # The founders' user IDs are written here, outside the pushed files' reach: 238822878 (.github/accounts.txt).

@@ -15,6 +15,9 @@ case "$1 $2" in
   "issue create") exit "${STUB_ISSUE_RC:-0}";;
   "run list") [ "$4" = agent-manager.yml ] && [ "$6" = in_progress ] && echo "${STUB_RUNNING_ID:-}"; exit 0;;   # one running manager shift
   "run cancel") exit "${STUB_CANCEL_RC:-0}";;
+  "api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha="*) [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_RUNS-completed/success}"; exit 0;;
+  "api repos/owner/repo/actions/workflows/main-guard.yml") printf '%s\n' "${STUB_FLOOR:-2000-01-01T00:00:00Z}"; exit 0;;
+  "api repos/owner/repo/commits/"*) printf '%s\n' "${STUB_DATE:-2030-01-01T00:00:00Z}"; exit 0;;
 esac
 exit 9
 STUB
@@ -34,7 +37,20 @@ run() { # run <ok|fail> <name> <message> <pusher> <before> <after> [VAR=value ..
 Z=0000000000000000000000000000000000000000
 
 fresh; push_commits 1; run ok "a founder's push is fine" "Push to main by founder 'founder-one' (ID 111): OK." 111 "$BASE" "$HEAD"
-check "founder push: nothing reverted, nothing disabled, no issue" bash -c '! grep -q . "$1"' _ "$W/gh.log"
+check "founder push: nothing reverted, nothing disabled, no issue (only the chain check asked for the previous head's runs)" bash -c '! grep -qv "gh api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha=$2" "$1"' _ "$W/gh.log" "$BASE"
+# The chain: the previous push's head must have passed the main guard itself (a [skip ci] push or a cancelled run has none)
+fresh; push_commits 1; run fail "a founder's push after an unchecked push: the agents are stopped, an issue opened, nothing reverted" "reached main without passing the main guard (missing $BASE (runs: none))" 111 "$BASE" "$HEAD" STUB_RUNS=
+check "unchecked push: 8 workflows disabled, the issue names the commit, main untouched" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run (commit $3)" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
+fresh; push_commits 1; run fail "a cancelled run on the previous head counts as unchecked" "missing $BASE (runs: completed/cancelled)" 111 "$BASE" "$HEAD" STUB_RUNS=completed/cancelled
+fresh; push_commits 1; run ok "a previous head committed before the main guard existed is fine" "was committed before the main guard existed" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_DATE=1999-12-31T00:00:00Z
+fresh; push_commits 1; run ok "a previous head whose run is still going: waited, then passed" "passed the main guard" 111 "$BASE" "$HEAD" "STUB_RUNS=completed/success in_progress/" MAIN_GUARD_WAIT=10
+fresh; push_commits 1; run fail "the previous head's runs cannot be listed: an error, not a pass" "could not list the main-guard runs of $BASE" 111 "$BASE" "$HEAD" STUB_RUNS_RC=1
+check "API error: nothing disabled, no issue" bash -c '! grep -q "gh workflow disable" "$1" && ! grep -q "gh issue create" "$1"' _ "$W/gh.log"
+fresh; push_commits 1; run ok "the first push ever (zero before) has no chain to check" "Push to main by founder" 111 "$Z" "$HEAD" STUB_RUNS=
+# The schedule: main's head itself must have passed
+fresh; push_commits 1; run ok "schedule: main's head passed" "Scheduled check: main's head $HEAD passed the main guard." schedule - -
+fresh; push_commits 1; run fail "schedule: main's head never checked (a [skip ci] push) stops the agents" "commit $HEAD reached main without passing the main guard" schedule - - STUB_RUNS=
+check "schedule: issue opened, workflows disabled" bash -c 'grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run" "$1" && [ "$(grep -c "gh workflow disable " "$1")" = 8 ]' _ "$W/gh.log"
 fresh; push_commits 1 2; run fail "an agent's push is reverted, the secret-holding workflows cancelled and disabled, an issue opened" "reverted 2 pushed commit(s) with new commits on main; cancelled 1 running or queued run(s); disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml (re-enable them after the review)" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
 check "origin main now has the two reverts on top and the base content" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && git show origin/main:f | grep -qx base && ! git ls-tree --name-only origin/main | grep -q "^f1$"' _ "$W/clone"
 check "the running shift is cancelled before the disables (both states asked for every workflow)" bash -c 'grep -q "gh run cancel 4242" "$1" && [ "$(grep -c "gh run list --workflow " "$1")" = 16 ] && [ "$(grep -n "gh run cancel 4242" "$1" | cut -d: -f1)" -lt "$(grep -n "gh workflow disable agent-manager.yml" "$1" | cut -d: -f1)" ]' _ "$W/gh.log"
@@ -48,6 +64,9 @@ check "the merge's file is gone from origin main" bash -c 'cd "$1" && git fetch 
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
 run fail "a force push by the agent is undone" "restored main to $OLD after a force push" 333 "$OLD" "$HEAD"
 check "origin main is the previous tip again" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$2" ]' _ "$W/clone" "$OLD"
+fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
+run fail "a force push whose previous tip never passed the guard: nothing restored (the guard never puts an unchecked commit on main)" "commit $OLD reached main without passing the main guard" 333 "$OLD" "$HEAD" STUB_RUNS=
+check "unchecked previous tip: main stays as pushed, agents stopped" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$2" ] && [ "$(grep -c "gh workflow disable " "$3")" = 8 ]' _ "$W/clone" "$HEAD" "$W/gh.log"
 mkdir -p "$W/nopush"; printf '#!/usr/bin/env bash\ncase "$1" in push) exit 1;; esac; exec "%s" "$@"\n' "$(command -v git)" > "$W/nopush/git"; chmod +x "$W/nopush/git"
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
 run fail "a force push that cannot be restored is reported" "main was force-pushed and could not be restored to $OLD" 333 "$OLD" "$HEAD" PATH="$W/nopush:$W/stub:$PATH"
@@ -65,7 +84,7 @@ fresh; run fail "bad sha" "before/after must be 40-hex" 333 "$BASE" nope
 fresh; printf 'nonsense\n' > "$W/bad-accounts"; out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_REPO=owner/repo bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/bad-accounts" 2>&1); rc=$?
 [ $rc = 1 ] && grep -q "bad line 1" <<<"$out" && t PASS "broken accounts file fails closed" || { t FAIL "broken accounts file ($rc)"; echo "$out"; }
 out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/accounts" 2>&1); rc=$?
-[ $rc != 0 ] && grep -q "GH_REPO" <<<"$out" && t PASS "GH_REPO required" || t FAIL "GH_REPO required ($rc)"
+[ $rc != 0 ] && grep -q "GH_REPO or GITHUB_REPOSITORY" <<<"$out" && t PASS "GH_REPO required" || t FAIL "GH_REPO required ($rc)"
 # main-guard.yml's pin step (id pins) uses .github/pins.txt like every workflow; scripts/check-pins.sh checks it is current.
 REPO_ROOT="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 check "the repository's pins (pins.txt and every workflow's PINS_SHA256) are current (the checker verifies them)" bash "$REPO_ROOT/scripts/check-workflows.sh" "$REPO_ROOT"
@@ -115,6 +134,9 @@ holding = sorted(os.path.basename(f) for f in glob.glob(f"{root}/.github/workflo
 assert sorted(wfs) == holding, (sorted(wfs), "must equal the workflows with secrets. or ': write'", holding)
 main = [s for s in steps if s.get("name", "").startswith("The pusher must be a founder")][0]
 assert main["run"].strip() == 'bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt'
-assert wf.get("on", wf.get(True)) == {"push": {"branches": ["main"]}} and wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write"}
+assert wf.get("on", wf.get(True)) == {"push": {"branches": ["main"]}, "schedule": [{"cron": "37 * * * *"}]} and wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write"}
+env = main["env"]
+assert env["PUSHER_ID"] == "${{ github.event_name == 'schedule' && 'schedule' || github.event.sender.id }}", env["PUSHER_ID"]
+assert env["BEFORE"] == "${{ github.event.before || '-' }}" and env["AFTER"] == "${{ github.event.after || '-' }}", env
 PY
 summary

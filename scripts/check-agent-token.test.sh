@@ -12,6 +12,8 @@ case "$*" in
   'api user --jq "\(.id) \(.login)"') printf '%s\n' "$STUB_WHO"; exit "${STUB_RC:-0}";;
   'api -i user') printf 'HTTP/2.0 200 OK\r\n'; [ -n "${STUB_SCOPES:-}" ] && printf '%s: %s\r\n' "${STUB_HDR:-X-Oauth-Scopes}" "$STUB_SCOPES"; printf '\r\n{}\n';;
   'api user/repos?type=owner&per_page=100 --jq [.[].full_name] | join(", ")') printf '%s\n' "${STUB_OWNED:-}"; exit "${STUB_OWNED_RC:-0}";;
+  'api repos/owner/repo/actions/workflows/main-guard.yml --jq .created_at') printf '%s\n' "${STUB_FLOOR:-2026-10-01T00:00:00Z}"; exit "${STUB_FLOOR_RC:-0}";;
+  'api repos/owner/repo/commits/'*' --jq .commit.committer.date') printf '%s\n' "${STUB_DATE:-2026-10-10T05:00:00Z}"; exit "${STUB_DATE_RC:-0}";;
   'api repos/owner/repo/actions/workflows/'*'.yml --jq .state')
     w=${2##*/}; [ "$w" = "${STUB_DISABLED:-}" ] && echo disabled_manually && exit 0; [ "${STUB_STATE_RC:-0}" = 0 ] && echo active; exit "${STUB_STATE_RC:-0}";;
   'api repos/owner/repo/commits/HEAD --jq .sha') printf '%s\n' "${STUB_HEAD:-$(printf 'c%.0s' {1..40})}"; exit "${STUB_HEAD_RC:-0}";;
@@ -53,12 +55,17 @@ expect fail "workflow state unreadable"        "could not read the state of work
 expect fail "head unreadable"                  "could not read the default branch's head commit" "$OK" STUB_HEAD_RC=1
 expect fail "odd head text"                    "could not read the default branch's head commit" "$OK" "STUB_HEAD=not a sha"
 expect fail "main-guard runs unreadable"       "could not list the main-guard runs" "$OK" STUB_RUNS_RC=1
-expect fail "main-guard run cancelled"         "has no successful main-guard run (runs: completed/cancelled)" "$OK" STUB_RUNS=completed/cancelled
-expect fail "main-guard run failed"            "has no successful main-guard run (runs: completed/failure)" "$OK" STUB_RUNS=completed/failure
-expect fail "no main-guard run at all"         "has no successful main-guard run (runs: none)" "$OK" STUB_RUNS=
+expect fail "main-guard run cancelled"         "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: completed/cancelled))" "$OK" STUB_RUNS=completed/cancelled
+expect fail "main-guard run failed"            "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: completed/failure))" "$OK" STUB_RUNS=completed/failure
+expect fail "no main-guard run at all"         "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: none))" "$OK" STUB_RUNS=
 expect ok   "a later success among older runs" "main-guard passed" "$OK" "STUB_RUNS=completed/failure completed/success"
 expect ok   "run in progress, then success"    "main-guard passed" "$OK" STUB_RUNS=in_progress/ STUB_RUNS_LATER=completed/success
 expect fail "run still queued after the wait"  "has not finished after 10s; re-run this job later" "$OK" STUB_RUNS=queued/
+expect ok   "a head committed before the main guard existed passes" "main-guard passed on cccc" "$OK" STUB_RUNS= STUB_DATE=2026-09-30T23:59:59Z
+expect fail "a head committed after the main guard with no run (a [skip ci] push)" "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: none))" "$OK" STUB_RUNS= STUB_DATE=2026-10-01T00:00:01Z
+expect fail "workflow creation time unreadable"  "could not read when the main-guard workflow was created" "$OK" STUB_RUNS= STUB_FLOOR_RC=1
+expect fail "commit date unreadable"             "could not read commit cccc" "$OK" STUB_RUNS= STUB_DATE_RC=1
+expect fail "odd commit date"                    "could not read commit cccc" "$OK" STUB_RUNS= "STUB_DATE=not a date"
 expect ok   "GITHUB_REPOSITORY as the fallback"  "main-guard passed" "$OK" GH_REPO= GITHUB_REPOSITORY=owner/repo
 expect fail "no repository name"               "GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set" "$OK" GH_REPO= GITHUB_REPOSITORY=
 expect fail "bad GH_REPO"                      "bad GH_REPO" "$OK" "GH_REPO=owner/re po"

@@ -5,6 +5,10 @@
 # Usage: scripts/check-skills-upstream-all.sh <repo-root-with-.claude> [work-dir]
 #   UPSTREAM_BASE (default https://github.com/) is only overridden by the tests (file:// fixtures).
 set -euo pipefail
+# No filters or hooks while an upstream's files are written (a .gitattributes/.lfsconfig there must not make git-lfs fetch
+# from a URL it chooses, nor a hook run).
+NOFILTER=(-c core.hooksPath=/dev/null -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false -c filter.lfs.clean=)
+export GIT_LFS_SKIP_SMUDGE=1
 ROOT="${1:?repo root}"; WORK="${2:-$(mktemp -d "${TMPDIR:-/tmp}/up-all.XXXXXX")}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-skills-lib.sh
@@ -21,8 +25,8 @@ while read -r name kind _; do
   repo=$LOCK_REPO; path=$LOCK_PATH; sha=$LOCK_SHA
   d="$WORK/$name"; rm -rf "$d"; mkdir -p "$d"
   if ! ( cd "$d" && git init -q . && git remote add origin "$BASE$repo" \
-         && git -c protocol.file.allow=always fetch -q --depth 1 --filter=blob:none origin "$sha" \
-         && git sparse-checkout set --no-cone "/$path/" && git -c advice.detachedHead=false checkout -q FETCH_HEAD \
+         && git -c protocol.file.allow=always "${NOFILTER[@]}" fetch -q --depth 1 --filter=blob:none origin "$sha" \
+         && git sparse-checkout set --no-cone "/$path/" && git -c advice.detachedHead=false "${NOFILTER[@]}" checkout -q FETCH_HEAD \
          && [ "$(git rev-parse HEAD)" = "$sha" ] ); then
     echo "ERROR: could not fetch $repo at $sha for '$name'"; fail=1; continue
   fi

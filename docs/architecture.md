@@ -17,12 +17,17 @@ PR opened / pushed
       answer handed over as text → job post (write scopes, no Claude) scans it, posts it, labels PASS (ready-to-merge) or
       FAIL (changes-requested). The daily report and weekly audit post the same way.
 A founder reads the result and merges.
-Push to main (main-guard.yml): a founder's push (a merge) is fine; any other push is reverted, every workflow that holds a secret or write scope cancelled and disabled, a security issue opened.
+Push to main (main-guard.yml, also hourly): a founder's push (a merge) is fine; any other push is reverted, every workflow that holds a
+secret or write scope cancelled and disabled, a security issue opened; a push that passed no main-guard run (a [skip ci] head
+commit, a cancelled run) stops the agents the same way at the next push or within the hour.
+Manager shift (agent-manager.yml, hourly): job shift (token check, event check, Claude with the agents' token) → job after
+(fresh runner, always): token and guard-workflow check again, the account's events in the last 24 hours all in this repository.
 ```
 Agents (manager and builders) open and push PRs with the agents' own GitHub account (`mohammedaminehafidi-ctrl`, the `agent`
 line of `.github/accounts.txt`); founders use their own accounts. People are identified by numeric user ID, never by login.
 Before Claude starts, every job holding the agents' token checks that it belongs to that account and is limited (classic with
-only `repo`, or fine-grained). Details: `docs/runbooks/agent-network-lock.md`.
+only `repo`, or fine-grained); every job holding a secret runs only on a run's first attempt (a re-run would hand today's
+secrets to an old workflow version). Details: `docs/runbooks/agent-network-lock.md`.
 Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-guards.md`, `docs/runbooks/workflow-checker.md`.
 
 ### Guard checks for skills and agent workflows
@@ -32,21 +37,34 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-skills-upstream-all.sh`: each third-party skill equals its locked upstream commit minus whole units only
   (founder-reviewed when a removed unit holds a warning), and its `.claude/skills-patches/<name>.diff` record matches.
 - `scripts/check-workflows.sh` (`check-workflows.py`, general rules for every workflow and local action;
-  `check-workflows-claude.py`, the rules for jobs with a claude step; `check-workflows-lib.py`, shared policy and helpers; lists
-  in `check-workflows-policy.json`): Claude runs only through the pinned claude-code-action, on `main`'s code, after the agent
+  `check-workflows-claude.py`, the rules for jobs with a claude step; `check-workflows-people.py`, who may start what, the
+  agents' token check, the manager's after-shift job and the first-attempt rule for every secret-holding job;
+  `check-workflows-lib.py`, shared policy, pins and helpers; lists in `check-workflows-policy.json`): Claude runs only through the pinned claude-code-action, on `main`'s code, after the agent
   network lock and with its binaries, with known flags and a deny list that blocks loading any vendored skill on its own; Claude
   credentials reach no other step; no PR code, checkout moves or late scripts without a pin check in a claude job; no workflow
   with a claude step runs on `pull_request`, `workflow_run` or `push`; tag mode (no prompt) only on issues.
 - `scripts/check-scrub-probe.sh` (job `scrub` in `egress-lock-claude.yml`, from `main`): run by Claude as a tool, it counts the
   Claude tokens a tool can see and prints counts only; the job fails above 0.
-- `scripts/check-agent-token.sh` (every job holding the agents' token, before Claude): the token must belong to the `agent`
-  account in `.github/accounts.txt` (by numeric ID) and be classic with exactly `repo`, or fine-grained with no classic scopes.
+- `scripts/check-agent-token.sh` (every job holding the agents' token, before Claude, and again in the manager's `after`
+  job): the token must belong to the `agent` account in `.github/accounts.txt` (by numeric ID) and be classic with exactly
+  `repo`, or fine-grained with no classic scopes; the account owns no repository; the guard workflows are active; `main`'s
+  head passed the main guard.
+- `scripts/check-agent-events.sh` (the manager, before and after each shift): the agents' account has no event outside this
+  repository in the last 24 hours (the token can comment anywhere GitHub lets it).
+- `scripts/check-review-prepare.sh` (review and guards): fetches the PR as data into `/tmp/pr` with no credentials stored,
+  no git filters or hooks, no symlinks, the agent-instruction files removed, and its history written as plain files.
+- `scripts/check-review-post.sh` (every `post` job): scans an answer with `.gitleaks.toml` and posts it; sets the review
+  labels. `scripts/check-pr-ci-status.sh` (review): waits for CI and guards on the PR head and reports their status.
+- `scripts/check-skill-deletions.py` (`check-skills-upstream-all.sh`): a third-party skill may differ from its upstream only
+  by whole deleted units, with the founder-reviewed ones listed.
 - `scripts/check-founder-files.sh` (guards): founder-only files change only if the PR author and pusher IDs are `founder` IDs
   and every commit was pushed by a founder according to the ledger.
 - `scripts/check-pushers.sh` (`pusher-ledger.yml` records, guards verifies): records who pushed each commit as a commit status
   signed with `GUARDS_LEDGER_KEY` (HMAC), and reads it back; GitHub keeps no durable pusher per commit and commit authors can be forged.
-- `scripts/check-main-push.sh` (main-guard, every push to `main`): a non-founder push is reverted, every workflow that holds a secret or
-  write scope cancelled and disabled, a blocked security issue opened.
+- `scripts/check-main-push.sh` (main-guard, every push to `main` and hourly): a non-founder push is reverted, every
+  workflow that holds a secret or write scope cancelled and disabled, a blocked security issue opened; every run also
+  requires the previous push's head (hourly: `main`'s head) to have passed the main guard itself, so a push whose head
+  commit says `[skip ci]` (no run) or whose run was cancelled stops the agents at the next push or within the hour.
 - `scripts/check-python-deps.sh` (guards and CI): the guard scripts' Python packages (PyYAML, coverage.py) from a hash-pinned
   requirements file into a private venv.
 - `scripts/check-pins.sh` (`update`: founders and the tests; `verify`: every pin step): regenerates `.github/pins.txt` (sha256
@@ -57,7 +75,8 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
   answer to the post job as a job output.
 - `scripts/check-accounts-lib.sh` (sourced by the guards that read `.github/accounts.txt`): the one parser of that file and
-  the one lookup (`account_field`). `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
+  the one lookup (`account_field`), plus the GitHub helpers the token-holding guards share (`gh_context`, `token_account`,
+  `main_guard_passed`). `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
 - `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny, scrub and read-deny
   probes from the claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard

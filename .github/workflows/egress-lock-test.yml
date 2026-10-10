@@ -13,6 +13,9 @@ on:
       - ".github/actions/agent-egress-lock/**"
       - ".github/actions/install-gitleaks/**"
       - ".github/workflows/egress-lock-*.yml"
+      # Not listed on purpose: .github/pins.txt and .github/accounts.txt (this workflow runs PR code and is pins_exempt;
+      # the pins are checked by the workflow checker in CI and guards), scripts/check-egress-lock.test.sh (the unit test runs
+      # in CI, not here) and scripts/check-agent-token.sh (not part of the lock: the manager runs it, its test runs in CI).
       - ".github/workflows/agent-*.yml"
       - ".github/workflows/claude.yml"
       - ".github/workflows/review.yml"
@@ -67,9 +70,13 @@ jobs:
         env:
           AGENT_LOCK_SELFTEST_BREAK: "1"
         uses: ./.github/actions/agent-egress-lock
-      - name: The self-test must have failed
+      - name: The self-test must have failed because of the deliberate break, and nothing else
+        # Every other check passed on this runner (a failed download, install or hash would show up as another line or no
+        # output at all); only the deliberate break failed.
         env:
           OUTCOME: ${{ steps.lock.outcome }}
+          FAILED: ${{ steps.lock.outputs.failed-checks }}
         run: |
-          echo "lock outcome: $OUTCOME"
+          echo "lock outcome: $OUTCOME"; echo "failed checks: $FAILED"
           [ "$OUTCOME" = failure ]
+          [ "$(printf '%s' "$FAILED" | sed '/^$/d')" = "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)" ]

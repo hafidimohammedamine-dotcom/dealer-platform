@@ -45,21 +45,33 @@ PR must remove them (a symlink such as `docs/x.md -> /proc/self/environ` would s
 Its own workflow (`pusher-ledger.yml`, no concurrency group, so no push is ever dropped or cancelled) runs on every push to
 a branch other than `main` (the push event's sender is the account that pushed; opening a PR records nothing, so a commit
 pushed before the PR existed is never credited to whoever opens it). The workflow file comes from the pushed branch (the
-agents' token cannot change workflow files); the scripts come from the default branch, pinned. It records exactly this
-push's commits - `before..after` when `before` is an ancestor of `after` (a fast-forward), or everything since the default
-branch on a new branch or after a force push (whoever rewrote the branch answers for what is on it), in both cases minus
-the commits any other branch or any pull request head (`refs/pull/*/head`, which outlives a deleted branch) already holds (`Recording fast-forward ...` / `Recording new branch or force push: ...`) -
-as pushed by the sender: `scripts/check-pushers.sh record` posts one
-commit status `guards/pusher`
-(`id=<user id> mac=<40 hex>`) on every such commit without a valid record; the mac is an HMAC-SHA256 of "<sha> <id>" with
+agents' token cannot change workflow files); the scripts come from the default branch, pinned. It records exactly the
+commits GitHub's push event lists as new to the repository with this push (`commits[].distinct`; measured on 2026-10-10,
+runs 38033794584, 38033796197 and 38033869617: a commit pushed once is never listed again, not even on a new branch after
+the branch that held it was rewound away) as pushed by the sender (`Recording the <n> commit(s) GitHub lists as new ...`):
+`scripts/check-pushers.sh record` posts one commit status `guards/pusher` (`id=<user id> mac=<40 hex>`) on every such
+commit without a valid record; the mac is an HMAC-SHA256 of "<sha> <id>" with
 the secret `GUARDS_LEDGER_KEY`, which nobody with the agents' token can read, so a forged or copied status never verifies.
 A commit with valid records naming more than one pusher verifies as `unknown (valid records name more than one pusher)`.
 `GUARDS_LEDGER_KEY is missing or shorter than 32 characters` - a founder creates that repository secret (any random string
 of 32+ characters; `openssl rand -hex 32`). `could not record the pusher of <sha>` / `could not read the statuses of <sha>
 (GitHub API error)` - re-run the workflow once (nothing is recorded as "unknown" on an API error). `before/after must be 40-hex commit
-shas` - the event is inconsistent; re-run once, then tell a founder. `branch deleted; nothing to record` is normal. Known limit:
-commits pushed before the ledger existed have no record (see the founder-only step); a founder re-pushes the branch
-(a rebase, or an empty commit of their own) to record them under their own ID.
+shas` / `could not read the push event` / `the event lists <sha>, which is not on the pushed branch` - the event is
+inconsistent; re-run once (a fresh push: see "Re-runs" below), then tell a founder. `the push event lists 2048 commits
+(GitHub's limit)` - push in smaller batches. `branch deleted; nothing to record` is normal. Known limit: a commit that
+reached GitHub without a ledger run (pushed before the ledger existed, with `[skip ci]` in its head commit's message, or
+with its run cancelled) stays unknown for good: GitHub never lists it as new again, so re-pushing it records nothing. For a
+founder-only change that is the point (an agent's unrecorded commit can never be credited to a founder); to get such
+commits through, a founder makes new ones (a rebase or a squash) and answers for them.
+
+### Re-runs and `[skip ci]`
+Every job that holds a secret runs only on a run's first attempt (`github.run_attempt == '1'`): a re-run keeps the original
+commit and workflow file but gets today's secrets, so re-running an old run would hand a current token to code that
+predates the guards (the secrets were renamed to `..._V2` for the same reason). To run something again, push again or start
+a fresh `workflow_dispatch`; a re-run of a secret-holding job is skipped. A push whose head commit message contains
+`[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]` starts no push workflow at all - no ledger run
+(the commits stay unknown, above) and no main-guard run; for `main` the next main-guard run, or the hourly scheduled one,
+finds that push unchecked and stops the agents (see "Main guard").
 
 ### Step "Who pushed each commit (from the ledger written by pusher-ledger.yml)"
 First `the fetched PR head is not this event's head sha (...); the PR moved, see the newer run` - this run judges only the
@@ -169,8 +181,16 @@ wiring (`git archive` of the PR head, base scripts on PR data, the upstream fetc
 change takes effect only after it merges, so the **next** PR's guards log must show the new steps passing.
 
 ## Workflow "Main guard" (job `guard`)
-Runs on every push to `main`. `scripts/check-main-push.sh` compares the pusher's user ID with the `founder` rows: a founder's
-push (every merge) prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder
+Runs on every push to `main` and hourly (`schedule`). First, every run checks the chain: the previous push's head (hourly:
+`main`'s head) must have passed the main guard itself (`Chain: ok <sha> passed the main guard`, or `... was committed
+before the main guard existed`). `commit <sha> reached main without passing the main guard (missing <sha> (runs: ...))`
+means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or the workflow disabled at the
+time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to main passed no main-guard
+run (commit <sha>)` without reverting anything (it cannot tell what that push contained); founders read that commit and
+the pushes after it (`git log --first-parent`), revert what should not be there, rotate `AGENT_GH_TOKEN_V2` if the agents'
+account pushed it, and re-enable the workflows. `the main-guard run for <sha> has not finished after 120s; re-run this job
+later` - the previous run is still going (rare; the hourly run will check). Then `scripts/check-main-push.sh` compares the
+pusher's user ID with the `founder` rows: a founder's push (every merge) prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder
 approval were bypassed (the agents' token can push to `main`; the free plan cannot block it): the job prints `::error::push to
 main by user ID <id> ...`, reverts the pushed first-parent commits with new commits (a merge commit against its first parent;
 never a force push), pushes the reverts with its own token (which starts no workflow), cancels every running or queued run
@@ -178,11 +198,12 @@ of the eight workflows that hold a secret or judge pushes (the manager, review t
 audit, the Claude lock probe, the pusher ledger and guards) and disables them (`cancelled <n> running or queued run(s);
 disabled ...`) so nothing runs tampered code with a token even if the revert failed, and opens an issue `SECURITY: non-founder push to main
 by user ID <id>` labeled `area:security`, `blocked`, `priority:1`, mentioning the founders. Founders then: read what the
-pushed commits contained, check the repositories the pusher's account owns, rotate `AGENT_GH_TOKEN` if the agents' account
+pushed commits contained, check the repositories the pusher's account owns, rotate `AGENT_GH_TOKEN_V2` if the agents' account
 was involved, and re-enable the workflows (Actions -> each workflow -> Enable).
 `revert of <sha> did not apply cleanly` / `the revert could not be pushed` / `could not disable` / `could not open the security
 issue` - the job did what it could and prints the rest; a founder finishes by hand. A force push is undone by putting
-`main` back to the previous tip (`main was force-pushed and could not be restored` means a founder does it by hand).
+`main` back to the previous tip (`main was force-pushed and could not be restored` means a founder does it by hand); the
+guard restores only a tip that passed the main guard itself (the chain check runs first), never an unchecked commit.
 Because the push itself could have changed the script, its library or `.github/accounts.txt`, the job's pin step (above)
 runs first; on a mismatch, the fallback step - written in the workflow file alone, with the founders' user IDs - undoes the
 push the same way (revert or restore), cancels and disables the same workflows and opens `SECURITY: push to main changed pinned files`;
@@ -203,15 +224,17 @@ issue for the founders.
   (the pusher ledger); the agents' account may own no repository, the four guard workflows must be active and the default
   branch's head must have passed the main guard (`scripts/check-agent-token.sh`, start of every shift and again in the
   manager's job `after`: the token could disable those workflows or cancel their runs, and this is what turns that into a
-  visible failure); and the agents' account must have no event outside this repository during a shift
-  (`scripts/check-agent-events.sh`, job `after`: the token can comment on or open issues in any repository it can see).
-  Job `after` is a fresh runner (`needs: shift`, `if: always()`), because the shift's Claude runs with bypassPermissions
+  visible failure); and the agents' account must have no event outside this repository in the last 24 hours
+  (`scripts/check-agent-events.sh`, before each shift and again in job `after`: the token can comment on or open issues
+  in any repository it can see; a rolling day rather than "since the shift started" because the events feed can lag, so
+  the check before the next shift sees what this one missed). Job `after` is a fresh runner (`needs: shift`,
+  `if: always() && github.run_attempt == '1'`), because the shift's Claude runs with bypassPermissions
   and could have written its own job's `$GITHUB_ENV` or `$GITHUB_PATH`; inside Actions both scripts ignore every
   environment override (`GH_BIN`, `GH_REPO`, `GUARD_WORKFLOWS`, `AGENT_TOKEN_WAIT`) and take gh from PATH and the
   repository from `GITHUB_REPOSITORY`. `the agents' account '<login>' acted outside <repo> since <time>:` lists the
-  events: a founder reads what was posted where, rotates `AGENT_GH_TOKEN` and checks the shift's log; `could not read the
-  events of '<login>'` - re-run once. Founder decisions 1 and 4 in `docs/runbooks/agent-network-lock.md`.
-- The agents' own account (`mohammedaminehafidi-ctrl`, ID 250452267) exists and holds the `AGENT_GH_TOKEN` secret's token. If
+  events: a founder reads what was posted where, rotates `AGENT_GH_TOKEN_V2` and checks the shift's log; `could not read the
+  events of '<login>'` - start a fresh run. Founder decisions 1 and 4 in `docs/runbooks/agent-network-lock.md`.
+- The agents' own account (`mohammedaminehafidi-ctrl`, ID 250452267) exists and holds the `AGENT_GH_TOKEN_V2` secret's token. If
   that secret ever holds a founder's or anyone else's token, the manager stops at its step "Agents must run on their own GitHub
   token, never a founder's" on every run. That is on purpose: the founder check in `guards` trusts GitHub accounts, so agents
   must never push as a founder.

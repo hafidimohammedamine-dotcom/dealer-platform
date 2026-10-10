@@ -76,12 +76,12 @@ for cmd in 'claude -p hi' 'npx @anthropic-ai/claude-code -p hi' '~/.local/bin/cl
 done
 fx; printf '      - uses: someone/claude-code-runner@v1\n' >> "$T/$W/t.yml"; expect fail "another claude-code action" "claude action must be one of"
 # Claude credentials go nowhere else
-for v in '${{ secrets.CLAUDE_TOKEN_BUILD }}' "\${{ secrets['CLAUDE_TOKEN_BUILD'] }}" '${{ toJSON(secrets) }}' '${{ secrets.anthropic_key }}'; do
+for v in '${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}' "\${{ secrets['CLAUDE_TOKEN_BUILD_V2'] }}" '${{ toJSON(secrets) }}' '${{ secrets.anthropic_key }}'; do
   fx; printf '      - run: echo hi\n        env:\n          X: %s\n' "$v" >> "$T/$W/t.yml"; expect fail "credential in another step: $v" "outside a claude step's claude_code_oauth_token"
 done
-fx; printf '      - uses: actions/github-script@v7\n        with:\n          script: x\n          github-token: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n' >> "$T/$W/t.yml"; expect fail "credential passed to another action" "secrets.CLAUDE_TOKEN_BUILD outside"
+fx; printf '      - uses: actions/github-script@v7\n        with:\n          script: x\n          github-token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}\n' >> "$T/$W/t.yml"; expect fail "credential passed to another action" "secrets.CLAUDE_TOKEN_BUILD_V2 outside"
 fx; sed -i 's|^jobs:|env:\n  CLAUDE_CODE_OAUTH_TOKEN: x\njobs:|' "$T/$W/t.yml"; expect fail "workflow-level credential env" "t.yml env: Claude/Anthropic credential"
-fx; printf '  b:\n    runs-on: ubuntu-latest\n    env:\n      K: ${{ secrets.CLAUDE_TOKEN_BUILD }}\n    steps:\n      - run: echo hi\n' >> "$T/$W/t.yml"; expect fail "credential in a later job's env" "t.yml job b env: Claude/Anthropic credential"
+fx; printf '  b:\n    runs-on: ubuntu-latest\n    env:\n      K: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}\n    steps:\n      - run: echo hi\n' >> "$T/$W/t.yml"; expect fail "credential in a later job's env" "t.yml job b env: Claude/Anthropic credential"
 fx; sed -i 's|      - id: claude|      - id: claude\n        env:\n          ANTHROPIC_API_KEY: x|' "$T/$W/t.yml"; expect fail "any env on the claude step" "env not allowed on a claude step"
 fx; sed -i 's|prompt: "Do the task."|prompt: "${{ toJSON(secrets) }}"|' "$T/$W/t.yml"; expect fail "credential in the prompt" "in input 'prompt'"
 fx; sed -i 's|,WebFetch,||' "$T/$W/t.yml"; expect fail "a claude step without one of the common denies" "--disallowedTools does not deny WebFetch (every claude step must)"
@@ -112,7 +112,7 @@ for v in "\${{ secrets[format('{0}_TOKEN_BUILD','CLAUDE')] }}" '${{ secrets[env.
   fx; printf '      - run: echo hi\n        env:\n          X: %s\n' "$v" >> "$T/$W/t.yml"; expect fail "dynamic secrets use: $v" "secrets used other than as secrets.<NAME>"
 done
 fx; printf '      - run: echo hi\n        env:\n          X: ${{ secrets.OTHER_TOKEN }}\n' >> "$T/$W/t.yml"; expect ok "a non-Claude secret by name is fine" "Workflow denies OK"
-fx; sed -i 's|^jobs:|permissions: "${{ secrets.CLAUDE_TOKEN_BUILD }}"\njobs:|' "$T/$W/t.yml"; expect fail "credential in workflow-level permissions" "t.yml permissions: Claude/Anthropic credential"
+fx; sed -i 's|^jobs:|permissions: "${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}"\njobs:|' "$T/$W/t.yml"; expect fail "credential in workflow-level permissions" "t.yml permissions: Claude/Anthropic credential"
 # The pre-installed binary may only run through the action
 for cmd in '${{ steps.lock.outputs.claude-path }} -p hi' '$HOME/.local/bin/claude -p hi'; do
   fx; printf '      - run: %s\n' "$cmd" >> "$T/$W/t.yml"; expect fail "pre-installed Claude in a run step: $cmd" "runs Claude outside the pinned claude-code-action"
@@ -143,7 +143,7 @@ fx; sed -i 's|            --model haiku|            --model haiku\n            -
 fx; sed -i 's|            --model haiku|            --model haiku\n            --permission-mode acceptEdits|' "$T/$W/t.yml"; expect fail "another permission mode" "--permission-mode acceptEdits not allowed"
 fx; sed -i 's|            --model haiku|            --model haiku\n            --add-dir /tmp/pr|' "$T/$W/t.yml"; expect fail "--add-dir outside review.yml" "--add-dir /tmp/pr not allowed"
 fresh; sed -i 's|--add-dir /tmp/pr|--add-dir /etc|' "$T/$W/review.yml"; expect fail "--add-dir elsewhere in review.yml" "--add-dir /etc not allowed"
-for tool in 'Bash' 'Bash(*)' 'Write' 'Edit' 'WebFetch' 'Bash(find /tmp/pr:*)' 'Bash(git -C /tmp/pr grep:*)' 'Bash(yarn install:*)'; do
+for tool in 'Bash' 'Bash(*)' 'Write' 'Edit' 'WebFetch' 'Bash(find /tmp/pr:*)' 'Bash(git -C /tmp/pr grep:*)' 'Bash(yarn install:*)' 'Bash(yarn npm audit:*)' 'Bash(yarn why:*)' 'Bash(date:*)' 'Bash(date -f /etc/passwd)'; do
   fx; sed -i "s|            --model haiku|            --model haiku\n            --allowedTools \"Read,$tool\"|" "$T/$W/t.yml"; expect fail "allowedTools $tool outside the manager" "--allowedTools item '$tool' not allowed"
 done
 fx; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read(./**),Grep,Glob,Bash(gh pr view:*),Bash(gh issue view:*)"|' "$T/$W/t.yml"; expect ok "read-only allowedTools" "Workflow denies OK"
@@ -188,7 +188,7 @@ fx; sed -i 's|      - id: claude|      - id: claude\n        if: always()|' "$T/
 fx; sed -i 's|      - id: claude|      - id: claude\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "claude step with continue-on-error" "key 'continue-on-error' not allowed"
 fresh; sed -i '/check-agent-token.sh/d' "$T/$W/agent-manager.yml"; sed -i '/Agents must run on their own GitHub token/d' "$T/$W/agent-manager.yml"; expect fail "manager without the founder-token guard" "holds the agents' token, so its first step after checkout and the lock must run"
 fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$T/.github/actions/x/action.yml"; expect fail "unpinned action inside a composite action" ".github/actions/x/action.yml step 1: action must be pinned"
-fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ secrets.CLAUDE_TOKEN_BUILD }}\n      shell: bash\n' > "$T/.github/actions/x/action.yml"; expect fail "Claude credential inside a composite action" ".github/actions/x/action.yml step 1: Claude/Anthropic credential"
+fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}\n      shell: bash\n' > "$T/.github/actions/x/action.yml"; expect fail "Claude credential inside a composite action" ".github/actions/x/action.yml step 1: Claude/Anthropic credential"
 fresh; mkdir -p "$T/.github/actions/x"; printf 'name: x\nruns:\n  using: node20\n  main: index.js\n' > "$T/.github/actions/x/action.yml"; expect fail "non-composite local action" "not a composite action with steps"
 fresh; cp -r "$REPO/.github/actions" "$T/.github/"; expect ok "the real composite actions pass" "Workflow denies OK"
 # Claude never runs in a pull_request workflow
@@ -242,13 +242,20 @@ fresh; tagmode "  issue_comment:
 fresh; tagmode " && !github.event.issue.pull_request" ""; expect fail "tag mode answering on PRs" "needs the job if to contain '!github.event.issue.pull_request'"
 # Every claude step passes the job's own token (never the action's OIDC-backed app token), the manager the agents' token
 fx; sed -i '/          github_token: \${{ github.token }}/d' "$T/$W/t.yml"; expect fail "claude step without github_token" "github_token must be exactly \${{ github.token }}"
-fx; sed -i 's|          github_token: \${{ github.token }}|          github_token: \${{ secrets.AGENT_GH_TOKEN }}|' "$T/$W/t.yml"; expect fail "claude step with the agents' token as github_token" "github_token must be exactly \${{ github.token }}"
-fresh; sed -i 's|          github_token: \${{ secrets.AGENT_GH_TOKEN }}|          github_token: \${{ github.token }}|' "$T/$W/agent-manager.yml"; expect fail "the manager with the job token as github_token" "github_token must be exactly \${{ secrets.AGENT_GH_TOKEN }}"
+fx; sed -i 's|          github_token: \${{ github.token }}|          github_token: \${{ secrets.AGENT_GH_TOKEN_V2 }}|' "$T/$W/t.yml"; expect fail "claude step with the agents' token as github_token" "github_token must be exactly \${{ github.token }}"
+fresh; sed -i 's|          github_token: \${{ secrets.AGENT_GH_TOKEN_V2 }}|          github_token: \${{ github.token }}|' "$T/$W/agent-manager.yml"; expect fail "the manager with the job token as github_token" "github_token must be exactly \${{ secrets.AGENT_GH_TOKEN_V2 }}"
+# A job that holds a secret runs only on a run's first attempt (a re-run of an old run would get today's secrets)
+fx; sed -i "s|    if: github.run_attempt == '1'|    if: github.actor_id == '238822878'|" "$T/$W/t.yml"; expect fail "secret-holding job without the first-attempt condition" "holds a secret, so its 'if' must contain github.run_attempt == '1'"
+fx; sed -i "/    if: github.run_attempt == '1'/d" "$T/$W/t.yml"; expect fail "secret-holding job without any if" "holds a secret, so its 'if' must contain github.run_attempt == '1'"
+fresh; swap guards.yml $'    if: github.run_attempt == \'1\'\n' ""; expect fail "guards (the ledger key) without the first-attempt condition" "guards.yml job guards: holds a secret"
+fresh; swap pusher-ledger.yml $'    if: github.run_attempt == \'1\'\n' ""; expect fail "the ledger without the first-attempt condition" "pusher-ledger.yml job record: holds a secret"
 # The reports' manual runs are founder-gated like the manager's
-fresh; swap agent-daily-report.yml "    if: github.event_name == 'schedule' || github.actor_id == '238822878'
-" ""; expect fail "daily report without its founder gate" "agent-daily-report.yml: must let only a founder account start it"
-fresh; swap agent-weekly-audit.yml "    if: github.event_name == 'schedule' || github.actor_id == '238822878'
-" ""; expect fail "weekly audit without its founder gate" "agent-weekly-audit.yml: must let only a founder account start it"
+fresh; swap agent-daily-report.yml "    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
+" "    if: github.run_attempt == '1'
+"; expect fail "daily report without its founder gate" "agent-daily-report.yml: must let only a founder account start it"
+fresh; swap agent-weekly-audit.yml "    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
+" "    if: github.run_attempt == '1'
+"; expect fail "weekly audit without its founder gate" "agent-weekly-audit.yml: must let only a founder account start it"
 fx; printf '      - run: |\n          /tmp/gitleaks detect\n          printf x | sha256sum --check --strict\n' >> "$T/$W/t.yml"; expect fail "pin check after /tmp/gitleaks does not count" "must check its pinned files"
 # Missing or broken policy file: fails closed
 P0=$(mktemp -d "$TMPROOT/cwp.XXXXXX"); P2="$P0/scripts"; mkdir "$P2"; cp "$(dirname "$PY")"/check-workflows*.py "$P2/"

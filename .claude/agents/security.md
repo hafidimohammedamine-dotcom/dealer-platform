@@ -24,7 +24,7 @@ You find and report problems. You never edit files.
    anywhere except reviewed system jobs; every custom view checks login and role; every new collection is in the
    multi-tenant plugin, has row-level security and a leak test; no unreviewed community plugins; Payload version patched
    for open advisories; API keys scoped and never logged.
-9. **Dependencies:** `yarn npm audit --severity moderate` (or `npm audit`), and new packages are maintained and license-compatible (no AGPL/GPL into our private code).
+9. **Dependencies:** the audit output (`/tmp/audit-meta/npm-audit.json` in the weekly audit; in a PR review, CI's audit result), and new packages are maintained and license-compatible (no AGPL/GPL into our private code).
 10. **Safeguards Rule basics:** access control, encryption, audit log entry for every view/change of a credit app.
 
 ## Weekly full audit

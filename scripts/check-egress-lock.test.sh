@@ -70,9 +70,7 @@ invoke() { # invoke [VAR=value ...]: runs the copied lock.sh with a clean enviro
 run() { # run <ok|fail> <name> <message> [VAR=value ...]
   local want=$1 name=$2 msg=$3; shift 3
   invoke "$@"
-  got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"
-  else t FAIL "$name ($got)"; echo "$out" | tail -n 8; fi
+  assert_result "$want" "$rc" "$name" "$msg" "$out"
   [ "${KEEP:-}" = 1 ] || rm -rf "$T"; }
 conf_of() { # conf_of <sudo log> <destination>: the temp file the lock installed at <destination> (last install wins)
   awk -v d="$2" '$1=="install" && $NF==d {print $(NF-1)}' "$1" | tail -n1; }
@@ -157,7 +155,13 @@ fresh; run fail "outside DNS reachable"     "self-test: outside DNS server reach
 fresh; G=$(id -gn); SK=$(mktemp -d /tmp/s.XXXXXX); python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$SK/admin.sock"; chmod 660 "$SK/admin.sock"; run fail "group-writable admin socket still there" "group-writable admin socket still there" AGENT_LOCK_TEST_ADMIN_GROUPS="$G" AGENT_LOCK_TEST_RUN_DIRS="$SK"; rm -rf "$SK"
 fresh; run ok "known open routes are printed" "Known open routes"
 fresh; run fail "IPv6 reachable"            "self-test: IPv6 reachable" "STUB_REACHABLE=-6"
-fresh; run fail "deliberate break"          "self-test: deliberate break" AGENT_LOCK_SELFTEST_BREAK=1
+fresh; KEEP=1 run fail "deliberate break"   "self-test: deliberate break" AGENT_LOCK_SELFTEST_BREAK=1
+check "the deliberate break is the only failed check in the failed-checks output (what the break-on-purpose job asserts)" \
+  bash -c '[ "$(sed -n "/^failed-checks<<EOF_FAILED$/,/^EOF_FAILED$/p" "$1" | sed "1d;\$d")" = "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)" ] && ! grep -q "^claude-path=" "$1"' _ "$T/out"; rm -rf "$T"
+fresh; KEEP=1 run fail "two failures are both listed"  "self-test: deliberate break" AGENT_LOCK_SELFTEST_BREAK=1 STUB_SUDO_RC=0
+check "failed-checks lists every failed check, one per line" bash -c '[ "$(sed -n "/^failed-checks<<EOF_FAILED$/,/^EOF_FAILED$/p" "$1" | sed "1d;\$d" | wc -l)" = 2 ] && grep -q "^sudo still works$" "$1"' _ "$T/out"; rm -rf "$T"
+fresh; KEEP=1 run ok "no failed-checks output when every check passes" "Agent egress lock on"
+check "a passing lock writes no failed-checks" bash -c '! grep -q failed-checks "$1" && grep -q "^claude-path=" "$1"' _ "$T/out"; rm -rf "$T"
 fresh; run fail "a failed self-test stops the job" "self-test failed; see errors above" STUB_SUDO_RC=0
 fresh; run fail "bubblewrap cannot start"   "self-test: bubblewrap cannot start" STUB_BWRAP_RC=1
 fresh; run fail "children of bubblewrap can create user namespaces" "self-test: a program started by bubblewrap can create user namespaces" STUB_CHILD_USERNS_RC=0

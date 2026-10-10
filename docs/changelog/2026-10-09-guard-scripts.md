@@ -65,7 +65,7 @@
   login comparison except with a bot name, and IDs that are not listed). The agents' token check requires the token to belong
   to the `agent` account and be classic with exactly `repo` (fine-grained tokens cannot cover a personal account's repo for a
   collaborator) or fine-grained with no classic scopes; it is the first step after checkout and the lock in every job that
-  holds `AGENT_GH_TOKEN`.
+  holds `AGENT_GH_TOKEN_V2`.
 - The lock allows exact names only (superseded in round 8: the runner's own services are allowed by exact name plus the
   run service's name pattern): the `.actions.githubusercontent.com` wildcard is gone (the runner needed none during the
   steps); a job with `id-token: write` also allows its own OIDC host for that run. It installs Node 20 before it closes,
@@ -115,9 +115,9 @@
   `guards.yml` is on that list; the manager's job token is read-only (`read_only_workflows` in the policy; the agents act
   with their own token), and the pins cover `.claude/` and `CLAUDE.md`; the pin step is matched exactly (name, run and
   env), so a decoy step with the right name fails; `scripts/check-pins.sh` keeps only `update` (the list comes from
-  `pins_required` in the policy; the checker verifies); the ledger records by reachability (`before..after` on a
-  fast-forward, everything since the default branch on a new branch or force push, always minus what other branches
-  already hold) and two valid records naming different pushers verify as `unknown`; the review prepare step refuses
+  `pins_required` in the policy; the checker verifies; round 12 adds `verify` back as the pin step's set check); the ledger
+  records by reachability (`before..after` on a fast-forward, everything since the default branch on a new branch or force
+  push, always minus what other branches already hold; superseded in round 14 by GitHub's own list of new commits) and two valid records naming different pushers verify as `unknown`; the review prepare step refuses
   symlinks and special files; the fallback revert handles a zero `before`; `egress-lock-claude.yml`'s probe and scrub
   use the standard pin step; `lock.sh` and `check-skills.sh` are split into functions of at most 50 lines; measured:
   GitHub refuses a rewind of `main` past a workflow change even with no new commits (decision 4 in the lock runbook).
@@ -142,15 +142,30 @@
   from their schedule or a founder (`id_gated`); `manager_denies` holds only the manager's own 27 denies; one
   `last_result` helper in the probe checker; the coverage runner builds its test list from the files; `is_pins_step`
   takes `fname`; docs corrected (probe modes, four jobs, the review skill's two commands, CI's triggers, the deny counts).
+- **Round 14:** `[skip ci]` and re-runs: every main-guard run (and a new hourly schedule) requires the previous push's head
+  to have passed the main guard itself (`main_guard_passed`, shared with `check-agent-token.sh`; an unchecked push stops
+  the agents and opens an issue; a force push is restored only onto a checked tip); every job that holds a secret runs
+  only on a run's first attempt (`github.run_attempt == '1'`, checker rule `rerun_guard`) and the secrets are renamed
+  `CLAUDE_TOKEN_BUILD_V2`, `CLAUDE_TOKEN_REVIEW_V2`, `AGENT_GH_TOKEN_V2` so re-running an old run gets nothing; the ledger
+  records exactly the commits GitHub's push event lists as new to the repository (`distinct`, measured: a commit pushed
+  once is never listed again), so no re-push credits an old commit; the events check uses a rolling 24-hour window and
+  runs before and after each shift; `Bash(date -u)` exactly and no yarn in the Claude steps (the weekly audit takes
+  `yarn npm audit` in a fixed step); data checkouts run with git filters and hooks off (LFS pointer stays a pointer);
+  the break-on-purpose test proves the deliberate break was the only failure (`failed-checks` output); shared
+  `gh_context`/`token_account` helpers; the coverage runner's and three tests' assertions through `assert_result`;
+  architecture lists every guard script and the `after` job.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
-   ledger and the guards' ledger step fail on every PR.
+   ledger and the guards' ledger step fail on every PR. Also before merge, create `CLAUDE_TOKEN_BUILD_V2`,
+   `CLAUDE_TOKEN_REVIEW_V2` and `AGENT_GH_TOKEN_V2` with fresh (rotated) tokens, then delete `CLAUDE_TOKEN_BUILD`,
+   `CLAUDE_TOKEN_REVIEW` and `AGENT_GH_TOKEN`: the workflows read the `_V2` names only, so a re-run of an old workflow run
+   (yesterday's workflow file, today's secrets) gets nothing.
 2. Merge in the web UI (that also re-registers the schedules).
 3. Right after merge, start `Agent egress lock - Claude probe` by hand (Actions -> Run workflow) and read its four jobs
    (`probe`, `scrub`, `reads`, `oidc`; founder decision 3 in `docs/runbooks/agent-network-lock.md`); a failure is a revert trigger.
-4. Earlier PRs have no ledger records: re-push each open founder branch (a rebase, or one empty commit of your own) so the
-   ledger records them under your ID; founder-only changes fail the guards until then.
+4. Earlier PRs have no ledger records, and GitHub never lists an already-pushed commit as new again: for a founder-only
+   change on such a branch, rebase or squash it into new commits of your own and push; the ledger records those.
 5. Whenever a founder PR changes a pinned file (`pins_required` in `scripts/check-workflows-policy.json`: anything under
    `.github/actions/`, a `scripts/check-*` script except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`,
    `CLAUDE.md`, any `CLAUDE.local.md` or `.mcp.json`, anything under a `.claude/` folder), run

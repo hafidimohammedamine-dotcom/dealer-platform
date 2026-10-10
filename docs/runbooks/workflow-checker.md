@@ -42,14 +42,19 @@ Any workflow or composite action
   exactly (plus an optional `id`), so a decoy with the right name is reported as a wrong pin step; `update` rewrites the hash. `the pin step's run must be
   exactly the policy's pins_step_run_default_branch` / `may only have name, run and id` - a workflow in
   `pins_default_branch_workflows` (`pusher-ledger.yml`) reads the hash from the default branch's `guards.yml`.
-- `github_token must be exactly ${{ github.token }} (...)` (`${{ secrets.AGENT_GH_TOKEN }}` in the manager; policy
+- `github_token must be exactly ${{ github.token }} (...)` (`${{ secrets.AGENT_GH_TOKEN_V2 }}` in the manager; policy
   `claude_github_token`) - every Claude step passes the job's own token; without one, claude-code-action trades the job's
   OIDC token for an app token that the job's `permissions:` block does not limit. With it, `id-token: write` is needed
   nowhere but the probe workflow's `oidc` job (`per_file_permission_scopes`).
 - `needs a job 'after' that runs the after-shift checks on a fresh runner`, `must have needs: shift and if: always()`,
-  `must run exactly '<script>'`, `the after-shift event check belongs in job 'after' only` (policy `after_shift`) - the
-  manager's checks that run after Claude (`scripts/check-agent-token.sh`, `scripts/check-agent-events.sh`) live in their
-  own job, which the shift's Claude (bypassPermissions) cannot have touched.
+  `must run exactly '<script>'`, `after Claude ran, the event check belongs in job 'after' only`, `the event check before
+  the shift must run exactly '...'` (policy `after_shift`) - the manager's checks that run after Claude
+  (`scripts/check-agent-token.sh`, `scripts/check-agent-events.sh`) live in their own job, which the shift's Claude
+  (bypassPermissions) cannot have touched; the event check may also run in the shift job before Claude, with the same
+  24-hour window.
+- `holds a secret, so its 'if' must contain github.run_attempt == '1' (a re-run of an old run would get today's secrets)`
+  (policy `rerun_guard`) - every job whose body mentions `secrets.` runs only on a run's first attempt: a re-run keeps the
+  original commit and workflow file but gets today's secrets.
 - `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
   token before the main guard could act; use schedule or a founder-gated `workflow_dispatch`.
 - `--disallowedTools does not deny <x> (every claude step must)` - every Claude step denies the policy's `claude_denies`
@@ -84,7 +89,7 @@ Who may start what, and the agents' token (any workflow)
 - `<file>: must let only a founder account start it` / `... an agent account ...` - `claude.yml` and `agent-manager.yml` keep
   an `if` comparing a founder's ID, `review.yml` (fix rounds) one comparing the agents' ID (policy `id_gated`).
 - `<job>: holds the agents' token, so its first step after checkout and the lock must run 'bash scripts/check-agent-token.sh
-  .github/accounts.txt'` - every job that mentions `AGENT_GH_TOKEN` (any case), and the manager always, checks the token
+  .github/accounts.txt'` - every job that mentions `AGENT_GH_TOKEN_V2` (any case), and the manager always, checks the token
   first (`docs/runbooks/agent-network-lock.md`, "The agents' GitHub token"). `the agents' token check step may only have name
   and run (found ...)` - no `if`, `env`, `continue-on-error` or `working-directory` on it. `<file>: the agents' token may only be
   set in a job's env, after its token check` - never at workflow level.
@@ -148,7 +153,9 @@ Claude steps
 - `--allowedTools item '<x>' not allowed outside agent-manager.yml (read-only tools only)` - answer-only jobs may allow only
   `read_only_tools` (`Read(./**)`, never a bare `Read`: Read is allowed under the checkout only, and Grep and Glob follow the
   Read rules, so the process that holds the Claude token cannot be made to read `/proc`, `/dev` or the runner's folders;
-  measured, see `docs/runbooks/agent-network-lock.md`) and the fixed `read_only_bash` commands (`gh` views and lists,
-  `yarn npm audit/info`, `yarn why`, `date`), plus any `extra_tools` listed for that file (`Read(//tmp/pr/**)` and
+  measured, see `docs/runbooks/agent-network-lock.md`) and the fixed `read_only_bash` commands (`gh` views and lists, and
+  exactly `date -u`: `date:*` would allow `date -f <file>`, which echoes a file's lines; yarn commands are gone from the
+  Claude steps because yarn runs code from `.yarnrc.yml` and `.yarn/plugins`, so the weekly audit takes `yarn npm audit`
+  in a fixed step before Claude and the auditors read `/tmp/audit-meta/npm-audit.json`), plus any `extra_tools` listed for that file (`Read(//tmp/pr/**)` and
   `Read(//tmp/pr-meta/**)` for the review, `Read(//tmp/audit-meta/**)` for the audit, the scrub probe's one command). No `git`, `find`, `sort`, `cat` or anything that can write a file: the PR's history
   is written as plain files before Claude starts (`/tmp/pr-meta`, `/tmp/audit-meta`).

@@ -11,7 +11,7 @@ on:
 jobs:
   answer:
     # Only comments written by a founder (numeric ID from .github/accounts.txt; logins can be re-registered) start a run.
-    if: contains(github.event.comment.body, '@claude') && !github.event.issue.pull_request && github.event.comment.user.id == 238822878
+    if: (contains(github.event.comment.body, '@claude') && !github.event.issue.pull_request && github.event.comment.user.id == 238822878) && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -45,7 +45,7 @@ jobs:
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
@@ -61,7 +61,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -86,7 +86,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

@@ -17,6 +17,9 @@ outputs:
   bun-path:
     description: Absolute path of the pre-installed Bun executable (the claude-code-action's path_to_bun_executable).
     value: ${{ steps.lock.outputs.bun-path }}
+  failed-checks:
+    description: When the self-test failed, the failed checks, one per line (the break-on-purpose test reads it); empty otherwise.
+    value: ${{ steps.lock.outputs.failed-checks }}
 runs:
   using: composite
   steps:

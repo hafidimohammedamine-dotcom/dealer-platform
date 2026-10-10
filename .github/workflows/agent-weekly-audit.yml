@@ -8,7 +8,7 @@ on:
 jobs:
   audit:
     # The schedule, or a founder's manual run (the agents' token could otherwise start it: each run spends Claude turns).
-    if: github.event_name == 'schedule' || github.actor_id == '238822878'
+    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -40,16 +40,23 @@ jobs:
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
-      - run: corepack enable
-      - name: Write the repo history as plain files for the auditors (they read these instead of running git)
+      - name: Write the repo history and the dependency audit as plain files for the auditors (they read these instead of running git or yarn)
+        # yarn runs code from .yarnrc.yml and .yarn/plugins, so it never runs in the Claude step: its audit is taken here,
+        # under the lock and with no secret in the environment, and read as data.
         run: |
           mkdir -p /tmp/audit-meta
           git log --stat -n 300 > /tmp/audit-meta/log.txt
           git ls-files > /tmp/audit-meta/files.txt
+          date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/audit-meta/date.txt
+          if [ -f package.json ]; then
+            corepack enable && (env -u GH_TOKEN yarn npm audit --all --recursive --json > /tmp/audit-meta/npm-audit.json 2> /tmp/audit-meta/npm-audit.err || true)
+          else
+            echo "no package.json yet: no dependency audit" > /tmp/audit-meta/npm-audit.json
+          fi
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
@@ -58,7 +65,7 @@ jobs:
             --model opus
             --max-turns 150
             --add-dir /tmp/audit-meta
-            --allowedTools "Agent,Task,Read(./**),Read(//tmp/audit-meta/**),Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
+            --allowedTools "Agent,Task,Read(./**),Read(//tmp/audit-meta/**),Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*)"
             --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
           # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
       - name: Show blocked tool calls and hand the answer to the post job (pinned script)
@@ -66,7 +73,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -91,7 +98,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
+          PINS_SHA256: "24b74662f1067b83dc7c3ddf4f581703111ebe897166c84ce347156ab1014d0e"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

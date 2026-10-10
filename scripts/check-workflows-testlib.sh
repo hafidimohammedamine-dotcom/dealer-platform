@@ -43,6 +43,7 @@ name: t
 on: workflow_dispatch
 jobs:
   a:
+    if: github.run_attempt == '1'
     runs-on: ubuntu-latest
     env:
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
@@ -57,7 +58,7 @@ PIN_STEP_HERE
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}

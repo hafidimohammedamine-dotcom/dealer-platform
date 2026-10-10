@@ -191,7 +191,7 @@ drop_privileges() {
 }
 
 # --- 5. Prove it (each failure names the check; see docs/runbooks/agent-network-lock.md) ----------------------------
-fail=0; bad() { echo "::error::agent egress lock self-test: $*"; fail=1; }
+fail=0; failed=""; bad() { echo "::error::agent egress lock self-test: $*"; fail=1; failed+="$*"$'\n'; }
 blocked() { ! curl -sS -o /dev/null --max-time 8 "$@" 2>/dev/null; }
 
 # 5a. No way back to root or Docker.
@@ -274,6 +274,8 @@ selftest_fronting() {
 finish() {
   [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
   if [ "$fail" != 0 ]; then
+    # failed-checks: the break-on-purpose test reads it to prove the deliberate break was the only failure (one line per check)
+    { echo "failed-checks<<EOF_FAILED"; printf '%s' "$failed"; echo "EOF_FAILED"; } >> "$GITHUB_OUTPUT"
     echo "--- proxy log (last 20 lines) ---"; tail -n 20 /var/log/agent-nginx.log 2>/dev/null || true
     curl -sv -o /dev/null --max-time 15 https://api.github.com/zen 2>&1 | tail -n 15 || true
     die "self-test failed; see errors above"

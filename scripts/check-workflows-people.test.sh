@@ -48,14 +48,14 @@ done
 for edit in "        run: bash scripts/check-agent-token.sh /dev/null" "        run: bash scripts/check-agent-token.sh" "$GUARD || true" "        run: true"; do
   fresh; swap agent-manager.yml "$GUARD" "$edit"; expect fail "token check replaced: $edit" "its first step after checkout and the lock must run 'bash scripts/check-agent-token.sh .github/accounts.txt'"
 done
-fx; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.agent_gh_token }}|' "$T/$W/t.yml"; expect fail "lower-case secret name still needs the token check" "t.yml job a: holds the agents' token"
-fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - run: git push origin HEAD:refs/heads/x\n' > "$T/$W/p.yml"
+fx; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.agent_gh_token_v2 }}|' "$T/$W/t.yml"; expect fail "lower-case secret name still needs the token check" "t.yml job a: holds the agents' token"
+fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    if: github.run_attempt == '"'"'1'"'"'\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN_V2 }}\n    steps:\n      - run: git push origin HEAD:refs/heads/x\n' > "$T/$W/p.yml"
 expect fail "a job without a claude step that holds the token needs the check too" "p.yml job push: holds the agents' token"
-fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n      - run: git push origin HEAD:refs/heads/x\n' "$PIN_STEP" > "$T/$W/p.yml"
+fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    if: github.run_attempt == '"'"'1'"'"'\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN_V2 }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n      - run: git push origin HEAD:refs/heads/x\n' "$PIN_STEP" > "$T/$W/p.yml"
 expect ok "a job without a claude step that checks the token first (after the pin step)" "Workflow denies OK"
-fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push'"'"'s reach)\n        run: curl https://evil\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' "$PIN_STEP" > "$T/$W/p.yml"
+fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    if: github.run_attempt == '"'"'1'"'"'\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN_V2 }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push'"'"'s reach)\n        run: curl https://evil\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' "$PIN_STEP" > "$T/$W/p.yml"
 expect fail "a second step that only carries the pin step's name does not count as one" "its first step after checkout and the lock must run"
-fresh; printf 'name: p\non: workflow_dispatch\nenv:\n  GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' > "$T/$W/p.yml"
+fresh; printf 'name: p\non: workflow_dispatch\nenv:\n  GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN_V2 }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' > "$T/$W/p.yml"
 expect fail "the agents' token at workflow level" "p.yml: the agents' token may only be set in a job's env"
 fresh; swap agent-manager.yml "$GUARD" "        run: echo first
       - name: later
@@ -79,9 +79,15 @@ fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p = sys.argv[1]; s = open(p).read(); open(p, "w").write(s[:s.index("  after:\n")])
 PYEOF
 expect fail "manager without the after job" "needs a job 'after' that runs the after-shift checks on a fresh runner"
-fresh; swap agent-manager.yml $'    needs: shift\n    if: always()\n' $'    needs: shift\n    if: success()\n'; expect fail "after job that skips failed shifts" "must have needs: shift and if: always()"
-fresh; swap agent-manager.yml $'    needs: shift\n    if: always()\n' $'    if: always()\n'; expect fail "after job without needs" "must have needs: shift and if: always()"
-fresh; swap agent-manager.yml '        run: bash scripts/check-agent-events.sh .github/accounts.txt "${SINCE:-1970-01-01T00:00:00Z}"' '        run: echo skipped'; expect fail "after job without the event check" "must run exactly 'bash scripts/check-agent-events.sh .github/accounts.txt"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && github.run_attempt == \'1\'\n' $'    needs: shift\n    if: success() && github.run_attempt == \'1\'\n'; expect fail "after job that skips failed shifts" "must have needs: shift and if: always() && github.run_attempt == '1'"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always() && github.run_attempt == \'1\'\n' $'    if: always() && github.run_attempt == \'1\'\n'; expect fail "after job without needs" "must have needs: shift and if: always()"
+fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
+import sys; p = sys.argv[1]; s = open(p).read()
+i = s.index("  after:\n"); after = s[i:]
+ev = [l for l in after.split("\n") if "check-agent-events.sh" in l][0]
+open(p, "w").write(s[:i] + after.replace(ev + "\n", "        run: echo skipped\n", 1))
+PYEOF
+expect fail "after job without the event check" "must run exactly 'bash scripts/check-agent-events.sh .github/accounts.txt"
 fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p = sys.argv[1]; s = open(p).read()
 i = s.index("  after:\n"); after = s[i:]
@@ -89,5 +95,9 @@ tok = [l for l in after.split("\n") if "check-agent-token.sh" in l][0]
 open(p, "w").write(s[:i] + after.replace(tok + "\n", "", 1))
 PYEOF
 expect fail "after job without the token re-check" "must run exactly 'bash scripts/check-agent-token.sh .github/accounts.txt'"
-fresh; swap agent-manager.yml '      - name: Show blocked tool calls (names and commands only, pinned script)' $'      - run: bash scripts/check-agent-events.sh .github/accounts.txt "$SINCE"\n      - name: Show blocked tool calls (names and commands only, pinned script)'; expect fail "event check inside the shift job (after Claude)" "the after-shift event check belongs in job 'after' only"
+fresh; swap agent-manager.yml '      - name: Show blocked tool calls (names and commands only, pinned script)' $'      - run: bash scripts/check-agent-events.sh .github/accounts.txt "$SINCE"\n      - name: Show blocked tool calls (names and commands only, pinned script)'; expect fail "event check inside the shift job after Claude" "after Claude ran, the event check belongs in job 'after' only"
+fresh; grep -q "Before the shift, the agents' account did nothing outside" "$T/$W/agent-manager.yml" && expect ok "the event check before Claude in the shift job is fine" "Workflow denies OK"
+fresh; swap agent-manager.yml "        run: bash scripts/check-agent-events.sh .github/accounts.txt \"\$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)\"
+      - run: corepack enable" "        run: bash scripts/check-agent-events.sh .github/accounts.txt \"\$SINCE\"
+      - run: corepack enable"; expect fail "the event check before the shift with another window" "the event check before the shift must run exactly"
 summary

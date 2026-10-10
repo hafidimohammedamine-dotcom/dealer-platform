@@ -15,6 +15,7 @@ permissions:
   statuses: write
 jobs:
   record:
+    if: github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,17 +33,9 @@ jobs:
           echo "$h  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
-      - name: Record the pushed commits as this push's sender
+      - name: Record the commits this push brought (GitHub's list of what is new) as this push's sender
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
-          SENDER_ID: ${{ github.event.sender.id }}
-          REF_NAME: ${{ github.ref_name }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          # every branch and every pull request head, so commits another branch or a PR already has are not re-credited
-          git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' '+refs/pull/*/head:refs/remotes/pull/*'
-          bash scripts/check-pushers.sh record "$REF_NAME" "origin/$DEFAULT_BRANCH" "$BEFORE" "$AFTER" "$SENDER_ID"
+        run: bash scripts/check-pushers.sh record "$GITHUB_EVENT_PATH"

@@ -53,16 +53,13 @@
   "TodoWrite"
  ],
  "read_only_bash": [
-  "Bash(date:*)",
+  "Bash(date -u)",
   "Bash(gh issue list:*)",
   "Bash(gh issue view:*)",
   "Bash(gh pr diff:*)",
   "Bash(gh pr list:*)",
   "Bash(gh pr view:*)",
-  "Bash(gh run list:*)",
-  "Bash(yarn npm audit:*)",
-  "Bash(yarn npm info:*)",
-  "Bash(yarn why:*)"
+  "Bash(gh run list:*)"
  ],
  "add_dirs": {
   "review.yml": [
@@ -124,7 +121,7 @@
  ],
  "claude_github_token": {
   "default": "${{ github.token }}",
-  "agent-manager.yml": "${{ secrets.AGENT_GH_TOKEN }}"
+  "agent-manager.yml": "${{ secrets.AGENT_GH_TOKEN_V2 }}"
  },
  "always_denied_skills": [
   "payload"
@@ -173,19 +170,20 @@
  ],
  "tag_mode_job_if": "!github.event.issue.pull_request",
  "post_pin_check": "sha256sum --check --strict",
- "agent_token_secret": "AGENT_GH_TOKEN",
+ "agent_token_secret": "AGENT_GH_TOKEN_V2",
  "agent_token_guard": "bash scripts/check-agent-token.sh .github/accounts.txt",
  "agent_token_required_in": [
   "agent-manager.yml"
  ],
+ "rerun_guard": "github.run_attempt == '1'",
  "after_shift": {
   "agent-manager.yml": {
    "job": "after",
    "needs": "shift",
-   "if": "always()",
+   "if": "always() && github.run_attempt == '1'",
    "runs": [
     "bash scripts/check-agent-token.sh .github/accounts.txt",
-    "bash scripts/check-agent-events.sh .github/accounts.txt \"${SINCE:-1970-01-01T00:00:00Z}\""
+    "bash scripts/check-agent-events.sh .github/accounts.txt \"$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)\""
    ]
   }
  },

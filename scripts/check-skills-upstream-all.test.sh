@@ -47,4 +47,13 @@ if [ $rc != 0 ] && grep -q "OK: .claude/skills/demo = upstream" <<<"$out" && gre
 fresh; mkdir -p "$S/demo2"; cp "$S/demo/"* "$S/demo2/"; cp "$R/.claude/skills-patches/demo.diff" "$R/.claude/skills-patches/demo2.diff"
 printf 'demo2 third-party requires=ovr\n' >> "$S/manifest.txt"; printf '| demo2 | acme/tools `skills/demo`, tag v1 | %s |\n' "$SHA" >> "$S/SKILLS-LOCK.md"
                                                           expect ok   "two passing skills are counted" "Upstream check OK for 2 third-party skill(s)"
+# An upstream that marks files for git-lfs, with a smudge filter configured globally: the filter never runs and no hook runs
+fresh; ( cd "$U" && export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null && printf '*.bin filter=lfs diff=lfs merge=lfs -text\n' > skills/demo/.gitattributes && printf 'version https://git-lfs.github.com/spec/v1\noid sha256:0000\nsize 4\n' > skills/demo/big.bin \
+  && git add -A && git commit -qm lfs ) && SHA=$(git -C "$U" rev-parse HEAD) && sed -i "s/| [0-9a-f]\{40\} |/| $SHA |/" "$S/SKILLS-LOCK.md"
+cp "$U/skills/demo/.gitattributes" "$U/skills/demo/big.bin" "$S/demo/"   # our copy carries the same two files (the recorded diff stays the same)
+printf '[filter "lfs"]\n\tsmudge = printf SMUDGED-BY-FILTER\n\tclean = cat\n\trequired = true\n' > "$W/gitconfig"
+out=$(GIT_CONFIG_GLOBAL="$W/gitconfig" UPSTREAM_BASE="file://$W/hub/" bash "$SCRIPT" "$R" "$W/work" 2>&1); rc=$?
+if [ $rc = 0 ] && ! grep -rq SMUDGED-BY-FILTER "$W/work" 2>/dev/null && grep -rq '^version https://git-lfs' "$W/work"; then t PASS "an LFS-filtered upstream file stays a pointer (no filter ran)"
+else t FAIL "LFS filter ($rc)"; echo "$out" | tail -n 3; fi
+rm -rf "$W"
 summary

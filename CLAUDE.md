@@ -114,7 +114,7 @@ Our own code, our own skills, CI and workflows keep the full zero-findings rule.
   -> review team posts findings -> builder fixes -> all PASS -> label `ready-to-merge` -> founder merges.
 - Branch names: `agent/<issue-number>-<short-name>`. PR title starts with the issue number.
   Founder-only files may change only in PRs **opened and pushed by founders' GitHub accounts** (`founder` user IDs in `.github/accounts.txt`);
-  the `guards` check enforces this from the base branch. Agents must use their own GitHub account (`AGENT_GH_TOKEN`), never a founder's.
+  the `guards` check enforces this from the base branch. Agents must use their own GitHub account (`AGENT_GH_TOKEN_V2`), never a founder's.
 
 ## Definition of done
 Tests, lint and type check pass; all reviewers PASS with zero findings; docs updated;

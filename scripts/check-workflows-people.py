@@ -98,10 +98,26 @@ def check_after_shift(name, doc):
     for r in want["runs"]:
         if r not in runs:
             core.err(f"{jw}: must run exactly '{r}'")
-    for jn, other in (doc.get("jobs") or {}).items():
+    for jn, other in (doc.get("jobs") or {}).items():   # elsewhere the event check may run only before a claude step
         if jn == want["job"] or not isinstance(other, dict):
             continue
+        seen_claude = False
         for i, st in enumerate(other.get("steps") or [], 1):
             run = str(st.get("run", "")) if isinstance(st, dict) else ""
-            if "check-agent-events.sh" in run:
-                core.err(f"{name} job {jn} step {i}: the after-shift event check belongs in job '{want['job']}' only")
+            seen_claude = seen_claude or (isinstance(st, dict) and core.is_claude(st))
+            if "check-agent-events.sh" in run and seen_claude:
+                core.err(f"{name} job {jn} step {i}: after Claude ran, the event check belongs in job '{want['job']}' only")
+            elif "check-agent-events.sh" in run and run.strip() != want["runs"][1]:
+                core.err(f"{name} job {jn} step {i}: the event check before the shift must run exactly '{want['runs'][1]}'")
+
+
+def check_rerun_guard(name, doc):
+    """A job that holds a secret runs only on a run's first attempt (policy `rerun_guard` in its `if`): a re-run keeps the
+    original commit and its workflow file but gets today's secrets, so re-running an old run would hand a current token to
+    code that predates the guards. Founders start a fresh run (a push or a dispatch) instead of re-running."""
+    want = core.P["rerun_guard"]
+    for jn, job in (doc.get("jobs") or {}).items():
+        if not isinstance(job, dict) or "secrets." not in json.dumps(job):
+            continue
+        if want not in str(job.get("if", "")):
+            core.err(f"{name} job {jn}: holds a secret, so its 'if' must contain {want} (a re-run of an old run would get today's secrets)")

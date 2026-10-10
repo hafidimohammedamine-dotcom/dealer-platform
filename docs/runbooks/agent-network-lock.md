@@ -134,7 +134,7 @@ checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the j
 - `could not read the token's GitHub login` - the token is missing or invalid.
 - `the agents' account '<login>' owns repositories (...); it must own none` - the agents' account must own no repository
   (no fork either): one would be a place to push our code or data out with the token's own rights. A founder reads what was
-  pushed there, deletes those repositories and rotates `AGENT_GH_TOKEN` if anything of ours left this repository.
+  pushed there, deletes those repositories and rotates `AGENT_GH_TOKEN_V2` if anything of ours left this repository.
   `could not list the agent account's own repositories` - the token could not call GitHub; re-run once.
 - `workflow <name> is '<state>', not active` - one of `main-guard.yml`, `pusher-ledger.yml`, `guards.yml` or `review.yml`
   is disabled. Nobody but a founder should do that: a founder reads the repository's audit log for who disabled it, and
@@ -271,7 +271,9 @@ merging founder. Review by 2026-11-08, or earlier if any of them changes.
    well. Accepted for now with these controls: `scripts/check-agent-events.sh` after every shift (job `after` of the
    manager) fails on any event of the agents' account outside this repository and tells a founder to rotate the token;
    the manager denies `gh api`, `gh gist`, `gh repo`, `gh workflow` and `gh run cancel/delete` (hygiene: `bash -c` gets
-   around prefix denies); the reviews. This detects after the fact. Prevention - an organization-owned repository with a
+   around prefix denies); the reviews. The check looks at a rolling 24 hours before and after each shift, because the
+   events feed can lag (the reviewer recalls delays of hours; a founder may confirm against GitHub's documentation). This
+   detects after the fact. Prevention - an organization-owned repository with a
    fine-grained token limited to this repository, a read-only package mirror and a GitHub proxy that accepts only this
    job's own token - is founder issue #35 ("Move the repository to an organization and give the agents a fine-grained
    token"), not this PR.
@@ -302,5 +304,9 @@ merging founder. Review by 2026-11-08, or earlier if any of them changes.
    any ref update that changes `.github/workflows/`, even a rewind of `main` to an older commit with no new commits
    (`refusing to allow a GitHub App to create or update workflow ... without workflows permission`; a classic token
    without the `workflow` scope, like the agents', gets the same refusal), so the agents' token cannot roll `main`
-   back past a workflow change either. These detect and undo rather than prevent; prevention (rulesets, a fine-grained
+   back past a workflow change either. Two more routes closed in round 14: a push whose head commit says `[skip ci]`
+   starts no main-guard run, so every run (and an hourly schedule) checks that the previous push's head passed the guard
+   and stops the agents if not; and a re-run of an old workflow run would get today's secrets with yesterday's workflow
+   file, so every secret-holding job runs only on a run's first attempt and the secrets were renamed to `..._V2` (the old
+   names hold nothing). These detect and undo rather than prevent; prevention (rulesets, a fine-grained
    token) needs a paid plan or an organization-owned repository and is a later founder issue.
