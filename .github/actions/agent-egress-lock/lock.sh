@@ -178,23 +178,28 @@ bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot sta
 if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (set up in step 2)
   [ "$(cat "$USERNS")" = 1 ] || bad "unprivileged user namespaces are not restricted"
   [ -z "${UNS_LEFT:-}" ] || bad "AppArmor profiles that allow user namespaces are still loaded: $(echo $UNS_LEFT)"
-  if unshare -U true 2>/dev/null; then bad "a program outside bubblewrap can create user namespaces"; fi
+  # Ubuntu's restriction lets an unconfined program create a user namespace without any capability in it (profile
+  # unprivileged_userns), so it cannot become root there; only bwrap (agent-bwrap) may.
+  if unshare -Ur true 2>/dev/null; then bad "a program outside bubblewrap can become root in a user namespace"; fi
   if command -v podman >/dev/null && podman unshare true >/dev/null 2>&1; then bad "podman can still create user namespaces"; fi
   if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
     bad "a program started by bubblewrap can create user namespaces"
   fi
 fi
 # Every allowed name answers through the lock (a typo in the list shows up here, not in an agent run), and none of them,
-# asked for another site in the HTTP Host header, answers with content (2xx) or sends us to another host (3xx).
+# asked for another site in the HTTP Host header, serves content (2xx, except a bare "OK" health answer that does not
+# depend on the Host) or sends us to another host (3xx).
+FB=$(mktemp)
 for d in "${NAMES[@]}"; do
-  read -r code loc < <(curl -sS -o /dev/null --max-time 10 --retry 2 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
+  read -r code loc < <(curl -sS -o "$FB" --max-time 10 --retry 2 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
   lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
   if [ "${code:-000}" = 000 ]; then
     bad "allowed name $d not reachable through the lock"
-  elif [[ "$code" == 2* ]] || { [[ "$code" == 3* ]] && [ "$lh" != "$d" ]; }; then
+  elif { [[ "$code" == 2* ]] && [ "$(head -c 64 "$FB" | tr -d '[:space:]')" != OK ]; } || { [[ "$code" == 3* ]] && [ "$lh" != "$d" ]; }; then
     bad "domain fronting through $d answers for another host (HTTP ${code} ${loc:-})"
   fi
 done
+rm -f "$FB"
 [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
 if [ "$fail" != 0 ]; then
   echo "--- proxy log (last 20 lines) ---"; tail -n 20 /var/log/agent-nginx.log 2>/dev/null || true
