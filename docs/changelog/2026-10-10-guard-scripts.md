@@ -215,6 +215,9 @@
 - **Round 25:** the hourly run requires every retained main-guard run to still exist (`main_guard_runs_intact`: run
   numbers one unbroken sequence ending just before the current run), since the agents' token can delete runs and so erase
   the newest checked head; a gap stops the agents (`SECURITY: main-guard workflow runs were deleted`).
+- **Round 26:** the deletion check starts at `MAIN_GUARD_RUNS_FROM` (founder-owned; the recovery after a gap is a founder PR
+  raising it), "nothing retained" passes only for that first run (every run deleted is a gap), and runs numbered above the
+  current one (a push run started meanwhile, a re-run of an older number) are left out so they raise no false alarm.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

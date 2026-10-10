@@ -65,18 +65,30 @@ main_guard_latest() {
     --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null
 }
 
+# MAIN_GUARD_RUNS_FROM: the first main-guard run number the deletion check below covers (founder-owned constant, pinned
+# with this file). 1 when the workflow is new. After a real deletion (or a founder's own mistake), the gap stays until
+# retention removes it from the old end, so the recovery is a founder PR that raises this constant to the current run
+# number (and runs `bash scripts/check-pins.sh update`); until then every hourly run keeps stopping the agents.
+MAIN_GUARD_RUNS_FROM=1
+
 # main_guard_runs_intact <this-run-number>: no main-guard run has been deleted (the agents' classic `repo` token can delete
 # workflow runs, which is how the newest checked head could be erased: delete every run newer than an older commit's and
 # main_guard_latest points at that commit). Run numbers are sequential and never reused, and GitHub's retention removes
-# runs from the old end only, so the retained runs other than this one must be one unbroken sequence ending at
-# <this-run-number> - 1. Prints "ok ..." and returns 0, "deleted ..." and returns 1, or "ERROR: ..." on an API error.
+# runs from the old end only, so the retained runs numbered from MAIN_GUARD_RUNS_FROM up to <this-run-number> - 1 must be
+# one unbroken sequence ending at <this-run-number> - 1; none retained is fine only for run number MAIN_GUARD_RUNS_FROM
+# itself. Runs numbered above this one (a push run started meanwhile; this run being a re-run of an older one) are left
+# out: they cannot hide anything from this run. Prints "ok ..." and returns 0, "deleted ..." and returns 1, or
+# "ERROR: ..." on an API error.
 main_guard_runs_intact() {
-  local me=$1 numbers n prev=""
+  local me=$1 numbers n prev="" from=$MAIN_GUARD_RUNS_FROM
   [[ "$me" =~ ^[0-9]+$ ]] || { echo "ERROR: bad run number: '$me'"; return 1; }
   numbers=$("$GH" api --paginate "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=100" --jq '.workflow_runs[].run_number' 2>/dev/null) \
     || { echo "ERROR: could not list the main-guard runs."; return 1; }
-  numbers=$(tr -s ' \n' '\n' <<<"$numbers" | grep -vx "$me" | grep -x '[0-9]*' | sort -n | uniq || true)
-  [ -n "$numbers" ] || { echo "ok no earlier main-guard run is retained"; return 0; }
+  numbers=$(tr -s ' \n' '\n' <<<"$numbers" | grep -x '[0-9]*' | sort -n | uniq | awk -v me="$me" -v from="$from" '$1 >= from && $1 < me' || true)
+  if [ -z "$numbers" ]; then
+    [ "$me" -le "$from" ] && { echo "ok no earlier main-guard run from #$from is retained (this is run #$me)"; return 0; }
+    echo "deleted main-guard run(s) #$from..#$((me-1)): none is retained before this run #$me; someone deleted workflow runs"; return 1
+  fi
   for n in $numbers; do
     [ -z "$prev" ] || [ "$n" = $((prev+1)) ] || { echo "deleted main-guard run(s) between #$prev and #$n: someone deleted workflow runs"; return 1; }
     prev=$n

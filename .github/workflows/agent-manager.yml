@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "06741e6603f28437cc0965ffb042d7adc65cbcc360f9c200c4cbd8f457132c93"
+          PINS_SHA256: "895304ba882f1df84669f87217e885f4b0054794122c6c265925ca297363c6fe"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -92,7 +92,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "06741e6603f28437cc0965ffb042d7adc65cbcc360f9c200c4cbd8f457132c93"
+          PINS_SHA256: "895304ba882f1df84669f87217e885f4b0054794122c6c265925ca297363c6fe"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -118,7 +118,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "06741e6603f28437cc0965ffb042d7adc65cbcc360f9c200c4cbd8f457132c93"
+          PINS_SHA256: "895304ba882f1df84669f87217e885f4b0054794122c6c265925ca297363c6fe"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

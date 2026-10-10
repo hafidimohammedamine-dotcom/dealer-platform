@@ -44,7 +44,7 @@ push_commits() { for i in "$@"; do echo "$i" > "f$i" && git add "f$i" && git com
 TOK=ghp_test_not_a_real_token   # the job token; never printed (assert_no_token)
 run() { # run <ok|fail> <name> <message> <pusher> <before> <after> [VAR=value ...]
   local want=$1 name=$2 msg=$3 pusher=$4 before=$5 after=$6; shift 6
-  out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_TOKEN="$TOK" GH_REPO=owner/repo GITHUB_RUN_ID=7 GITHUB_RUN_NUMBER=12 "$@" bash "$SCRIPT" "$pusher" "$before" "$after" "$W/accounts" 2>&1); rc=$?
+  out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_TOKEN="$TOK" GH_REPO=owner/repo GITHUB_RUN_ID=7 GITHUB_RUN_NUMBER=12 "STUB_NUMBERS=$(seq -s " " 1 12)" "$@" bash "$SCRIPT" "$pusher" "$before" "$after" "$W/accounts" 2>&1); rc=$?
   assert_result "$want" "$rc" "$name" "$msg" "$out"; assert_no_token "$name" "$out" "$TOK"; }
 Z=0000000000000000000000000000000000000000
 same_tree() { cd "$1" && git fetch -q origin && [ "$(git rev-parse "origin/main^{tree}")" = "$(git rev-parse "$2^{tree}")" ]; }   # origin main's tree is exactly <commit>'s
@@ -64,7 +64,9 @@ fresh; push_commits 1 2; run ok "a push whose previous tip descends from the new
 # The hourly run also requires every retained main-guard run to still exist (the agents' token can delete runs, which
 # would erase the newest checked head): run numbers are sequential, so a deleted run is a gap before this run's number
 fresh; push_commits 1; run ok "schedule: the retained runs are one unbroken sequence up to this run" "Runs: ok main-guard runs #9..#11 are all retained" schedule - - "STUB_NUMBERS=9 10 11 12"
-fresh; push_commits 1; run ok "schedule: no earlier run retained (the first run)" "Runs: ok no earlier main-guard run is retained" schedule - - STUB_NUMBERS=12
+fresh; push_commits 1; run ok "schedule: the first run (nothing earlier retained)" "Runs: ok no earlier main-guard run from #1 is retained (this is run #1)" schedule - - STUB_NUMBERS=1 GITHUB_RUN_NUMBER=1
+fresh; push_commits 1; run fail "schedule: every earlier run deleted stops the agents" "deleted main-guard run(s) #1..#11: none is retained before this run #12" schedule - - STUB_NUMBERS=12
+fresh; push_commits 1; run ok "schedule: a push run numbered above this one is not a gap" "Runs: ok main-guard runs #9..#11 are all retained" schedule - - "STUB_NUMBERS=9 10 11 12 13"
 fresh; push_commits 1; run fail "schedule: a run deleted in the middle stops the agents" "deleted main-guard run(s) between #9 and #11" schedule - - "STUB_NUMBERS=9 11 12"
 check "deleted runs: 8 disables and the issue" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh issue create --title SECURITY: main-guard workflow runs were deleted" "$1"' _ "$W/gh.log"
 fresh; push_commits 1; run fail "schedule: the newest runs deleted (a gap before this run) stops the agents" "deleted main-guard run(s) between #9 and this run #12" schedule - - "STUB_NUMBERS=8 9 12"

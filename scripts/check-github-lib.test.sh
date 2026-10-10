@@ -97,7 +97,11 @@ check "main_head_passed: a rolled-back head names the move" test "$(mhp 'any age
 mri() { ( GH="$D/bin/gh"; REPO=owner/repo; export "${@:2}"; main_guard_runs_intact "$1" ) 2>&1; }
 check "main_guard_runs_intact: unbroken up to this run" test "$(mri 12 'STUB_NUMBERS=9 10 11 12')" = "ok main-guard runs #9..#11 are all retained"
 check "main_guard_runs_intact: unordered and repeated numbers (pages) are fine" test "$(mri 12 'STUB_NUMBERS=11 9 10 10')" = "ok main-guard runs #9..#11 are all retained"
-check "main_guard_runs_intact: no other run" test "$(mri 1 'STUB_NUMBERS=1')" = "ok no earlier main-guard run is retained"
+check "main_guard_runs_intact: the first run (nothing earlier)" test "$(mri 1 'STUB_NUMBERS=1')" = "ok no earlier main-guard run from #1 is retained (this is run #1)"
+check "main_guard_runs_intact: nothing retained but this is not the first run = all deleted" test "$(mri 500 'STUB_NUMBERS=500')" = "deleted main-guard run(s) #1..#499: none is retained before this run #500; someone deleted workflow runs"
+check "main_guard_runs_intact: a push run numbered above this one (started meanwhile) is not a gap" test "$(mri 12 'STUB_NUMBERS=9 10 11 13')" = "ok main-guard runs #9..#11 are all retained"
+check "main_guard_runs_intact: this run is a re-run of an older number: later runs are left out" test "$(mri 10 'STUB_NUMBERS=8 9 10 11 12')" = "ok main-guard runs #8..#9 are all retained"
+check "the deletion check starts at the founder-owned constant MAIN_GUARD_RUNS_FROM" bash -c 'grep -q "^MAIN_GUARD_RUNS_FROM=[0-9]*$" "$1/check-github-lib.sh"' _ "$HERE"
 check "main_guard_runs_intact: a gap in the middle" test "$(mri 12 'STUB_NUMBERS=9 11')" = "deleted main-guard run(s) between #9 and #11: someone deleted workflow runs"
 check "main_guard_runs_intact: the newest runs gone" test "$(mri 12 'STUB_NUMBERS=9 10')" = "deleted main-guard run(s) between #10 and this run #12: someone deleted workflow runs"
 check "main_guard_runs_intact: the API fails" test "$(mri 12 STUB_NUMBERS_RC=1)" = "ERROR: could not list the main-guard runs."
