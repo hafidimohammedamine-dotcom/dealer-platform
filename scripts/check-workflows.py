@@ -92,6 +92,22 @@ def check_pins_position(fname, jw, steps):
     LIB.check_pins_step(fname, f"{jw} step {at + 2}", nxt)
 
 
+def check_runs_on(jw, job):
+    """Jobs run on GitHub's runner or on the agents' self-hosted runners (policy `runs_on`): a self-hosted job must name
+    exactly the agents' label set, so no job lands on a differently labelled machine, and the label is never an expression."""
+    ro = job.get("runs-on")
+    labels = ro if isinstance(ro, list) else [ro]
+    if any(not isinstance(x, str) or "${{" in x for x in labels):
+        err(f"{jw}: runs-on must be a plain string or list of labels")
+        return
+    if ro == P["hosted_runs_on"] or ro == P["runs_on"]:
+        return
+    if any("self-hosted" in x or x in P["runs_on"] for x in labels):
+        err(f"{jw}: a self-hosted job must use runs-on: {P['runs_on']}")
+    else:
+        err(f"{jw}: runs-on must be {P['hosted_runs_on']} or {P['runs_on']}")
+
+
 def check_job(fname, jname, job, required, triggers):
     """Checks one job; returns its number of claude steps."""
     jw = f"{fname} job {jname}"
@@ -103,6 +119,7 @@ def check_job(fname, jname, job, required, triggers):
     for key in ("container", "services"):
         if key in job:
             err(f"{jw}: '{key}' not allowed")
+    check_runs_on(jw, job)
     LIB.check_permissions(fname, jw, job.get("permissions"), triggers)
     check_pins_position(fname, jw, job.get("steps") or [])
     for key, val in job.items():

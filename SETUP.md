@@ -61,7 +61,10 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 
 ## 5. Do your founder task, then switch it on
 1. Write `packages/contracts` (the first issue, labeled `agent:founder`). Most agents wait for it. Ask Claude to help you draft it.
-2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
+2. Set up the agents' runner on your Linux PC (16 GB or more): `docs/runbooks/agent-runner.md`, "Setup on a PC" (about 20
+   minutes: rootless Docker, `gh auth login`, then `setup`, `build`, `check`, `start`). Every agent job runs there, 24/7, at
+   no GitHub cost; a second PC adds more lanes.
+3. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
 
 When you (a founder) change a pinned file - anything under `.github/actions/`, a `scripts/check-*` script (tests excepted),
 `.gitleaks.toml`, `.github/accounts.txt`, `.yarnrc.yml`, `CLAUDE.md`, a `CLAUDE.local.md`, a `.mcp.json` or anything under a
@@ -79,9 +82,10 @@ one that is not listed, and the agents cannot change that check.
 ## Costs and limits (max pace)
 - **Claude:** two Max plans ($400/month). If agents hit the limit they stop and the next shift continues.
   Seeing many stopped shifts? Turn on extra usage with a monthly cap, or slow the manager to every 4-6 hours (`cron` in `agent-manager.yml`).
-- **GitHub Actions minutes:** private repos get a free monthly allowance; non-stop agents will go past it.
-  Expect roughly $50-120/month of extra minutes at this pace, or run a **self-hosted runner** on a spare computer for free
-  (change `runs-on: ubuntu-latest` to `runs-on: self-hosted`). Set a spending limit in GitHub billing.
+- **GitHub Actions minutes:** $0. The agent jobs run on the founders' PCs (`docs/runbooks/agent-runner.md`); only the short
+  checks (CI, guards, hosted lock tests) use GitHub's machines, inside the free plan's ~2,000 minutes a month (renewed monthly,
+  not a trial). Keep the spending limit at $0: when the minutes run out, those checks wait for the next month instead of
+  costing anything.
 
 ## First-week checks
 - After the first manager shift, read its log. If a tool was refused, add it to `--allowedTools` in the workflow.

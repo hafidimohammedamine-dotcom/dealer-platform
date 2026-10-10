@@ -15,6 +15,11 @@ die() { echo "::error::agent egress lock: $*"; exit 1; }
 [[ "${CLAUDE_CODE_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad CLAUDE_CODE_SHA256"
 [[ "${BUN_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "bad BUN_VERSION"
 [[ "${BUN_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad BUN_SHA256"
+# Container mode (the agent runner image sets AGENT_LOCK_CONTAINER=1, .github/agent-runner): the job runs in a throwaway
+# rootless Docker container on a founder's PC. Same DNS allow-list, proxy, firewall, sudo removal and self-test; the AppArmor
+# part (host kernel settings) is replaced by the container boundary, and the self-test checks the job holds no capability.
+CONTAINER="${AGENT_LOCK_CONTAINER:-}"
+[ -z "$CONTAINER" ] || [ "$CONTAINER" = 1 ] || die "AGENT_LOCK_CONTAINER must be unset or 1"
 
 # Allowed names (founder-owned list; no extras from workflows) plus the runner's own services.
 read_allow_list() {
@@ -72,7 +77,7 @@ restrict_user_namespaces() {
   # namespaces. Ubuntu 24.04 restricts those through AppArmor; keep the restriction on for everything else and let only
   # /usr/bin/bwrap create them; what bwrap starts gets no capabilities and no user namespaces (agent-bwrap.apparmor).
   USERNS="${AGENT_LOCK_TEST_USERNS:-/proc/sys/kernel/apparmor_restrict_unprivileged_userns}"   # tests use a temp file
-  if [ -f "$USERNS" ]; then
+  if [ -f "$USERNS" ] && [ "$CONTAINER" != 1 ]; then   # the file shows through in a container, but it is the host's setting
     sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=1
     sudo install -m 0644 "$HERE/agent-bwrap.apparmor" /etc/apparmor.d/agent-bwrap
     sudo apparmor_parser -r /etc/apparmor.d/agent-bwrap || die "could not load the AppArmor profile for bubblewrap"
@@ -93,8 +98,12 @@ restrict_user_namespaces() {
 # 2c. Local DNS (dnsmasq) that answers the sink address for allowed names and forwards nothing.
 start_dns() {
   SINK_IP=192.0.2.1   # TEST-NET-1: never routable; only the firewall's redirect to the proxy gives it meaning
-  UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
-  [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
+  RESOLV=/run/systemd/resolve/resolv.conf; [ "$CONTAINER" != 1 ] || RESOLV=/etc/resolv.conf   # Docker writes the container's
+  UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-$RESOLV}" 2>/dev/null || true)
+  if [ -z "$UPSTREAM" ]; then
+    [ "$CONTAINER" != 1 ] || die "no upstream DNS server in /etc/resolv.conf (the lane script passes --dns; see docs/runbooks/agent-runner.md)"
+    UPSTREAM=168.63.129.16   # GitHub's runners: Azure's resolver
+  fi
   id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
   id www-data >/dev/null 2>&1 || die "no www-data user for nginx"
   PROXY_UID=$(id -u www-data)
@@ -112,7 +121,7 @@ start_dns() {
   sudo install -m 0644 "$CONF" /etc/agent-dnsmasq.conf
   sudo systemctl stop systemd-resolved.service 2>/dev/null || true
   sudo dnsmasq --conf-file=/etc/agent-dnsmasq.conf --pid-file=/run/agent-dnsmasq.pid
-  sudo rm -f /etc/resolv.conf
+  [ "$CONTAINER" = 1 ] || sudo rm -f /etc/resolv.conf   # a symlink on GitHub's runners; a bind mount (rewritten in place) in a container
   printf 'nameserver 127.0.0.1\noptions edns0\n' | sudo tee /etc/resolv.conf >/dev/null
 }
 
@@ -233,17 +242,25 @@ selftest_network() {
   blocked https://x.registry.npmjs.org || bad "a subdomain of an allowed name (x.registry.npmjs.org) is reachable"
   if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
   blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
+}
+
+# 5b. Nobody becomes root in a user namespace: in a container the job holds no capability; on GitHub's runners AppArmor
+# restricts user namespaces to bubblewrap (set up in restrict_user_namespaces).
+selftest_namespaces() {
   bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
-  if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (set up in step 2)
+  for f in newuidmap newgidmap; do
+    if [ -u "$SETUID_DIR/$f" ] || [ -g "$SETUID_DIR/$f" ]; then bad "$SETUID_DIR/$f is still setuid/setgid (maps root into a user namespace)"; fi
+  done
+  if command -v podman >/dev/null && [ "$(podman unshare id -u 2>/dev/null)" = 0 ]; then bad "podman can still become root in a user namespace"; fi
+  if [ "$CONTAINER" = 1 ]; then
+    [ "$(id -u)" != 0 ] || bad "the job runs as root in the container"
+    grep -qE '^CapEff:[[:space:]]*0+$' "${AGENT_LOCK_TEST_STATUS:-/proc/self/status}" || bad "the job's processes hold capabilities (CapEff is not 0)"
+  elif [ -f "$USERNS" ]; then
     [ "$(cat "$USERNS")" = 1 ] || bad "unprivileged user namespaces are not restricted"
     [ -z "${UNS_LEFT:-}" ] || bad "AppArmor profiles that allow user namespaces are still loaded: $(echo $UNS_LEFT)"
     # Ubuntu's restriction lets an unconfined program create a user namespace without any capability in it (profile
     # unprivileged_userns), so it cannot become root there; only bwrap (agent-bwrap) may.
     if unshare -Ur true 2>/dev/null; then bad "a program outside bubblewrap can become root in a user namespace"; fi
-    for f in newuidmap newgidmap; do
-      if [ -u "$SETUID_DIR/$f" ] || [ -g "$SETUID_DIR/$f" ]; then bad "$SETUID_DIR/$f is still setuid/setgid (maps root into a user namespace)"; fi
-    done
-    if command -v podman >/dev/null && [ "$(podman unshare id -u 2>/dev/null)" = 0 ]; then bad "podman can still become root in a user namespace"; fi
     if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
       bad "a program started by bubblewrap can create user namespaces"
     fi
@@ -283,7 +300,7 @@ finish() {
   fi
   { echo "claude-path=$BIN"; echo "bun-path=$BUN"; } >> "$GITHUB_OUTPUT"   # only now: a Claude step can find them only after the self-test passed
   echo "::notice::Known open routes: the job's own GitHub token can comment on or open issues in ANY repository it can see (no attacker credentials needed; checked after each shift by scripts/check-agent-events.sh), and with an attacker's own credentials: github.com / api.github.com (pushes, issues, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/agent-network-lock.md."
-  echo "Agent egress lock on: ${#NAMES[@]} allowed names + ${#RUNNER_NAMES[@]} runner services, SNI proxy, sudo and Docker removed."
+  echo "Agent egress lock on${CONTAINER:+ (container mode)}: ${#NAMES[@]} allowed names + ${#RUNNER_NAMES[@]} runner services, SNI proxy, sudo and Docker removed."
 }
 
 read_allow_list
@@ -296,5 +313,6 @@ apply_firewall
 drop_privileges
 selftest_privileges
 selftest_network
+selftest_namespaces
 selftest_fronting
 finish

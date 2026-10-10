@@ -117,6 +117,10 @@ Unpacks the PR head's whole tree as data (`git archive`, into `/tmp/pr-wf`) and 
 on it, with both skill manifests and the base branch's `.github/accounts.txt` (so a PR cannot list itself). Every message and
 fix: `docs/runbooks/workflow-checker.md`.
 
+### Step "Agent runner image and host script stay pinned and unprivileged (base script, PR's files as data)"
+Unpacks the PR's `.github/agent-runner` as data and runs the `main` copy of `scripts/check-agent-runner.sh` on it. Every
+message and fix: `docs/runbooks/agent-runner.md` ("The guard"). `the PR removes .github/agent-runner` - the folder must stay.
+
 ### Step "Secret scan of the PR's commits (base config, no ignore files, no inline allow)" fails
 gitleaks found something that looks like a secret in this PR's commits (`main`'s `.gitleaks.toml`; `.gitleaksignore` and inline
 `gitleaks:allow` are ignored). The log shows file, line and rule, with the secret redacted.
@@ -161,8 +165,8 @@ Also `pull_request_target`, also from `main`.
   round needed`.
 
 ## Workflow "CI" (job `checks`), step "Guard script tests and coverage (every guard script at least 90%)"
-The step (after "Pinned Python packages for the guard scripts", above) runs `bash scripts/check-workflows.sh` and
-`bash scripts/check-coverage.sh 90`. The coverage script runs every
+The step (after "Pinned Python packages for the guard scripts", above) runs `bash scripts/check-workflows.sh`,
+`bash scripts/check-agent-runner.sh` and `bash scripts/check-coverage.sh 90`. The coverage script runs every
 `scripts/*.test.sh` (it fails if a test file is missing from its `TESTS` list; `scripts/check-coverage-sh.test.sh` tests the
 runner itself on a small tree). The Python packages come from PyPI with `--require-hashes`, so this step and
 `scripts/check-python-deps.test.sh` need network access to `pypi.org` (GitHub's runners have it; an offline run fails at
@@ -276,3 +280,7 @@ issue for the founders.
   must never push as a founder.
 - `CODEOWNERS` and required checks enforce nothing until branch protection is on (paid GitHub plan for a private repo).
 - `ci.yml` runs from the PR (tests, no secrets). Anything a PR must not be able to change lives in `guards.yml` / `review.yml`.
+- The agent jobs (manager, review, reports, audit, founder mentions, the lock-with-Claude tests) run on the founders' PCs
+  (`docs/runbooks/agent-runner.md`); when no lane is online they wait in the queue. `ci.yml`, `guards.yml` and the hosted
+  lock tests run on GitHub's machines inside the free plan's monthly minutes; when those run out they wait until the next
+  month (or a founder moves them to the PCs too).
