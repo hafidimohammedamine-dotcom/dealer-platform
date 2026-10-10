@@ -1,0 +1,16 @@
+# TEMPORARY founder experiment on branch founder/egress-scratch5* only. Never merged. Prints the push event's commit list.
+name: Push event scratch 5
+on:
+  push:
+    branches: ["founder/egress-scratch5*"]
+permissions:
+  contents: read
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "ref=$GITHUB_REF before=$(jq -r .before "$GITHUB_EVENT_PATH") after=$(jq -r .after "$GITHUB_EVENT_PATH") created=$(jq -r .created "$GITHUB_EVENT_PATH") forced=$(jq -r .forced "$GITHUB_EVENT_PATH")"
+          jq -r '.commits[] | "\(.id[0:7]) distinct=\(.distinct) \(.message | split("\n")[0])"' "$GITHUB_EVENT_PATH"
+          echo "count=$(jq '.commits | length' "$GITHUB_EVENT_PATH") head=$(jq -r '.head_commit.id[0:7]' "$GITHUB_EVENT_PATH")"
