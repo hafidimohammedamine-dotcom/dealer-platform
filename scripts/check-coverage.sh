@@ -12,6 +12,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TESTS=(check-founder-files check-skills check-skill-upstream check-skill-deletions check-skills-upstream-all
        check-skills-vs-base check-skills-lib check-workflows check-egress-lock check-review-prepare check-pr-ci-status
        check-review-post check-agent-token check-scrub-probe check-claude-probe check-coverage check-coverage-sh
+       check-workflows-people
        gitleaks-config)
 # COV_TESTS / COV_VENV: only for scripts/check-coverage-sh.test.sh (a small tree of its own, one shared venv).
 [ -z "${COV_TESTS:-}" ] || read -r -a TESTS <<<"$COV_TESTS"
@@ -56,13 +57,13 @@ EOF
 for t in "${TESTS[@]}"; do
   f="$HERE/$t.test.sh"
   [ -f "$f" ] || { echo "ERROR: missing test $f"; exit 1; }
-  if [ "$t" = check-coverage-sh ] && [ -n "${COV_INNER:-}" ]; then continue; fi   # that test runs this runner: no loops
   echo "== $t"
-  PATH="$W/bin:$PATH" COV_TRACE="$W/trace" BASH_ENV="$W/bash-env" COV_INNER=1 bash "$f" > "$W/out" 2>&1 \
+  # A test passes only if it exits 0 AND its last line says it ran cases and none failed.
+  PATH="$W/bin:$PATH" COV_TRACE="$W/trace" BASH_ENV="$W/bash-env" COV_INNER=1 bash "$f" > "$W/out" 2>&1 && last=$(tail -n 1 "$W/out") \
+    && [[ "$last" =~ ^([0-9]+)\ passed,\ 0\ failed$ && "${BASH_REMATCH[1]}" -gt 0 ]] \
     || { cat "$W/out"; echo "ERROR: $t tests failed"; exit 1; }
-  tail -n 1 "$W/out"
+  echo "$last"
 done
-[ ! -f "$HERE/check-workflows.sh" ] || PATH="$W/bin:$PATH" COV_TRACE="$W/trace" BASH_ENV="$W/bash-env" bash "$HERE/check-workflows.sh" >/dev/null
 
 echo "== coverage (minimum $MIN% per script)"
 rc=0

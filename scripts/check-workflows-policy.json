@@ -1,5 +1,5 @@
 {
- "_comment": "Founder-owned policy for scripts/check-workflows.py. Rules and messages: docs/runbooks/ci-guards.md, 'Workflow denies OK'.",
+ "_comment": "Founder-owned policy for scripts/check-workflows.py. Rules and messages: docs/runbooks/workflow-checker.md.",
  "claude_actions": [
   "anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b"
  ],
@@ -151,5 +151,14 @@
  ],
  "tag_mode_job_if": "!github.event.issue.pull_request",
  "post_pin_check": "sha256sum --check --strict",
- "manager_token_guard": "bash scripts/check-agent-token.sh"
+ "agent_token_secret": "AGENT_GH_TOKEN",
+ "agent_token_guard": "bash scripts/check-agent-token.sh .github/accounts.txt",
+ "agent_token_required_in": [
+  "agent-manager.yml"
+ ],
+ "id_gated": {
+  "agent-manager.yml": "founder",
+  "claude.yml": "founder",
+  "review.yml": "agent"
+ }
 }

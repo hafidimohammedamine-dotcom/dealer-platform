@@ -21,7 +21,8 @@ jobs:
       BASE_REF: ${{ github.base_ref }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       # Both come from the event, not from anything the PR controls: who opened the PR, and who triggered this run.
-      LOGINS: ${{ github.event.pull_request.user.login }},${{ github.event.sender.login }}
+      # Numeric IDs, not logins (a login can be renamed and re-registered).
+      USER_IDS: ${{ github.event.pull_request.user.id }},${{ github.event.sender.id }}
     steps:
       - name: Check out the base branch (rules, scripts, config)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -34,7 +35,7 @@ jobs:
           GIT_TOKEN: ${{ github.token }}
         run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
       - name: Founder-only files (PR author and pusher must be founders)
-        run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$LOGINS" .github/founders.txt
+        run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$USER_IDS" .github/accounts.txt
       - name: Skills match manifest and checksums
         # /tmp/pr has rule files removed, so check the PR's own .claude/ (skills and agents) from git, not from that copy.
         run: |
@@ -52,9 +53,14 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf /tmp/pr-wf && mkdir -p /tmp/pr-wf
+          # The PR's workflows and local actions, as data. The accounts list comes from the base branch (a PR cannot add itself).
           git archive refs/remotes/pr/head .github/workflows | tar -x -C /tmp/pr-wf
+          if git cat-file -e refs/remotes/pr/head:.github/actions 2>/dev/null; then
+            git archive refs/remotes/pr/head .github/actions | tar -x -C /tmp/pr-wf
+          fi
           # Skill denies are required for every third-party skill named in the base or the PR manifest.
-          bash scripts/check-workflows.sh /tmp/pr-wf --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
+          bash scripts/check-workflows.sh /tmp/pr-wf --accounts .github/accounts.txt \
+            --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
       - uses: ./.github/actions/install-gitleaks
       - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)
         run: |

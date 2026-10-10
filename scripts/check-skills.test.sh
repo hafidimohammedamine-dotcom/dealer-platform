@@ -38,6 +38,7 @@ fresh; mkdir "$S/alpha/empty";                               expect fail "empty 
 fresh; ln -s /etc/hostname "$S/alpha/link.md";               expect fail "symlink" "symlink not allowed"
 fresh; mkfifo "$S/alpha/pipe";                               expect fail "FIFO" "special file"
 fresh; echo x > "$S/stray.md";                               expect fail "stray top-level file" "unexpected file"
+fresh; mkfifo "$S/pipe";                                     expect fail "special file directly under .claude/skills" "special file not allowed"
 fresh; echo x > "$S/alpha/we\\ird.md";                       expect fail "backslash in name" "backslash"
 fresh; echo x > "$S/alpha/$(printf 'a\tb').md";                 expect fail "control character in name" "control character"
 fresh; echo x > "$S/alpha/new

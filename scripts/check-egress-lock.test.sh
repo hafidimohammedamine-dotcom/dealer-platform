@@ -23,10 +23,11 @@ fresh() {
   BUN_SHA=$(sha256sum "$T/fake-bun.zip" | cut -d' ' -f1)
   stub uname 'case "$1" in -s) echo "${STUB_OS:-Linux}";; -m) echo "${STUB_ARCH:-x86_64}";; esac'
   # sudo logs every call (one line each) so tests can check what the lock configured; STUB_SUDO_FAIL fails matching calls.
-  stub sudo 'printf "%s\n" "$*" >> "$STUB_SUDO_LOG"; [ "$*" = "-n true" ] && exit "${STUB_SUDO_RC:-1}"; [ "$*" = "-n -l" ] && exit "${STUB_SUDO_L_RC:-1}"; [ "$1" = -k ] && exit 0
-case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$@";; esac; exit 0'
+  stub sudo 'printf "%s\n" "$*" >> "$STUB_SUDO_LOG"; [ "$1" = tee ] && { cat >/dev/null; exit 0; }; [ "$*" = "-n true" ] && exit "${STUB_SUDO_RC:-1}"; [ "$*" = "-n -l" ] && exit "${STUB_SUDO_L_RC:-1}"; [ "$1" = -k ] && exit 0
+case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$@";; "chmod "*) [ "${STUB_CHMOD_NOOP:-}" = 1 ] && exit 0; shift; exec chmod "$@";; esac; exit 0'
   stub unshare 'exit "${STUB_UNSHARE_RC:-1}"'
-  [ -z "${STUB_PODMAN:-}" ] || stub podman 'exit "${STUB_PODMAN_RC:-1}"'
+  [ -z "${STUB_PODMAN:-}" ] || stub podman '[ "$2" = id ] && echo "${STUB_PODMAN_UID:-1001}"; exit "${STUB_PODMAN_RC:-1}"'
+  mkdir -p "$T/setuid"; for f in newuidmap newgidmap; do : > "$T/setuid/$f"; chmod u+s,g+s "$T/setuid/$f"; done
   mkdir -p "$T/apparmor.d"; : > "$T/aa-loaded"
   stub bwrap 'case " $* " in *" unshare -U "*) exit "${STUB_CHILD_USERNS_RC:-1}";; esac; exit "${STUB_BWRAP_RC:-0}"'
   echo 1 > "$T/userns"; printf 'nameserver 127.0.0.53\nnameserver 10.1.2.3\n' > "$T/resolv.conf"
@@ -45,10 +46,12 @@ case "$url" in
   https://github.com/oven-sh/bun/releases/download/*) cp "$STUB_BUN_ZIP" "$out"; exit 0;;
   https://api.github.com/zen) exit "${STUB_ALLOWED_RC:-0}";;
 esac
-# Domain-fronting probe: STUB_FRONT="<host>=<code>[=<redirect url>] ..." answers for those hosts.
+# Domain-fronting probe: STUB_FRONT="<host>=<code>[=<redirect url>] ..." answers for those hosts, STUB_UNREACHABLE="<host>
+# ..." do not answer at all; every other allowed name answers 400 for a foreign Host header.
 case " $* " in *"Host: example.com"*)
-  for f in ${STUB_FRONT:-}; do IFS== read -r h c l <<<"$f"; [ "$url" = "https://$h/" ] && { echo "$c ${l:-}"; exit 0; }; done
-  echo "000 "; exit 7;; esac
+  for h in ${STUB_UNREACHABLE:-}; do [ "$url" = "https://$h/" ] && { echo "000 "; exit 7; }; done
+  for f in ${STUB_FRONT:-}; do IFS== read -r h c l <<<"$f"; [ "$url" = "https://$h/" ] && { printf '%s' "${STUB_FRONT_BODY:-}" > "$out"; echo "$c ${l:-}"; exit 0; }; done
+  echo "400 "; exit 0;; esac
 for r in ${STUB_REACHABLE:-}; do case " $* " in *"$r"*) exit 0;; esac; done
 exit 7
 EOF
@@ -60,7 +63,7 @@ invoke() { # invoke [VAR=value ...]: runs the copied lock.sh with a clean enviro
         BUN_VERSION="$BUN_VER" BUN_SHA256="$BUN_SHA" STUB_BUN_ZIP="$T/fake-bun.zip" \
         AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" AGENT_LOCK_TEST_RUN_DIRS="$T/run" \
         AGENT_LOCK_TEST_USERNS="$T/userns" AGENT_LOCK_TEST_RESOLV="$T/resolv.conf" STUB_SUDO_LOG="$T/sudo.log" \
-        AGENT_LOCK_TEST_APPARMOR_DIR="$T/apparmor.d" AGENT_LOCK_TEST_APPARMOR_LOADED="$T/aa-loaded" "$@" \
+        AGENT_LOCK_TEST_APPARMOR_DIR="$T/apparmor.d" AGENT_LOCK_TEST_APPARMOR_LOADED="$T/aa-loaded" AGENT_LOCK_TEST_SETUID_DIR="$T/setuid" "$@" \
         bash "$T/action/lock.sh" 2>&1); rc=$?; }
 run() { # run <ok|fail> <name> <message> [VAR=value ...]
   local want=$1 name=$2 msg=$3; shift 3
@@ -69,6 +72,8 @@ run() { # run <ok|fail> <name> <message> [VAR=value ...]
   if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"
   else failed=$((failed+1)); echo "FAIL  $name ($got)"; echo "$out" | tail -n 8; fi
   [ "${KEEP:-}" = 1 ] || rm -rf "$T"; }
+conf_of() { # conf_of <sudo log> <destination>: the temp file the lock installed at <destination> (last install wins)
+  awk -v d="$2" '$1=="install" && $NF==d {print $(NF-1)}' "$1" | tail -n1; }
 check() { # check <name> <condition...>: passes when the command succeeds
   local name=$1; shift
   if "$@"; then pass=$((pass+1)); echo "PASS  $name"; else failed=$((failed+1)); echo "FAIL  $name"; fi; }
@@ -80,12 +85,12 @@ check "nonessential traffic and autoupdater off" grep -qx "CLAUDE_CODE_DISABLE_N
 check "claude-path and bun-path are the last output lines" bash -c '[ "$(tail -n2 "$1")" = "claude-path=$2/home/.local/bin/claude
 bun-path=$2/home/.local/bin/bun" ]' _ "$T/out" "$T"
 L="$T/sudo.log"
-conf_of() { awk -v d="$1" '$1=="install" && $NF==d {print $(NF-1)}' "$L" | tail -n1; }
-DC=$(conf_of /etc/agent-dnsmasq.conf); NC=$(conf_of /etc/nginx/agent-egress.conf)
+DC=$(conf_of "$L" /etc/agent-dnsmasq.conf); NC=$(conf_of "$L" /etc/nginx/agent-egress.conf)
 check "dnsmasq: listens on 127.0.0.1 only, no outside resolv" bash -c 'grep -qx listen-address=127.0.0.1 "$1" && grep -qx bind-interfaces "$1" && grep -qx no-resolv "$1" && grep -qx filter-AAAA "$1"' _ "$DC"
 check "dnsmasq: one server line per allowed name, upstream from resolv.conf" bash -c 'grep -qx "server=/api.anthropic.com/10.1.2.3" "$1" && grep -qx "server=/github.com/10.1.2.3" "$1" && [ "$(grep -c "^server=" "$1")" = "$(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l)" ]' _ "$DC" "$LOCK_DIR/allow-domains.txt"
 check "dnsmasq: no wildcard or catch-all server" bash -c '! grep -E "^server=(/|[0-9])" "$1" | grep -qvE "^server=/[a-z0-9.-]+/" ' _ "$DC"
 check "nginx: SNI map with hostnames, unknown names go nowhere" bash -c 'grep -q "hostnames;" "$1" && grep -q "default 127.0.0.1:1;" "$1" && grep -q "ssl_preread on;" "$1" && grep -q "listen 127.0.0.1:8443;" "$1" && grep -q "user www-data;" "$1"' _ "$NC"
+check "nginx: map hash buckets big enough for long generated names" grep -q "  map_hash_bucket_size 128;" "$NC"
 check "nginx: exact names only, no suffix entry" bash -c 'grep -q "    api.anthropic.com \$ssl_preread_server_name:443;" "$1" && ! grep -qE "^    \." "$1"' _ "$NC"
 check "iptables: 443 redirected for everyone but the proxy" grep -qx -- "iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner 33 -j REDIRECT --to-ports 8443" "$L"
 check "iptables: DNS only from dnsmasq to the upstream" bash -c 'grep -qx -- "iptables -A OUTPUT -p udp --dport 53 -d 10.1.2.3 -m owner --uid-owner 999 -j ACCEPT" "$1" && grep -qx -- "iptables -A OUTPUT -p tcp --dport 53 -d 10.1.2.3 -m owner --uid-owner 999 -j ACCEPT" "$1"' _ "$L"
@@ -98,7 +103,7 @@ check "sudoers.d cleanup is the last real sudo call" bash -c 'tail -n 4 "$1" > "
 check "Docker stopped and its sockets removed" grep -qx -- "rm -f /var/run/docker.sock /run/containerd/containerd.sock" "$L"
 rm -rf "$T"
 fresh; printf 'nameserver 127.0.0.53\n' > "$T/resolv.conf"; KEEP=1 run ok "no outside resolver: Azure DNS fallback" "Agent egress lock on:"
-check "fallback upstream 168.63.129.16 used" grep -q "^server=/api.anthropic.com/168.63.129.16$" "$(awk '$1=="install" && $NF=="/etc/agent-dnsmasq.conf" {print $(NF-1)}' "$T/sudo.log")"; rm -rf "$T"
+check "fallback upstream 168.63.129.16 used" grep -q "^server=/api.anthropic.com/168.63.129.16$" "$(conf_of "$T/sudo.log" /etc/agent-dnsmasq.conf)"; rm -rf "$T"
 fresh; KEEP=1 run ok "no dnsmasq user: one is created" "Agent egress lock on:" STUB_NO_DNSMASQ=1
 check "useradd called for dnsmasq" grep -qx -- "useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq" "$T/sudo.log"; rm -rf "$T"
 fresh; KEEP=1 run ok "dnsmasq user exists: none created" "Agent egress lock on:"
@@ -106,7 +111,7 @@ check "useradd not called" bash -c '! grep -q useradd "$1"' _ "$T/sudo.log"; rm 
 fresh; rm -f "$T/userns"; KEEP=1 run ok "no AppArmor userns switch: nothing to set" "Agent egress lock on:"
 check "no sysctl or AppArmor profile without the switch" bash -c '! grep -qE "sysctl|apparmor_parser" "$1"' _ "$T/sudo.log"; rm -rf "$T"
 fresh; stub sudo 'printf "%s\n" "$*" >> "$STUB_SUDO_LOG"; [ "$*" = "-n true" ] && exit 1; [ "$*" = "-n -l" ] && exit 1; [ "$1" = -k ] && exit 0
-case "$*" in *"apt-get install"*) [ -f "$STUB_SUDO_LOG.updated" ] && exit 0; exit 1;; *"apt-get update"*) touch "$STUB_SUDO_LOG.updated";; esac; exit 0'
+case "$*" in *"apt-get install"*) [ -f "$STUB_SUDO_LOG.updated" ] && exit 0; exit 1;; *"apt-get update"*) touch "$STUB_SUDO_LOG.updated";; "chmod "*) shift; exec chmod "$@";; esac; exit 0'
 KEEP=1 run ok "apt install retried after apt-get update" "Agent egress lock on:"
 check "apt-get update ran once, install twice" bash -c '[ "$(grep -c "apt-get update" "$1")" = 1 ] && [ "$(grep -c "apt-get install" "$1")" = 2 ]' _ "$T/sudo.log"; rm -rf "$T"
 fresh; KEEP=1 run ok "apt install works first time: no update" "Agent egress lock on:"
@@ -133,7 +138,8 @@ fresh; stub sudo '[ "$*" = "-n true" ] && exit 1; [ "$1" = -k ] && exit 0; case 
 fresh; run fail "sudo still works"          "self-test: sudo still works" STUB_SUDO_RC=0
 fresh; run fail "a command-limited sudo rule is left" "self-test: sudo still lists rules for this user" STUB_SUDO_L_RC=0
 fresh; run fail "Docker still reachable"    "self-test: Docker still reachable" STUB_DOCKER_RC=0
-fresh; python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$T/sock"; run fail "Docker socket still there" "self-test: Docker still reachable" AGENT_LOCK_TEST_DOCKER_SOCK="$T/sock"
+# Unix socket paths are limited to 108 bytes, so the sockets live in a short folder under /tmp.
+fresh; SK=$(mktemp -d /tmp/s.XXXXXX); python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$SK/sock"; run fail "Docker socket still there" "self-test: Docker still reachable" AGENT_LOCK_TEST_DOCKER_SOCK="$SK/sock"; rm -rf "$SK"
 fresh; run fail "allowed host unreachable"  "self-test: allowed host api.github.com not reachable" STUB_ALLOWED_RC=7
 fresh; run fail "blocked host reachable"    "self-test: blocked host example.com reachable" STUB_REACHABLE=https://example.com
 fresh; run fail "gist reachable"            "self-test: gist.github.com reachable" STUB_REACHABLE=https://gist.github.com
@@ -144,7 +150,7 @@ fresh; run fail "plain HTTP reachable"      "self-test: plain HTTP (port 80) rea
 fresh; run fail "allowed name does not resolve" "self-test: DNS for an allowed name does not resolve" STUB_NO_NPM_DNS=1
 fresh; run fail "blocked name resolves"     "self-test: DNS for a blocked name resolves" STUB_DNS_LEAK_RC=0
 fresh; run fail "outside DNS reachable"     "self-test: outside DNS server reachable" STUB_TCP_RC=0
-fresh; G=$(id -gn); python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$T/run/admin.sock"; chmod 660 "$T/run/admin.sock"; run fail "group-writable admin socket still there" "group-writable admin socket still there" AGENT_LOCK_ADMIN_GROUPS="$G"
+fresh; G=$(id -gn); SK=$(mktemp -d /tmp/s.XXXXXX); python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$SK/admin.sock"; chmod 660 "$SK/admin.sock"; run fail "group-writable admin socket still there" "group-writable admin socket still there" AGENT_LOCK_TEST_ADMIN_GROUPS="$G" AGENT_LOCK_TEST_RUN_DIRS="$SK"; rm -rf "$SK"
 fresh; run ok "known open routes are printed" "Known open routes"
 fresh; run fail "IPv6 reachable"            "self-test: IPv6 reachable" "STUB_REACHABLE=-6"
 fresh; run fail "deliberate break"          "self-test: deliberate break" AGENT_LOCK_SELFTEST_BREAK=1
@@ -159,7 +165,7 @@ fresh; run ok   "fronting: redirect to the same host is fine" "Agent egress lock
 # The OIDC host of a job with id-token: write is added exactly, and probed like every other name
 OIDC='https://run-actions-2-azure-eastus.actions.githubusercontent.com/abc/idtoken/def?api-version=2.0'
 fresh; KEEP=1 run ok "OIDC host added exactly" "Agent egress lock on: 8 allowed names" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC"
-check "dnsmasq and nginx know only the exact OIDC host" bash -c 'grep -qx "server=/run-actions-2-azure-eastus.actions.githubusercontent.com/10.1.2.3" "$1" && grep -q "    run-actions-2-azure-eastus.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$2" && ! grep -q "^    \.actions" "$2"' _ "$(awk '$1=="install" && $NF=="/etc/agent-dnsmasq.conf" {print $(NF-1)}' "$T/sudo.log")" "$(awk '$1=="install" && $NF=="/etc/nginx/agent-egress.conf" {print $(NF-1)}' "$T/sudo.log")"; rm -rf "$T"
+check "dnsmasq and nginx know only the exact OIDC host" bash -c 'grep -qx "server=/run-actions-2-azure-eastus.actions.githubusercontent.com/10.1.2.3" "$1" && grep -q "    run-actions-2-azure-eastus.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$2" && ! grep -q "^    \.actions" "$2"' _ "$(conf_of "$T/sudo.log" /etc/agent-dnsmasq.conf)" "$(conf_of "$T/sudo.log" /etc/nginx/agent-egress.conf)"; rm -rf "$T"
 fresh; run fail "OIDC host on another domain" "unexpected OIDC host: 'evil.example.com'" "ACTIONS_ID_TOKEN_REQUEST_URL=https://evil.example.com/x"
 fresh; run fail "OIDC URL that is not https" "unexpected OIDC host" "ACTIONS_ID_TOKEN_REQUEST_URL=http://run-actions-2.actions.githubusercontent.com/x"
 fresh; run fail "fronting through the OIDC host" "domain fronting through run-actions-2-azure-eastus.actions.githubusercontent.com answers for another host" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC" STUB_FRONT="run-actions-2-azure-eastus.actions.githubusercontent.com=200"
@@ -178,9 +184,40 @@ check "chrome's profile is unloaded" grep -qx -- "apparmor_parser -R $T/apparmor
 check "Ubuntu's unprivileged_userns and profiles without userns stay" bash -c '! grep -qE "apparmor_parser -R .*/(unprivileged_userns|quiet)$" "$1"' _ "$T/sudo.log"; rm -rf "$T"
 fresh; aa; printf 'chrome (unconfined)\nquiet (enforce)\n' > "$T/aa-loaded"; run fail "a userns profile still loaded" "self-test: AppArmor profiles that allow user namespaces are still loaded: chrome"
 fresh; aa; printf 'quiet (enforce)\nunprivileged_userns (enforce)\n' > "$T/aa-loaded"; run ok "only allowed profiles loaded" "Agent egress lock on:"
-fresh; run fail "unshare works outside bubblewrap" "self-test: a program outside bubblewrap can create user namespaces" STUB_UNSHARE_RC=0
-STUB_PODMAN=1 fresh; run fail "podman can create user namespaces" "self-test: podman can still create user namespaces" STUB_PODMAN_RC=0
+fresh; run fail "root in a user namespace outside bubblewrap" "self-test: a program outside bubblewrap can become root in a user namespace" STUB_UNSHARE_RC=0
+STUB_PODMAN=1 fresh; run fail "podman becomes root in a user namespace" "self-test: podman can still become root in a user namespace" STUB_PODMAN_RC=0 STUB_PODMAN_UID=0
 STUB_PODMAN=1 fresh; run ok "podman blocked" "Agent egress lock on:"
+STUB_PODMAN=1 fresh; run ok "podman runs but is not root" "Agent egress lock on:" STUB_PODMAN_RC=0 STUB_PODMAN_UID=1001
+fresh; KEEP=1 run ok "newuidmap/newgidmap lose setuid" "Agent egress lock on:"
+check "chmod u-s,g-s called for both helpers" bash -c 'grep -qx -- "chmod u-s,g-s $1/newuidmap" "$2" && grep -qx -- "chmod u-s,g-s $1/newgidmap" "$2"' _ "$T/setuid" "$T/sudo.log"
+check "both helpers lost setuid and setgid" bash -c '[ ! -u "$1/newuidmap" ] && [ ! -g "$1/newuidmap" ] && [ ! -u "$1/newgidmap" ] && [ ! -g "$1/newgidmap" ]' _ "$T/setuid"; rm -rf "$T"
+fresh; run fail "setuid removal fails" "could not remove setuid from $T/setuid/newuidmap" STUB_SUDO_FAIL="chmod u-s,g-s"
+fresh; run fail "helper still setuid after the lock" "self-test: $T/setuid/newuidmap is still setuid/setgid" STUB_CHMOD_NOOP=1
+fresh; rm -f "$T/setuid/newuidmap" "$T/setuid/newgidmap"; run ok "no setuid helpers installed" "Agent egress lock on:"
 fresh; rm -f "$T/userns"; run ok "no AppArmor switch: userns checks skipped" "Agent egress lock on:" STUB_UNSHARE_RC=0
+# Reachability: every allowed name must answer through the lock
+fresh; run fail "an allowed name that does not answer" "self-test: allowed name codeload.github.com not reachable through the lock" STUB_UNREACHABLE=codeload.github.com
+# AppArmor: which profiles count as granting user namespaces, and failed unloads
+ab() { printf 'profile agent-bwrap /usr/bin/bwrap {\n  allow userns,\n}\n' > "$T/apparmor.d/agent-bwrap"
+  printf 'profile a1 /a {\n  audit userns,\n}\n' > "$T/apparmor.d/a1"
+  printf 'profile a2 /b {\n  allow userns create,\n}\n' > "$T/apparmor.d/a2"
+  printf 'profile a3 /c {\n  audit allow userns,\n}\n' > "$T/apparmor.d/a3"
+  printf 'profile a4 /d {\n  deny userns,\n  # userns,\n}\n' > "$T/apparmor.d/a4"; }
+fresh; ab; KEEP=1 run ok "AppArmor: userns grant forms" "Agent egress lock on:"
+check "AppArmor: the lock's own agent-bwrap profile is never unloaded" bash -c '! grep -q "apparmor_parser -R .*agent-bwrap" "$1"' _ "$T/sudo.log"
+check "AppArmor: audit / allow / create forms are unloaded" bash -c 'for n in a1 a2 a3; do grep -qx -- "apparmor_parser -R $2/apparmor.d/$n" "$1" || exit 1; done' _ "$T/sudo.log" "$T"
+check "AppArmor: deny and commented userns lines stay" bash -c '! grep -q "apparmor_parser -R .*/a4$" "$1"' _ "$T/sudo.log"; rm -rf "$T"
+fresh; aa; run ok "AppArmor: an unload that fails for a profile that is not loaded does not stop the lock" "Agent egress lock on:" STUB_SUDO_FAIL="apparmor_parser -R"
+fresh; aa; printf 'chrome (unconfined)\n' > "$T/aa-loaded"; run fail "AppArmor: unload fails and the profile stays loaded" "still loaded: chrome" STUB_SUDO_FAIL="apparmor_parser -R"
+# OIDC host: only https://<one label>.actions.githubusercontent.com/
+for u in 'https://a;b.actions.githubusercontent.com/x' 'https://x.y.actions.githubusercontent.com/x' 'https://actions.githubusercontent.com/x' \
+         'https://u@run-1.actions.githubusercontent.com/x' 'https://run-1.actions.githubusercontent.com:8443/x' 'https://RUN-1.actions.githubusercontent.com/x'; do
+  fresh; run fail "OIDC host refused: $u" "unexpected OIDC host" "ACTIONS_ID_TOKEN_REQUEST_URL=$u"
+done
+check "the real allow-domains.txt is exactly the 7 reviewed host names" bash -c 'diff <(sed -e "s/#.*//" -e "s/[[:space:]]//g" -e "/^$/d" "$1" | sort) <(printf "%s\n" api.anthropic.com api.github.com codeload.github.com github.com registry.npmjs.org registry.yarnpkg.com repo.yarnpkg.com | sort) >/dev/null' _ "$LOCK_DIR/allow-domains.txt"
+# A bare "OK" health answer is not fronting; any other 2xx body is
+fresh; run ok   "fronting: a bare OK health answer is fine" "Agent egress lock on:" STUB_FRONT="api.github.com=200" STUB_FRONT_BODY=" OK
+"
+fresh; run fail "fronting: another 2xx body fails" "self-test: domain fronting through api.github.com answers for another host (HTTP 200" STUB_FRONT="api.github.com=200" STUB_FRONT_BODY="<h1>Example Domain</h1>"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

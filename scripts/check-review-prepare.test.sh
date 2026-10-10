@@ -45,5 +45,19 @@ out=$(bash "$SCRIPT" 7 "$W/pq" nosuchbranch 2>&1); rc=$?
 [ $rc != 0 ] && grep -qF "base ref not found" <<<"$out" && ok "missing base ref fails" || bad "missing base ref" "$out"
 out=$(bash "$SCRIPT" 99 "$W/pr3" 2>&1); rc=$?
 [ $rc != 0 ] && [ ! -d "$W/pr3" ] && ok "missing PR ref fails" || bad "missing PR ref" "$out"
+# A merge commit whose conflict resolution adds a line (and a later commit removes it) still shows in log-patch.txt
+cd "$W/base" && git checkout -q -b pr8 main && echo one > m.txt && git add m.txt && git commit -qm "pr side"
+git checkout -q -b side main && echo two > m.txt && git add m.txt && git commit -qm "main side"
+git checkout -q pr8 && { git merge -q side >/dev/null 2>&1 || true; } && printf 'one\nEVIL-IN-MERGE-ONLY\n' > m.txt && git add m.txt && git commit -qm "merge" >/dev/null
+echo one > m.txt && git commit -qam "remove it again" && git push -q origin "HEAD:refs/pull/8/head" 2>/dev/null && git checkout -q main
+out=$(cd "$W/base" && bash "$SCRIPT" 8 "$W/p8" main 2>&1); rc=$?
+[ $rc = 0 ] && grep -q '^.*+EVIL-IN-MERGE-ONLY' "$W/p8-meta/log-patch.txt" 2>/dev/null && ok "a line added only inside a merge shows in log-patch.txt" || bad "merge-only line" "$out"
+# With GIT_TOKEN, git gets the token only as a one-time header: never printed, never stored
+mkdir -p "$W/bin" && printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/git.log"\nexec %s "$@"\n' "$W" "$(command -v git)" > "$W/bin/git" && chmod +x "$W/bin/git"
+out=$(cd "$W/base" && PATH="$W/bin:$PATH" GIT_TOKEN=tok-test-not-real bash "$SCRIPT" 7 "$W/p9" 2>&1); rc=$?
+hdr=$(printf 'x-access-token:%s' tok-test-not-real | base64 -w0)
+[ $rc = 0 ] && grep -qF -- "-c http.extraheader=AUTHORIZATION: basic $hdr fetch" "$W/git.log" && ok "GIT_TOKEN is passed as a one-time auth header" || bad "GIT_TOKEN header" "$out"
+! grep -q 'tok-test-not-real' <<<"$out" && ok "the token is never printed" || bad "token printed" "$out"
+[ "$(git -C "$W/base" config --get-regexp 'http\..*extraheader' || true)" = "" ] && ok "the token is not stored in git config" || bad "token stored"
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

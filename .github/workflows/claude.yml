@@ -9,7 +9,7 @@ on:
 
 jobs:
   claude:
-    # Only comments written by a founder (numeric ID from .github/founder-ids.txt; logins can be re-registered) start a run.
+    # Only comments written by a founder (numeric ID from .github/accounts.txt; logins can be re-registered) start a run.
     if: contains(github.event.comment.body, '@claude') && !github.event.issue.pull_request && github.event.comment.user.id == 238822878
     env:
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)

@@ -24,5 +24,13 @@ run 1 "probe did not run" scrub '[{"type":"result","result":"SCRUB-PROBE env-tok
 run 2 "bad mode" other '[]' "usage:"
 run 2 "unreadable file" scrub '{not json' "cannot read the execution file"
 run 1 "not a list" scrub '{}' "did not run"
+
+run 0 "several denials, one of them the payload skill" skill-deny "[{\"type\":\"result\",\"result\":\"EGRESS-LOCK-OK\",\"permission_denials\":[{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}},$DENY]}]" "result: EGRESS-LOCK-OK"
+run 1 "a non-Skill tool with skill=payload in its input is not the deny" skill-deny '[{"type":"result","result":"EGRESS-LOCK-OK","permission_denials":[{"tool_name":"Bash","tool_input":{"skill":"payload"}}]}]' "denials:"
+run 1 "the last result message decides" skill-deny "[{\"type\":\"result\",\"result\":\"EGRESS-LOCK-OK\",\"permission_denials\":[$DENY]},{\"type\":\"result\",\"result\":\"EGRESS-LOCK-OK\",\"permission_denials\":[]}]" "denials: []"
+out=$(python3 -I "$PY" skill-deny "$W/missing.json" 2>&1); rc=$?
+if [ $rc = 2 ] && grep -qF "cannot read the execution file" <<<"$out"; then pass=$((pass+1)); echo "PASS  missing file (an empty \$EXEC_FILE)"; else failed=$((failed+1)); echo "FAIL  missing file (rc=$rc)"; echo "$out"; fi
+out=$(python3 -I "$PY" skill-deny "$W/e.json" extra 2>&1); rc=$?
+if [ $rc = 2 ] && grep -qF "usage:" <<<"$out"; then pass=$((pass+1)); echo "PASS  extra argument"; else failed=$((failed+1)); echo "FAIL  extra argument (rc=$rc)"; fi
 echo "$pass passed, $failed failed"
 [ "$failed" = 0 ]

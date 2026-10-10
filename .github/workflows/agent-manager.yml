@@ -43,7 +43,7 @@ jobs:
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
       - name: Agents must run on their own GitHub token, never a founder's
-        run: bash scripts/check-agent-token.sh .github/founder-ids.txt
+        run: bash scripts/check-agent-token.sh .github/accounts.txt
       - run: corepack enable
       - name: Git identity
         run: |
@@ -70,7 +70,8 @@ jobs:
           # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The other layers: the
           # agent egress lock (step `lock`: outbound HTTPS only to allow-listed host names, no sudo, no Docker), Claude Code's
           # subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: tools never see the Claude token), and the scope of
-          # GH_TOKEN, which holds only once it is the agents' own fine-grained token without the Workflows permission.
+          # GH_TOKEN: the agents' own token (classic with exactly `repo`, or fine-grained), never with `workflow` scope; the step
+          # "Agents must run on their own GitHub token, never a founder's" checks that before Claude starts.
           # None of these alone is a complete boundary (docs/runbooks/agent-network-lock.md).
           # `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
           # together with its override.

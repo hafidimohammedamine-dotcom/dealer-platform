@@ -1,5 +1,6 @@
 """Shared state and helpers for scripts/check-workflows.py and scripts/check-workflows-claude.py (founder-owned): the
-policy lists, the error list, and the secrets and claude-step tests. Rules and messages: docs/runbooks/ci-guards.md."""
+policy lists, the accounts list, the error list, and the secrets and claude-step tests. Rules and messages:
+docs/runbooks/workflow-checker.md."""
 import json
 import os
 import re
@@ -38,4 +39,32 @@ def secrets_problems(text, allow_claude=False):
             out.append(f"Claude/Anthropic credential secrets.{name}")
     if not allow_claude and CRED_ENV.search(text):
         out.append("Claude/Anthropic credential variable")
+    return out
+
+
+ACCOUNT_LINE = re.compile(r"^(\d+)\s+([A-Za-z0-9-]+)\s+(founder|agent)$")
+
+
+def read_accounts(path):
+    """Reads .github/accounts.txt ("<id> <login> founder|agent" per line, same rules as scripts/check-accounts-lib.sh).
+    Returns {id: (login, role)}; reports a missing file, a bad line or no founder as errors (an empty result)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        err(f"accounts file not found: {path}")
+        return {}
+    out = {}
+    for n, raw in enumerate(lines, 1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        m = ACCOUNT_LINE.match(line)
+        if not m:
+            err(f"bad line {n} in {path} (want '<id> <login> founder|agent'): {line}")
+            return {}
+        out[m.group(1)] = (m.group(2), m.group(3))
+    if not any(role == "founder" for _, role in out.values()):
+        err(f"no founder listed in {path}")
+        return {}
     return out

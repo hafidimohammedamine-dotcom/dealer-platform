@@ -12,8 +12,8 @@ You find and report problems. You never edit files.
 ## Check on every pull request
 1. **Dealer separation:** every query and API route filters by `dealer_id`; no ID guessing (IDOR) across dealers.
 2. **Auth and roles:** every route checks login and role (sales rep, desking manager, BDC, admin). No hidden or debug routes.
-3. **Secrets:** none in code, tests, fixtures, logs or the branch's commits (in a PR review: `/tmp/pr-meta/log-patch.txt`, every commit's patch, so a secret added and removed
-   again still shows).
+3. **Secrets:** none in code, tests, fixtures, logs or the branch's commits (in a PR review: `/tmp/pr-meta/log-patch.txt`,
+   every commit's patch, merge commits as combined diffs, so a secret added and removed again still shows).
 4. **Sensitive data:** SSN, DOB, income, bank info encrypted at rest, masked on screen, never logged,
    never sent by text/email, never stored in Payload collections.
 5. **Input:** SQL injection, XSS, SSRF, path traversal, unsafe uploads, XML external entities in ADF/XML, unsafe deserialization.

@@ -16,10 +16,11 @@ PR opened / pushed
       posts it, labels PASS (ready-to-merge) or FAIL (changes-requested)
 A founder reads the result and merges.
 ```
-Agents (manager and builders) must open and push PRs with the agents' own GitHub account; founders use their own accounts.
-That account does not exist yet: until a founder creates it, the manager stops before Claude starts (its token check refuses a
-founder's token). Details: `docs/runbooks/agent-network-lock.md` and `docs/runbooks/ci-guards.md` ("Known limits").
-Failure handling: `docs/runbooks/ci-guards.md`.
+Agents (manager and builders) open and push PRs with the agents' own GitHub account (`mohammedaminehafidi-ctrl`, the `agent`
+line of `.github/accounts.txt`); founders use their own accounts. People are identified by numeric user ID, never by login.
+Before Claude starts, every job holding the agents' token checks that it belongs to that account and is limited (classic with
+only `repo`, or fine-grained). Details: `docs/runbooks/agent-network-lock.md`.
+Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-guards.md`, `docs/runbooks/workflow-checker.md`.
 
 ### Guard checks for skills and agent workflows
 - `scripts/check-skills.sh`: skill manifest, checksums, license, NOTICE and lock rows, and agent `skills:` lines (an agent that
@@ -35,8 +36,9 @@ Failure handling: `docs/runbooks/ci-guards.md`.
   with a claude step runs on `pull_request` or `workflow_run`; tag mode (no prompt) only on issues.
 - `scripts/check-scrub-probe.sh` (job `scrub` in `egress-lock-claude.yml`, from `main`): run by Claude as a tool, it counts the
   Claude tokens a tool can see and prints counts only; the job fails above 0.
-- `scripts/check-agent-token.sh` (every job holding the agents' token, before Claude): the token must be a fine-grained token
-  of a non-founder account (founders matched by numeric ID from `.github/founder-ids.txt`).
+- `scripts/check-agent-token.sh` (every job holding the agents' token, before Claude): the token must belong to the `agent`
+  account in `.github/accounts.txt` (by numeric ID) and be classic with exactly `repo`, or fine-grained with no classic scopes.
+- `scripts/check-founder-files.sh` (guards): founder-only files change only if the PR author and pusher IDs are `founder` IDs.
 - `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny and scrub probes from the
   claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard
@@ -46,5 +48,5 @@ Failure handling: `docs/runbooks/ci-guards.md`.
 Agent jobs (manager, review, daily report, weekly audit, founder mentions) check out `main` and then run
 `.github/actions/agent-egress-lock`: pinned, checksum-verified gitleaks, Claude Code and Bun; outbound HTTPS only to allow-listed host names
 through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. Claude Code's subprocess
-isolation keeps the Claude token out of the tools agents run. Together with a repo-scoped agents' token without the Workflows
-permission, this narrows what an injected instruction could do; it is not a complete data boundary. Details and limits: `docs/runbooks/agent-network-lock.md`.
+isolation keeps the Claude token out of the tools agents run. Together with the agents' repo-only token without `workflow`
+scope, this narrows what an injected instruction could do; it is not a complete data boundary. Details and limits: `docs/runbooks/agent-network-lock.md`.

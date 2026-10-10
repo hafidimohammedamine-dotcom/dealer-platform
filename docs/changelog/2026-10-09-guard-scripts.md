@@ -24,9 +24,9 @@
   pull_request_target) without stored credentials, and every other checkout in the job may set only `ref`, `fetch-depth` and
   `persist-credentials`; only the reviewed prepare step may touch `/tmp/pr`; steps after Claude check the sha256 of the scripts
   they run; claude steps cannot run after a failure; workflows with a claude step cannot run on `pull_request`. The manager's git
-  pushes now authenticate through `gh auth setup-git`, and the manager stops if its GitHub token belongs to a founder
-  (`scripts/check-agent-token.sh`) - so it does not run until the agents' own account exists. The instant fix round starts only
-  for a same-repository PR by the agents' login (`AGENT_GH_LOGIN` variable).
+  pushes now authenticate through `gh auth setup-git`, and the manager stops unless its GitHub token belongs to the agents'
+  account (`scripts/check-agent-token.sh`). The instant fix round starts only for a same-repository PR whose author has the
+  agents' account ID.
 - **`guards` runs these checks from `main`** on every PR (the PR's files are data):
   - `scripts/check-skills-vs-base.sh`: a base third-party skill may not become anything else or move to another source repo;
     every commit/path change, new and removed skill is logged.
@@ -55,11 +55,21 @@
   `SCRUB-PROBE env-tokens=<n> proc-tokens=<n> pid=<n>`, and the job fails unless both counts are 0.
 - `claude.yml` (founder @claude mentions) answers on issues only: without a prompt the action checks out an open PR's code
   itself, and nested rule files from the PR would load.
-- Messages and fixes for every check: `docs/runbooks/ci-guards.md`.
-- Founders are matched by numeric GitHub user ID (`.github/founder-ids.txt`) in workflow conditions, and the checker rejects
-  login comparisons. The agents' token check also requires a fine-grained token with no classic scopes, and runs in every job
-  that holds `AGENT_GH_TOKEN`.
-- The lock unloads the image's other AppArmor profiles that grant user namespaces (browsers, podman, lxc, ...).
+- Messages and fixes for every check: `docs/runbooks/ci-guards.md` (overview, guards, review job, CI), with
+  `docs/runbooks/skill-guards.md`, `docs/runbooks/workflow-checker.md` and `docs/runbooks/agent-network-lock.md`.
+- People are matched by numeric GitHub user ID: `.github/accounts.txt` ("<id> <login> founder|agent") replaces
+  `.github/founders.txt`. Guards checks the PR author and pusher IDs; workflow conditions compare IDs (the checker rejects any
+  login comparison except with a bot name, and IDs that are not listed). The agents' token check requires the token to belong
+  to the `agent` account and be classic with exactly `repo` (fine-grained tokens cannot cover a personal account's repo for a
+  collaborator) or fine-grained with no classic scopes; it is the first step after checkout and the lock in every job that
+  holds `AGENT_GH_TOKEN`.
+- The lock allows exact names only: the `.actions.githubusercontent.com` wildcard is gone (the runner needed none during the
+  steps); a job with `id-token: write` also allows its own OIDC host for that run. It installs Node 20 before it closes,
+  checks that every allowed name answers, and gives nginx room for long generated names.
+- `log-patch.txt` for reviewers includes merge commits (combined diffs).
+- The lock unloads the image's other AppArmor profiles that grant user namespaces (browsers, podman, lxc, ...) and removes
+  the setuid bits from `newuidmap`/`newgidmap` (`podman unshare` was root with every capability in a user namespace on a
+  real runner even with the profiles unloaded; the self-test now checks the helpers and `podman unshare id -u`).
 - `scripts/check-claude-probe.py` decides the Claude probes (was inline Python); `scripts/check-coverage-sh.test.sh` tests
   the coverage runner, and Python coverage is compared with two decimals.
 - Founder decisions on the remaining open routes, unverified pins and post-merge first runs are recorded in
