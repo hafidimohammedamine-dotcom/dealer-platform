@@ -207,6 +207,11 @@
   its checkout) and on a founder push whose previous tip never passed the main guard; tests for both.
 - **Round 23:** main-guard's checkout has its own 5-minute limit (a step timeout fails the step; a job timeout would cancel
   the run with the fallback never started) and the fallback also runs on `cancelled()`; job limit 15 minutes.
+- **Round 24:** every main-guard check also requires the commit to descend from the newest checked head (the newest
+  successful push run's head; `main_guard_lineage`): a force push back to an older, once-checked commit with the
+  workflow disabled or its run cancelled is now caught by the next push, the hourly run, every Claude job and every
+  shift (`rolled back ...`; issue `SECURITY: main was moved back to an older commit`); the fallback counts such a tip as
+  unchecked. Tests in the lib, main-push (script and fallback) and agent-token suites.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

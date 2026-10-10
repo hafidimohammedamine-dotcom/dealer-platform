@@ -6,7 +6,9 @@
 # security issue for the founders. Every run also checks that the previous push's head passed the main guard itself: a
 # push whose head commit message says [skip ci] (or [ci skip], [no ci], [skip actions], [actions skip]) starts no
 # workflow, and a run someone cancelled passed nothing, so one unchecked push breaks the chain at the next push or the
-# scheduled run, which stops the agents and opens an issue (no revert: the guard cannot tell what that push was).
+# scheduled run, which stops the agents and opens an issue (no revert: the guard cannot tell what that push was). The same
+# check requires main to still descend from the newest checked head (main_guard_lineage): a force push back to an older,
+# once-checked commit with the workflow disabled is caught the same way.
 # The undo commit this guard pushes starts no run of its own (a push made with a workflow's token starts no workflow),
 # so the guard marks it with the guards/main-guard commit status instead (mark_main_guard_passed); a founder who has read
 # an unchecked commit accepts it the same way, by running this workflow by hand (Actions -> Main guard -> Run workflow,
@@ -76,6 +78,13 @@ fi
 if [ -n "$chain_sha" ]; then
   if chain=$(main_guard_passed "$chain_sha" "$WAIT"); then echo "Chain: $chain"
   else chain_ok=0; case "$chain" in ERROR:*) echo "$chain"; exit 1;; esac; fi
+fi
+if [ "$chain_ok" = 0 ] && [ "${chain#rolled back}" != "$chain" ]; then   # main points at an older, once-checked commit
+  echo "::error::main was moved back to an older commit ($chain): a force push with the main guard disabled or its run cancelled"
+  stopped=$(stop_agents "SECURITY: main was moved back to an older commit ($chain_sha)" \
+    "**\`main\` was moved back to an older commit.** $chain. No main-guard run recorded that move (the workflow was disabled or the run cancelled meanwhile), so the commits after it are gone from \`main\`. Nothing was restored by the guard. Founders: read the repository's audit log for who moved it, put \`main\` back to the last checked head by hand, rotate \`AGENT_GH_TOKEN_V2\` if the agents' account did it, then re-enable the workflows. What main-guard did:")
+  echo "main-guard: rolled back $chain_sha; $stopped"
+  exit 1
 fi
 if [ "$chain_ok" = 0 ]; then
   echo "::error::commit $chain_sha reached main without passing the main guard ($chain): a push whose head says [skip ci], a cancelled run, or the workflow disabled at the time"

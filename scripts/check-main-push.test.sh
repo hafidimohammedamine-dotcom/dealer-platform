@@ -50,7 +50,19 @@ Z=0000000000000000000000000000000000000000
 same_tree() { cd "$1" && git fetch -q origin && [ "$(git rev-parse "origin/main^{tree}")" = "$(git rev-parse "$2^{tree}")" ]; }   # origin main's tree is exactly <commit>'s
 
 fresh; push_commits 1; run ok "a founder's push is fine" "Push to main by founder 'founder-one' (ID 111): OK." 111 "$BASE" "$HEAD"
-check "founder push: nothing reverted, nothing disabled, no issue (only the chain check asked for the previous head's runs)" bash -c '! grep -qv "gh api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha=$2" "$1"' _ "$W/gh.log" "$BASE"
+check "founder push: nothing undone, nothing disabled, no issue (only the chain check asked for the previous head's runs and the newest run)" bash -c '! grep -qv "gh api repos/owner/repo/actions/workflows/main-guard.yml/runs?" "$1" && grep -q "runs?head_sha=$2" "$1"' _ "$W/gh.log" "$BASE"
+# main must still descend from the newest checked head: a force push back to an older, once-checked commit with the
+# workflow disabled (no run records the move) is caught on the next push or the hourly run
+fresh; push_commits 1; M=$HEAD; (cd "$W/clone" && git push -q --force origin "$BASE:main" && git reset -q --hard "$BASE")
+run fail "schedule: main moved back to an older checked commit (the newest successful run is ahead of it)" "main was moved back to an older commit (rolled back $BASE (behind the last checked head $M, compare: behind)" schedule - - STUB_LATEST="$M"
+check "rollback: the agents stop, the issue names the move, main untouched" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh issue create --title SECURITY: main was moved back to an older commit ($2)" "$1" && cd "$3" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$2" ]' _ "$W/gh.log" "$BASE" "$W/clone"
+fresh; push_commits 1; M=$HEAD; (cd "$W/clone" && git push -q --force origin "$BASE:main" && git reset -q --hard "$BASE"); push_commits 2
+run fail "a founder's push on top of a rolled-back main: the chain check catches the move" "rolled back $BASE (behind the last checked head $M" 111 "$BASE" "$HEAD" STUB_LATEST="$M"
+check "rollback then push: the agents stop" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ]' _ "$W/gh.log"
+fresh; push_commits 1; run ok "a push whose previous tip is the newest checked head passes" "Push to main by founder" 111 "$BASE" "$HEAD" STUB_LATEST="$BASE"
+fresh; push_commits 1 2; run ok "a push whose previous tip descends from the newest checked head passes (compare: ahead)" "Push to main by founder" 111 "$(git -C "$W/clone" rev-parse HEAD~1)" "$HEAD" STUB_LATEST="$BASE"
+fresh; push_commits 1; run fail "the newest-run lookup fails: an error, nothing stopped" "could not read the newest main-guard run" 111 "$BASE" "$HEAD" STUB_LATEST_RC=1
+check "lookup error: no disable, no issue" bash -c '! grep -q "workflow disable\|issue create" "$1"' _ "$W/gh.log"
 # The chain: the previous push's head must have passed the main guard itself (a [skip ci] push or a cancelled run has none)
 fresh; push_commits 1; run fail "a founder's push after an unchecked push: the agents are stopped, an issue opened, nothing reverted" "reached main without passing the main guard (missing $BASE (runs: none))" 111 "$BASE" "$HEAD" STUB_RUNS=
 check "unchecked push: 8 workflows disabled, the issue names the commit, main untouched" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run (commit $3)" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
@@ -182,6 +194,9 @@ check "fallback: status-checked previous tip: its tree is back, marked once" bas
 check "fallback: status-checked previous tip: same tree" same_tree "$W/clone" "$A1"
 fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: a previous tip older than the floor (compare: ahead) is restored" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS= STUB_REL=ahead
 check "fallback: floor-checked previous tip: same tree" same_tree "$W/clone" "$A1"
+fresh; push_commits 1; M=$HEAD; (cd "$W/clone" && git push -q --force origin "$BASE:main" && git reset -q --hard "$BASE"); push_commits 2
+runfb "fallback: a previous tip behind the newest checked head counts as unchecked (a rollback)" "changed pinned files" 333 "$BASE" "$HEAD" STUB_LATEST="$M"
+check "fallback: rollback: main untouched, nothing marked, the issue says behind the last checked head" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && ! grep -q "statuses/\|git/refs" "$2" && grep -q "never passed the main guard (runs: completed/success; behind the last checked head $3)" "$2"' _ "$W/clone" "$W/gh.log" "$M"
 fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: a cancelled run on the previous tip counts as unchecked" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS=completed/cancelled
 check "fallback: cancelled run: main untouched (runs: completed/cancelled)" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && grep -q "(runs: completed/cancelled); nothing restored or marked" "$2"' _ "$W/clone" "$W/gh.log"
 fresh; push_commits 1; A1=$HEAD; push_commits 2; echo 0 > "$W/count"; runfb "fallback: a run still going on the previous tip is waited for" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS=in_progress/ STUB_RUNS_LATER=completed/success STUB_COUNT="$W/count"
@@ -234,6 +249,7 @@ for lab in ("area:security", "blocked", "priority:1"):
 assert not re.search(r"(^|[\s;&|$(])git\s", fb["run"]), "the fallback uses no checkout: GitHub API calls only"
 assert fb["env"]["FLOOR"] == re.search(r"^MAIN_GUARD_FLOOR=([0-9a-f]{40})$", open(f"{root}/scripts/check-github-lib.sh").read(), re.M).group(1)
 assert 'select(.event == "push")' in fb["run"] and ".creator.id == 41898282" in fb["run"] and 'compare/$1...$FLOOR' in fb["run"] and 'tip_checked "$BEFORE"' in fb["run"], "the fallback's chain check"
+assert "runs?event=push&status=success&per_page=1" in fb["run"] and 'compare/$latest...$1' in fb["run"], "the fallback's lineage check"
 assert '-f "parents[]=$AFTER"' in fb["run"] and '-F force=false' in fb["run"], "the undo commit is a fast-forward on the pushed head"
 wfs = re.search(r"for w in ([^;\n]+); do", fb["run"]).group(1).split()
 src = open(f"{root}/scripts/check-main-push.sh").read()

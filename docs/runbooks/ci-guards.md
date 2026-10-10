@@ -194,7 +194,15 @@ run checks the chain: the previous push's head (hourly: `main`'s head) must have
 count, so the hourly run never finds itself; `Chain: ok <sha> carries the guards/main-guard status (...)` - the commit status
 below; or `Chain: ok <sha> is on the default branch before the main guard existed (floor <sha>)`: the floor is
 `MAIN_GUARD_FLOOR` in `scripts/check-github-lib.sh`, main's head when the guard was written, and a commit passes without a
-run only if GitHub's compare API says it is an ancestor of it). `commit <sha> reached main without passing the main guard
+run only if GitHub's compare API says it is an ancestor of it). The checked commit must also still descend from the
+**newest checked head** (the head of the newest successful main-guard push run): a force push back to an older,
+once-checked commit with the workflow disabled or its run cancelled leaves no run that records the move, and that older
+commit keeps its old successful run, so without this the rollback would pass every check. `main was moved back to an
+older commit (rolled back <sha> (behind the last checked head <sha>, compare: behind|diverged) ...)` stops the agents and
+opens `SECURITY: main was moved back to an older commit (<sha>)`; nothing is restored (founders read the audit log, put
+`main` back by hand, re-enable). The same `is behind the last checked head` error stops every Claude job
+(`check-main-head.sh`) and every shift (`check-agent-token.sh`), and the fallback step counts such a tip as unchecked
+(`behind the last checked head <sha>`). `commit <sha> reached main without passing the main guard
 (missing <sha> (runs: ...))` means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or
 the workflow disabled at the time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to
 main passed no main-guard run (commit <sha>)` without reverting anything (it cannot tell what that push contained);

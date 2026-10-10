@@ -56,6 +56,8 @@ expect ok   "the floor commit itself (compare: identical)" "main head: ok cccc" 
 expect fail "a head after the floor with no run (a skip-ci push)" "has no successful main-guard run (missing cccccccccccccccccccccccccccccccccccccccc (runs: none))" "$OK" STUB_RUNS= STUB_REL=behind
 expect fail "a head on another line of history (compare: diverged)" "missing cccc" "$OK" STUB_RUNS= STUB_REL=diverged
 expect fail "the compare call fails"             "could not compare cccc" "$OK" STUB_RUNS= STUB_REL_RC=1
+expect fail "main moved back to an older checked commit (behind the newest successful run)" "is behind the last checked head (rolled back cccccccccccccccccccccccccccccccccccccccc (behind the last checked head dddddddddddddddddddddddddddddddddddddddd, compare: behind)" "$OK" STUB_LATEST=dddddddddddddddddddddddddddddddddddddddd STUB_REL=behind
+expect ok   "main descends from the newest checked head" "main head: ok" "$OK" STUB_LATEST=dddddddddddddddddddddddddddddddddddddddd STUB_REL=ahead
 check "the compare is against the floor constant of check-github-lib.sh" bash -c 'grep -q "^MAIN_GUARD_FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28$" "$1"' _ "$(dirname "$SCRIPT")/check-github-lib.sh"
 expect ok   "GITHUB_REPOSITORY as the fallback"  "main head: ok" "$OK" GH_REPO= GITHUB_REPOSITORY=owner/repo
 expect fail "no repository name"               "GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set" "$OK" GH_REPO= GITHUB_REPOSITORY=

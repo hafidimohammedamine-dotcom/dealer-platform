@@ -80,5 +80,18 @@ check "main_guard_status with real jq: one success status by github-actions[bot]
 check "main_guard_passed with real jq: the agents' forged status does not pass" test "$(mgp2 "$S40" STUB_REL=behind STUB_JSON_RUNS="$D/runs2.json" STUB_JSON_STATUS="$D/st0.json")" = "missing $S40 (runs: none)"
 check "main_guard_passed with real jq: the bot's status passes" test "$(mgp2 "$S40" STUB_JSON_RUNS="$D/runs2.json" STUB_JSON_STATUS="$D/st1.json")" = "ok $S40 carries the guards/main-guard status (the main guard's revert, or accepted by a founder)"
 rm -f "$D/bin/gh-extra"
+# Lineage: the commit must be the newest checked head (the newest successful push run's head) or descend from it
+L40=$(printf 'd%.0s' {1..40})
+check "main_guard_passed: no successful run yet (empty latest) skips the lineage check" test "$(mgp2 "$S40" "STUB_LATEST=")" = "ok $S40 passed the main guard"
+check "main_guard_passed: the commit is the newest checked head" test "$(mgp2 "$S40" STUB_LATEST="$S40")" = "ok $S40 passed the main guard"
+check "main_guard_passed: descends from the newest checked head (compare: ahead)" test "$(mgp2 "$S40" STUB_LATEST="$L40" STUB_REL=ahead)" = "ok $S40 passed the main guard"
+check "main_guard_passed: behind the newest checked head = rolled back" test "$(mgp2 "$S40" STUB_LATEST="$L40" STUB_REL=behind)" = "rolled back $S40 (behind the last checked head $L40, compare: behind): the default branch was moved back to an older commit"
+check "main_guard_passed: diverged from the newest checked head = rolled back" test "$(mgp2 "$S40" STUB_LATEST="$L40" STUB_REL=diverged)" = "rolled back $S40 (behind the last checked head $L40, compare: diverged): the default branch was moved back to an older commit"
+check "main_guard_passed: the newest-run lookup fails" test "$(mgp2 "$S40" STUB_LATEST_RC=1)" = "ERROR: could not read the newest main-guard run."
+check "main_guard_passed: odd newest-run text" test "$(mgp2 "$S40" "STUB_LATEST=not a sha")" = "ERROR: could not read the newest main-guard run."
+check "main_guard_passed: the lineage compare fails" test "$(mgp2 "$S40" STUB_LATEST="$L40" STUB_REL_RC=1)" = "ERROR: could not compare $S40 with the last checked head $L40."
+check "main_guard_passed: the lineage is asked after the run/status/floor checks (a missing commit is reported as missing)" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL=behind STUB_LATEST="$L40")" = "missing $S40 (runs: none)"
+check "main_guard_latest asks for the newest successful push run" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log6" STUB_LATEST=x main_guard_latest >/dev/null ); grep -qF "runs?event=push&status=success&per_page=1 --jq .workflow_runs[0].head_sha // empty" "$1/log6"' _ "$D" "$HERE"
+check "main_head_passed: a rolled-back head names the move" test "$(mhp 'any agent runs' STUB_LATEST="$L40" STUB_REL=behind)" = "ERROR: the default branch's head ($S40) is behind the last checked head (rolled back $S40 (behind the last checked head $L40, compare: behind): the default branch was moved back to an older commit). A founder checks who moved the default branch back (the repository's audit log; the workflow disabled or a run cancelled meanwhile?) before any agent runs."
 check "no MAIN_GUARD_FLOOR_OVERRIDE: the floor is the constant" bash -c '! grep -q "FLOOR_OVERRIDE" "$1/check-github-lib.sh"' _ "$HERE"
 summary

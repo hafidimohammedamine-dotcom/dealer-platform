@@ -45,7 +45,7 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e13bb060cf58f6ea91da941bb28c994f0cb651dd86b64e11598a0f3a340796"
+          PINS_SHA256: "3bbd6d3030ce06e6addb863a2d4edd52f5a934f75029f94b26d302abb5470928"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -90,6 +90,11 @@ jobs:
             marks=$(gh api "repos/$R/commits/$1/status" --jq '[.statuses[] | select(.context == "guards/main-guard" and .state == "success" and .creator.id == 41898282)] | length' 2>/dev/null) || marks=0
             case "$marks" in ''|0|*[!0-9]*) ;; *) checked="${checked:-status}";; esac
             case "$(gh api "repos/$R/compare/$1...$FLOOR" --jq .status 2>/dev/null)" in ahead|identical) checked="${checked:-floor}";; esac
+            # ... and it must still descend from the newest checked head (a force push back to an older, once-checked commit)
+            latest=$(gh api "repos/$R/actions/workflows/main-guard.yml/runs?event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null) || latest=""
+            if [ -n "$checked" ] && [ -n "$latest" ] && [ "$latest" != "$1" ]; then
+              case "$(gh api "repos/$R/compare/$latest...$1" --jq .status 2>/dev/null)" in ahead|identical) ;; *) checked=""; runs="${runs:-none}; behind the last checked head $latest";; esac
+            fi
           }
           if [ "$PUSHER_ID" = schedule ]; then   # main's head itself failed the pin check (or its checkout): nothing to undo, but the agents stop
             echo "::error::main's head failed the pin check (or its checkout) on the scheduled run"

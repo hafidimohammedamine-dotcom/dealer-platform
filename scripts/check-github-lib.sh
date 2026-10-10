@@ -56,6 +56,15 @@ mark_main_guard_passed() {
   "$GH" api -X POST "repos/$REPO/statuses/$1" -f state=success -f "context=$MAIN_GUARD_STATUS" -f "description=$2" >/dev/null 2>&1
 }
 
+# main_guard_latest: the head sha of the newest successful main-guard push run (empty when there is none yet); returns 1 on
+# an API error. The default branch must still descend from it: a force push back to an older, once-checked commit (with
+# the workflow disabled or its run cancelled, so no run records the move) would otherwise pass every check, since that
+# older commit keeps its old successful run.
+main_guard_latest() {
+  "$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?event=push&status=success&per_page=1" \
+    --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null
+}
+
 # MAIN_GUARD_FLOOR: the head of the default branch when the main guard was written (founder-owned constant, pinned with
 # this file; a workflow file cannot be changed by the agents' token either). Every commit that is an ancestor of it predates
 # the guard and is accepted; every push after it must have its own passed run. A constant, because the runs list the API
@@ -69,11 +78,34 @@ MAIN_GUARD_FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28
 # whose head commit message says [skip ci] (or a run someone cancelled) has no run at all; because each run checks the
 # previous push's head (its `before`) with this, one unchecked push breaks the chain at the next run or the next shift, so
 # no first-parent walk is needed: a push's inner commits are covered by the run on its head.
-# Prints "ok ..." and returns 0, or "missing <sha> (runs: ...)" and returns 1; API errors print "ERROR: ..." and return 1.
-# The checks that read the result never take an override from the environment: the floor is this file's constant.
+# The commit must also descend from the newest checked head (main_guard_latest): "rolled back <sha> (behind the last
+# checked head <latest>, compare: behind|diverged)" otherwise.
+# Prints "ok ..." and returns 0, or "missing <sha> (runs: ...)" / "rolled back ..." and returns 1; API errors print
+# "ERROR: ..." and return 1. The checks that read the result never take an override from the environment: the floor is
+# this file's constant.
 main_guard_passed() {
-  local sha=$1 wait_max=$2 waited=0 runs rel marks floor=$MAIN_GUARD_FLOOR
+  local sha=$1 wait_max=$2 out
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: bad commit sha: '$sha'"; return 1; }
+  out=$(main_guard_checked "$sha" "$wait_max") || { echo "$out"; return 1; }
+  main_guard_lineage "$sha" || return 1
+  echo "$out"
+}
+
+# main_guard_lineage <sha>: the commit is the newest checked head or descends from it (nothing to compare before the first
+# successful push run). Prints "rolled back ..." and returns 1 otherwise; API errors print "ERROR: ..." and return 1.
+main_guard_lineage() {
+  local sha=$1 latest rel
+  latest=$(main_guard_latest) || { echo "ERROR: could not read the newest main-guard run."; return 1; }
+  [ -n "$latest" ] && [ "$latest" != "$sha" ] || return 0
+  [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: could not read the newest main-guard run."; return 1; }
+  rel=$("$GH" api "repos/$REPO/compare/$latest...$sha" --jq .status 2>/dev/null) || { echo "ERROR: could not compare $sha with the last checked head $latest."; return 1; }
+  case "$rel" in ahead|identical) return 0;; esac
+  echo "rolled back $sha (behind the last checked head $latest, compare: ${rel:-unknown}): the default branch was moved back to an older commit"; return 1
+}
+
+# main_guard_checked <sha> <wait-seconds>: the run, status and floor checks of main_guard_passed, without the lineage.
+main_guard_checked() {
+  local sha=$1 wait_max=$2 waited=0 runs rel marks floor=$MAIN_GUARD_FLOOR
   while :; do
     runs=$(main_guard_runs "$sha") || { echo "ERROR: could not list the main-guard runs of $sha."; return 1; }
     case " $runs " in
@@ -106,7 +138,11 @@ main_head_passed() {
     echo "ERROR: this job checked out $local_sha but the default branch's head is $head now; start a fresh run."; return 1
   fi
   if ! out=$(main_guard_passed "$head" "$wait_max"); then
-    case "$out" in ERROR:*) echo "$out";; *) echo "ERROR: the default branch's head ($head) has no successful main-guard run ($out). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before $who.";; esac
+    case "$out" in
+      ERROR:*) echo "$out";;
+      "rolled back"*) echo "ERROR: the default branch's head ($head) is behind the last checked head ($out). A founder checks who moved the default branch back (the repository's audit log; the workflow disabled or a run cancelled meanwhile?) before $who.";;
+      *) echo "ERROR: the default branch's head ($head) has no successful main-guard run ($out). A founder checks that push (was the run cancelled, the workflow disabled, or the commit message marked [skip ci]?) before $who.";;
+    esac
     return 1
   fi
   echo "$out"
