@@ -241,8 +241,17 @@ push is undone by putting `main` back to the previous tip (`main was force-pushe
 founder does it by hand); the guard restores only a tip that passed the main guard itself (the chain check runs first),
 never an unchecked commit.
 Because the push itself could have changed the script, its library or `.github/accounts.txt`, the job's pin step (above)
-runs first; on a mismatch, the fallback step - written in the workflow file alone, with the founders' user IDs - undoes the
-push the same way (one undo commit with the previous tip's tree, or the restore after a force push), cancels and disables the same workflows and opens `SECURITY: push to main changed pinned files`;
+runs first; when the guard step never got to decide (`steps.guard.outcome == 'skipped'`: the pins did not match, or the
+checkout itself failed - a push built to break it, say a tree that unpacks to tens of GB), the fallback step - written
+in the workflow file alone, with the founders' user IDs and the floor commit - undoes the push **through the GitHub API
+only** (no repository file, no checkout): it first checks the previous tip the way the script does (a successful push run of
+main-guard, waiting up to two minutes for one still going; the `guards/main-guard` status by github-actions[bot]; or
+older than the floor) and, if that tip never passed, restores and marks nothing (`the previous tip <sha> never passed the
+main guard (runs: ...); nothing restored or marked`: a `[skip ci]` push followed seconds later by one touching a pinned
+file must not get the first push's content marked as checked); otherwise it builds the undo commit from the previous
+tip's tree (`git/commits` with `parents[] = <after>`), fast-forwards `main` to it (`git/refs/heads/main`, `force=false`),
+marks it, or after a force push resets `main` to the previous tip. It then cancels and disables the same workflows and
+opens `SECURITY: push to main changed pinned files or broke the checkout`;
 if the pusher was a founder it only fails with `pinned files changed by a founder's push ... run scripts/check-pins.sh
 update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs, labels and that its workflow list equals
 the script's.

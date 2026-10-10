@@ -6,9 +6,26 @@ TMPROOT="${TMPDIR:-/tmp}"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 W=$(mktemp -d "$TMPROOT/mp.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null   # the test's local pushes must not pick up proxy/negotiation settings
-mkdir -p "$W/nogit"; printf '#!/usr/bin/env bash\ncase "$1" in commit) exit 1;; esac; exec "%s" "$@"\n' "$(command -v git)" > "$W/nogit/git"; chmod +x "$W/nogit/git"
+mkdir -p "$W/nogit"; printf '#!/usr/bin/env bash\ncase "$1" in commit-tree) exit 1;; esac; exec "%s" "$@"\n' "$(command -v git)" > "$W/nogit/git"; chmod +x "$W/nogit/git"
 mkdir -p "$W/stub"; write_gh_stub "$W/stub"; cat > "$W/stub/gh-extra" <<'EXTRA'
 echo "gh $*" >> "$GH_LOG"
+O="${ORIGIN:-}"   # the bare origin: the fallback step's git API calls are answered from it
+case "$*" in
+  'api repos/owner/repo/git/ref/heads/main --jq .object.sha') git -C "$O" rev-parse refs/heads/main; exit 0;;
+  'api repos/owner/repo/git/commits/'*' --jq .tree.sha') [ "${STUB_TREE_RC:-0}" = 0 ] || exit 1; git -C "$O" rev-parse "${2##*/}^{tree}"; exit $?;;
+  'api -X POST repos/owner/repo/git/commits -f message='*' -f tree='*' -f parents[]='*' --jq .sha')
+    [ "${STUB_MKCOMMIT_RC:-0}" = 0 ] || exit 1; git -C "$O" -c user.name=github-actions -c user.email=bot@x commit-tree "${8#tree=}" -p "${10#parents[]=}" -m "${6#message=}"; exit $?;;
+  'api -X PATCH repos/owner/repo/git/refs/heads/main -f sha='*' -F force='*)
+    [ "${STUB_REF_RC:-0}" = 0 ] || exit 1; new="${6#sha=}"; cur=$(git -C "$O" rev-parse refs/heads/main)
+    [ "$8" = force=true ] || git -C "$O" merge-base --is-ancestor "$cur" "$new" || exit 1   # a non-fast-forward update is refused like GitHub's
+    git -C "$O" update-ref refs/heads/main "$new" "$cur"; exit $?;;
+  'api repos/owner/repo/compare/'*'...596905e54f7ae8385c90f6d334db5f18a4427e28 --jq .status') ;;   # the floor compare: the shared stub (STUB_REL)
+  'api repos/owner/repo/compare/'*' --jq .status')   # any other compare is computed on the origin
+    [ "${STUB_CMP_RC:-0}" = 0 ] || exit 1; ab="${2#repos/owner/repo/compare/}"; a="${ab%%...*}"; b="${ab##*...}"
+    git -C "$O" cat-file -e "$a" 2>/dev/null && git -C "$O" cat-file -e "$b" 2>/dev/null || exit 1   # an unknown commit is a 404
+    if [ "$a" = "$b" ]; then echo identical; elif git -C "$O" merge-base --is-ancestor "$a" "$b" 2>/dev/null; then echo ahead
+    elif git -C "$O" merge-base --is-ancestor "$b" "$a" 2>/dev/null; then echo behind; else echo diverged; fi; exit 0;;
+esac
 case "$1 $2" in
   "workflow disable") [ "$3" = "${STUB_WF_FAIL:-}" ] && exit 1; exit "${STUB_WF_RC:-0}";;
   "issue create") exit "${STUB_ISSUE_RC:-0}";;
@@ -129,14 +146,15 @@ REPO_ROOT="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 check "the repository's pins (pins.txt and every workflow's PINS_SHA256) are current (the checker verifies them)" bash "$REPO_ROOT/scripts/check-workflows.sh" "$REPO_ROOT"
 # The pin-mismatch fallback step, run exactly as written in main-guard.yml against the throwaway repo and the gh stub.
 fb_run() { python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1]))
-print(next(s["run"] for s in d["jobs"]["guard"]["steps"] if s.get("name", "").startswith("If the pins did not match")))' "$REPO_ROOT/.github/workflows/main-guard.yml"; }
+print(next(s["run"] for s in d["jobs"]["guard"]["steps"] if s.get("name", "").startswith("If the guard could not run")))' "$REPO_ROOT/.github/workflows/main-guard.yml"; }
 FB=$(fb_run)
+# The step runs from the clone's directory, but uses no checkout: every git API call is answered from the bare origin.
 runfb() { # runfb <name> <message> <pusher> <before> <after> [VAR=value ...]   (the step exits 1 on a non-founder push)
   local name=$1 msg=$2 pusher=$3 before=$4 after=$5; shift 5; : > "$W/gh.log"
-  out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_TOKEN="$TOK" GH_REPO=owner/repo PUSHER_ID="$pusher" BEFORE="$before" AFTER="$after" FOUNDER_IDS="111 222" "$@" bash -c "$FB" 2>&1); rc=$?
+  out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" ORIGIN="$W/origin" GH_TOKEN="$TOK" GH_REPO=owner/repo PUSHER_ID="$pusher" BEFORE="$before" AFTER="$after" FOUNDER_IDS="111 222" FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28 "$@" bash -c "$FB" 2>&1); rc=$?
   assert_result fail "$rc" "$name" "$msg" "$out"; assert_no_token "$name" "$out" "$TOK"; }
-fresh; push_commits 1 2; runfb "fallback: normal push by the agent is reverted, runs cancelled, workflows disabled, issue opened" "::error::push to main by user ID 333 changed pinned files" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
-check "fallback: origin main has the base tree back in one undo commit, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 4 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "restored main to the tree of $3 with one undo commit" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
+fresh; push_commits 1 2; runfb "fallback: normal push by the agent is undone, runs cancelled, workflows disabled, issue opened" "::error::push to main by user ID 333 changed pinned files or broke the checkout" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
+check "fallback: origin main has the base tree back in one undo commit, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 4 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "restored main to the tree of $3 with one undo commit" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files or broke the checkout (user ID 333)" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
 check "fallback: same tree as before the push" same_tree "$W/clone" "$BASE"
 check "fallback: the undo commit was marked guards/main-guard by the job token, once" bash -c 'cd "$1" && grep -qF "gh api -X POST repos/owner/repo/statuses/$(git rev-parse origin/main) -f state=success -f context=guards/main-guard -f description=undo by main-guard run local" "$2" && [ "$(grep -c "statuses/" "$2")" = 1 ]' _ "$W/clone" "$W/gh.log"
 fresh; push_commits 1; runfb "fallback: the undo cannot be marked: the issue says a founder accepts it" "changed pinned files" 333 "$BASE" "$HEAD" STUB_MARK_RC=1
@@ -149,17 +167,44 @@ check "fallback: merge attack: f1 and f2 kept, one status" bash -c 'cd "$1" && g
 check "fallback: merge attack: same tree as before the push" same_tree "$W/clone" "$BASE2"
 fresh; push_commits 1; OLD=$HEAD; push_commits 2; runfb "fallback: main moved past the pushed head: nothing undone" "changed pinned files" 333 "$BASE" "$OLD"
 check "fallback: moved main untouched, the issue says so" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && grep -q "main is no longer at $3 (a later push, or a re-run of this job); nothing undone" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log" "$OLD"
-fresh; push_commits 1; runfb "fallback: the undo cannot be made: nothing pushed, the founders restore main" "changed pinned files" 333 "$BASE" "$HEAD" PATH="$W/nogit:$W/stub:$PATH"
-check "fallback: undo failure reported, main untouched, no status" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "the undo commit could not be made or pushed (see the job log); the founders restore main by hand" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log"
+for v in STUB_TREE_RC STUB_MKCOMMIT_RC STUB_REF_RC; do
+  fresh; push_commits 1; runfb "fallback: the undo cannot be made or pushed ($v): nothing pushed, the founders restore main" "changed pinned files" 333 "$BASE" "$HEAD" "$v=1"
+  check "fallback ($v): failure reported, main untouched, no status" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "the undo commit could not be made or pushed (see the job log); the founders restore main by hand" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log"
+done
+fresh; push_commits 1; runfb "fallback: the compare API fails: nothing undone (never a blind force reset)" "changed pinned files" 333 "$BASE" "$HEAD" STUB_CMP_RC=1
+check "fallback: compare failure: main untouched, no ref update, no status" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "could not compare $3 with" "$2" && ! grep -q "git/refs/heads/main" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
+# The fallback never restores or marks an unchecked previous tip: push A1 with [skip ci] (no run), then A2 touching a pinned
+# file seconds later; the fallback runs with BEFORE=A1 and must leave main alone (A1's content would otherwise be laundered).
+fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: the previous tip never passed the main guard: nothing restored, nothing marked" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS=
+check "fallback: unchecked previous tip: main untouched, no status, the issue names the tip, every workflow disabled" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && ! grep -q "statuses/" "$2" && ! grep -q "git/refs/heads/main" "$2" && grep -q "the previous tip $3 never passed the main guard (runs: none); nothing restored or marked" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ]' _ "$W/clone" "$W/gh.log" "$A1"
+fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: a previous tip with the guards/main-guard status (no run) is restored" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS= STUB_MARKS=1
+check "fallback: status-checked previous tip: its tree is back, marked once" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 4 ] && [ "$(grep -c "statuses/" "$2")" = 1 ]' _ "$W/clone" "$W/gh.log"
+check "fallback: status-checked previous tip: same tree" same_tree "$W/clone" "$A1"
+fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: a previous tip older than the floor (compare: ahead) is restored" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS= STUB_REL=ahead
+check "fallback: floor-checked previous tip: same tree" same_tree "$W/clone" "$A1"
+fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: a cancelled run on the previous tip counts as unchecked" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS=completed/cancelled
+check "fallback: cancelled run: main untouched (runs: completed/cancelled)" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && grep -q "(runs: completed/cancelled); nothing restored or marked" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; A1=$HEAD; push_commits 2; echo 0 > "$W/count"; runfb "fallback: a run still going on the previous tip is waited for" "changed pinned files" 333 "$A1" "$HEAD" STUB_RUNS=in_progress/ STUB_RUNS_LATER=completed/success STUB_COUNT="$W/count"
+check "fallback: waited, then restored" same_tree "$W/clone" "$A1"
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
 runfb "fallback: force push restored" "changed pinned files" 333 "$OLD" "$HEAD"
-check "fallback: origin main is the previous tip again, issue says restored" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$3" ] && grep -q "restored main to $3 after a force push" "$2"' _ "$W/clone" "$W/gh.log" "$OLD"
+check "fallback: origin main is the previous tip again (force=true), issue says restored, no status (the tip has its own run)" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$3" ] && grep -q "restored main to $3 after a force push" "$2" && grep -q "git/refs/heads/main -f sha=$3 -F force=true" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log" "$OLD"
+fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
+runfb "fallback: a force push whose previous tip never passed the guard: nothing restored" "changed pinned files" 333 "$OLD" "$HEAD" STUB_RUNS=
+check "fallback: unchecked force-push tip: main stays as pushed" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$3" ] && ! grep -q "git/refs/heads/main" "$2"' _ "$W/clone" "$W/gh.log" "$HEAD"
+fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
+runfb "fallback: a force push that cannot be restored is reported" "changed pinned files" 333 "$OLD" "$HEAD" STUB_REF_RC=1
+check "fallback: force restore failure reported" grep -q "main was force-pushed and could not be restored to $OLD; the founders restore it by hand" "$W/gh.log"
 fresh; push_commits 1; runfb "fallback: new-branch push (zero before): nothing to restore" "changed pinned files" 333 "$Z" "$HEAD"
-check "fallback: zero before: main untouched, the issue says there is no previous tip" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "no previous tip to restore ($3)" "$2" && ! grep -q "statuses/" "$2"' _ "$W/clone" "$W/gh.log" "$Z"
-fresh; push_commits 1; runfb "fallback: an unknown before: nothing undone and says so" "changed pinned files" 333 "$(printf 'a%.0s' {1..40})" "$HEAD"
-check "fallback: unknown before: main untouched, the issue says there is no previous tip, every workflow disabled" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "no previous tip to restore" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ]' _ "$W/clone" "$W/gh.log"
-fresh; push_commits 1; runfb "fallback: a founder's push only reports the missing pin update" "pinned files changed by a founder's push" 111 "$BASE" "$HEAD"
-check "fallback: founder push reverted nothing, disabled nothing" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
+check "fallback: zero before: main untouched, no API call on the tree, the issue says there is no previous tip" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "no previous tip to restore; the founders reset main by hand" "$2" && ! grep -q "statuses/\|git/" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; runfb "fallback: an unknown before (no run, a 404 on every call about it): nothing undone and says so" "changed pinned files" 333 "$(printf 'a%.0s' {1..40})" "$HEAD" STUB_RUNS=
+check "fallback: unknown before: main untouched, never passed, every workflow disabled" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "the previous tip $3 never passed the main guard (runs: none); nothing restored or marked" "$2" && ! grep -q "git/refs" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ]' _ "$W/clone" "$W/gh.log" "$(printf 'a%.0s' {1..40})"
+fresh; push_commits 1; runfb "fallback: a founder's push only reports the missing pin update" "a founder's push ($HEAD) changed pinned files without a pin update" 111 "$BASE" "$HEAD"
+check "fallback: founder push undid nothing, disabled nothing" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
+fresh; push_commits 1; runfb "fallback on a schedule run (the checkout failed): only an error, nothing touched" "the guard could not run on this schedule run" schedule - -
+check "fallback: schedule: no gh call" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
+fresh; push_commits 1; runfb "fallback on a by-hand run: only an error" "the guard could not run on this accept run" accept 111 "$HEAD"
+check "fallback: accept: no gh call" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
 # The pin-mismatch fallback in main-guard.yml: runs only on a pin failure, calls no repo script, carries the founders' IDs
 # from accounts.txt, and labels the issue area:security + blocked + priority:1.
 python3 -I - "$REPO_ROOT" <<'PY' && t PASS "main-guard.yml fallback: condition, no repo script, founder IDs, labels" || t FAIL "main-guard.yml fallback"
@@ -168,22 +213,26 @@ root = sys.argv[1]
 wf = yaml.safe_load(open(f"{root}/.github/workflows/main-guard.yml"))
 steps = wf["jobs"]["guard"]["steps"]
 pins = [s for s in steps if s.get("id") == "pins"][0]
-fb = [s for s in steps if s.get("name", "").startswith("If the pins did not match")][0]
-assert fb["if"] == "failure() && steps.pins.outcome == 'failure'", fb["if"]
+fb = [s for s in steps if s.get("name", "").startswith("If the guard could not run")][0]
+assert fb["if"] == "failure() && steps.guard.outcome == 'skipped'", fb["if"]   # pins mismatch or a failed checkout
 assert not re.search(r"(^|[\s;&|])(bash|sh|source|\.)\s+\S*(scripts/|\./)", fb["run"], re.M), "the fallback must not run repo files"
 assert pins["run"] == 'echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\nbash scripts/check-pins.sh verify\n', pins["run"]
 founders = sorted(l.split()[0] for l in open(f"{root}/.github/accounts.txt") if l.split() and not l.startswith("#") and l.split()[2] == "founder")
 assert sorted(fb["env"]["FOUNDER_IDS"].split()) == founders, (fb["env"]["FOUNDER_IDS"], founders)
 for lab in ("area:security", "blocked", "priority:1"):
     assert f"--label {lab}" in fb["run"], lab
-assert 'git read-tree --reset -u "$BEFORE"' in fb["run"] and 'git diff --quiet "$BEFORE" HEAD' in fb["run"] and "force-with-lease" in fb["run"]
-assert "git revert" not in fb["run"], "never per-commit reverts (a merge with an older first parent would roll main further back)"
+assert not re.search(r"(^|[\s;&|$(])git\s", fb["run"]), "the fallback uses no checkout: GitHub API calls only"
+assert fb["env"]["FLOOR"] == re.search(r"^MAIN_GUARD_FLOOR=([0-9a-f]{40})$", open(f"{root}/scripts/check-github-lib.sh").read(), re.M).group(1)
+assert 'select(.event == "push")' in fb["run"] and ".creator.id == 41898282" in fb["run"] and 'compare/$BEFORE...$FLOOR' in fb["run"], "the fallback's chain check"
+assert '-f "parents[]=$AFTER"' in fb["run"] and '-F force=false' in fb["run"], "the undo commit is a fast-forward on the pushed head"
 wfs = re.search(r"for w in ([^;\n]+); do", fb["run"]).group(1).split()
 src = open(f"{root}/scripts/check-main-push.sh").read()
 assert wfs == re.search(r'MAIN_GUARD_WORKFLOWS:-([^}]+)\}', src).group(1).split(), (wfs, "must equal the script's list")
 # (that both equal the policy's stop_workflows, and that the policy lists every workflow with a secret or write scope, is
 # the workflow checker's rule: scripts/check-workflows.py check_stop_list)
-main = [s for s in steps if s.get("name", "").startswith("The pusher must be a founder")][0]
+main = [s for s in steps if s.get("id") == "guard"][0]
+assert main["name"].startswith("The pusher must be a founder")
+assert fb["env"]["PUSHER_ID"] == main["env"]["PUSHER_ID"], "the fallback tells a schedule or by-hand run apart the same way"
 assert main["run"].strip() == 'bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt'
 on = wf.get("on", wf.get(True))
 assert on["push"] == {"branches": ["main"]} and on["schedule"] == [{"cron": "37 * * * *"}] and set(on) == {"push", "schedule", "workflow_dispatch"}, on
@@ -193,7 +242,7 @@ env = main["env"]
 assert env["PUSHER_ID"] == "${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}", env["PUSHER_ID"]
 assert env["BEFORE"] == "${{ github.event_name == 'workflow_dispatch' && github.event.sender.id || github.event.before || '-' }}", env["BEFORE"]
 assert env["AFTER"] == "${{ github.event.inputs.accept_sha || github.event.after || '-' }}", env["AFTER"]
-assert "statuses/$(git rev-parse HEAD)" in fb["run"] and "-f context=guards/main-guard" in fb["run"], "the fallback marks its undo commit"
-assert 'elif [ "$(git rev-parse HEAD)" != "$AFTER" ]' in fb["run"], "the fallback never undoes when main moved on (a re-run)"
+assert 'statuses/$undo' in fb["run"] and "-f context=guards/main-guard" in fb["run"], "the fallback marks its undo commit"
+assert 'elif [ "$head" != "$AFTER" ]' in fb["run"], "the fallback never undoes when main moved on (a re-run)"
 PY
 summary

@@ -2,8 +2,9 @@
 # security issue is opened: scripts/check-main-push.sh. Founder-owned file. The agents' token has no `workflow` scope, so it
 # cannot change this file; pushes made here with the workflow's token start no workflow (no loop).
 # The push itself could have changed the script, its library or the accounts list, so this job's pin step (.github/pins.txt,
-# whose hash sits in this file) must pass first. On a mismatch the fallback step, written here with the founders' IDs, undoes
-# the push without running any repository file. Both undo a push with one commit carrying the previous tip's tree. Every run also checks that the previous push's head passed the main guard
+# whose hash sits in this file) must pass first. On a mismatch, or when the checkout itself fails, the fallback step, written
+# here with the founders' IDs, undoes the push through the GitHub API alone (no repository file, no checkout). Both undo a
+# push with one commit carrying the previous tip's tree, and only when the previous tip passed the main guard itself. Every run also checks that the previous push's head passed the main guard
 # itself (a push whose head commit says [skip ci] starts no workflow; a cancelled run passed nothing), and the hourly schedule
 # checks main's head the same way, so an unchecked push stops the agents within the hour. The undo commit pushed here
 # starts no run (a workflow's token starts none), so it is marked with the guards/main-guard commit status instead; a
@@ -40,12 +41,13 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "22e13bb060cf58f6ea91da941bb28c994f0cb651dd86b64e11598a0f3a340796"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
-      - name: The pusher must be a founder; otherwise undo, stop the agents, open an issue
+      - id: guard
+        name: The pusher must be a founder; otherwise undo, stop the agents, open an issue
         # Push: <pusher id> <before> <after>. Schedule: schedule - -. Run by hand: accept <actor id> <sha to accept>.
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,40 +56,65 @@ jobs:
           BEFORE: ${{ github.event_name == 'workflow_dispatch' && github.event.sender.id || github.event.before || '-' }}
           AFTER: ${{ github.event.inputs.accept_sha || github.event.after || '-' }}
         run: bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt
-      - name: If the pins did not match, undo the push from this file alone (no repo script involved)
-        # The founders' user IDs are written here, outside the pushed files' reach: 238822878 (.github/accounts.txt).
-        if: failure() && steps.pins.outcome == 'failure'
+      - name: If the guard could not run (pins mismatch, or the checkout failed), undo the push from this file alone
+        # Runs when the guard step never got to decide: the pins did not match (a push changed pinned files without a pin
+        # update) or the checkout itself failed (a push built to break it). No repository file and no checkout is used:
+        # everything goes through the GitHub API. The founders' user IDs are written here, outside the pushed files' reach:
+        # 238822878 (.github/accounts.txt). The floor commit equals MAIN_GUARD_FLOOR in scripts/check-github-lib.sh.
+        if: failure() && steps.guard.outcome == 'skipped'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PUSHER_ID: ${{ github.event.sender.id }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
+          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}
+          BEFORE: ${{ github.event.before || '-' }}
+          AFTER: ${{ github.event.after || '-' }}
           FOUNDER_IDS: "238822878"
+          FLOOR: "596905e54f7ae8385c90f6d334db5f18a4427e28"
         run: |
           set -u
-          case " $FOUNDER_IDS " in *" $PUSHER_ID "*) echo "pinned files changed by a founder's push ($AFTER) without a pin update: run scripts/check-pins.sh update in a founder PR"; exit 1;; esac
-          echo "::error::push to main by user ID $PUSHER_ID changed pinned files; undoing it from the workflow file"
-          git config user.name main-guard && git config user.email main-guard@users.noreply.github.com
-          done=""
-          if [ "$BEFORE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            done="no previous tip to restore ($BEFORE); the founders restore main by hand"
-          elif ! git merge-base --is-ancestor "$BEFORE" "$AFTER"; then
-            git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" && done="restored main to $BEFORE after a force push"
-          elif [ "$(git rev-parse HEAD)" != "$AFTER" ]; then
-            done="main is no longer at $AFTER (a later push, or a re-run of this job); nothing undone"
-          # One undo commit with exactly the previous tip's tree (never per-commit reverts: a pushed merge with an older first parent would roll main further back)
-          elif git read-tree --reset -u "$BEFORE" && git commit -q --allow-empty --no-verify -m "main-guard: undo push $BEFORE..$AFTER by user ID $PUSHER_ID" && git diff --quiet "$BEFORE" HEAD && git push origin HEAD:refs/heads/main; then
-            done="restored main to the tree of $BEFORE with one undo commit"
-            gh api -X POST "repos/$GH_REPO/statuses/$(git rev-parse HEAD)" -f state=success -f context=guards/main-guard -f "description=undo by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the undo commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"
+          case "$PUSHER_ID" in schedule|accept) echo "::error::the guard could not run on this $PUSHER_ID run (the checkout or the pin check failed); founders: read this run's log"; exit 1;; esac
+          case " $FOUNDER_IDS " in *" $PUSHER_ID "*) echo "a founder's push ($AFTER) changed pinned files without a pin update (run scripts/check-pins.sh update in a founder PR) or broke the checkout; read this run's log"; exit 1;; esac
+          echo "::error::push to main by user ID $PUSHER_ID changed pinned files or broke the checkout; undoing it from the workflow file through the API"
+          R=$GH_REPO; done=""; checked=""; runs=""
+          if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            done="no previous tip to restore; the founders reset main by hand"
           else
-            done="the undo commit could not be made or pushed (see the job log); the founders restore main by hand"
+            # The previous tip must have passed the main guard itself (a push run, the guards/main-guard status posted by
+            # github-actions[bot], or older than the floor): the guard never restores or marks an unchecked commit.
+            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              runs=$(gh api "repos/$R/actions/workflows/main-guard.yml/runs?head_sha=$BEFORE&per_page=100" --jq '[.workflow_runs[] | select(.event == "push") | "\(.status)/\(.conclusion)"] | join(" ")' 2>/dev/null) || runs=""
+              case " $runs " in *" completed/success "*) checked=run; break;; *" in_progress/"*|*" queued/"*|*" waiting/"*|*" pending/"*|*" requested/"*) sleep 10; continue;; esac
+              break
+            done
+            marks=$(gh api "repos/$R/commits/$BEFORE/status" --jq '[.statuses[] | select(.context == "guards/main-guard" and .state == "success" and .creator.id == 41898282)] | length' 2>/dev/null) || marks=0
+            case "$marks" in ''|0|*[!0-9]*) ;; *) checked="${checked:-status}";; esac
+            case "$(gh api "repos/$R/compare/$BEFORE...$FLOOR" --jq .status 2>/dev/null)" in ahead|identical) checked="${checked:-floor}";; esac
+            head=$(gh api "repos/$R/git/ref/heads/main" --jq .object.sha 2>/dev/null) || head=""
+            rel=$(gh api "repos/$R/compare/$BEFORE...$AFTER" --jq .status 2>/dev/null) || rel=""
+            if [ -z "$checked" ]; then
+              done="the previous tip $BEFORE never passed the main guard (runs: ${runs:-none}); nothing restored or marked - the founders read $BEFORE and the push after it, restore main by hand and accept the result"
+            elif [ "$head" != "$AFTER" ]; then
+              done="main is no longer at $AFTER (a later push, or a re-run of this job); nothing undone"
+            elif [ -z "$rel" ]; then
+              done="could not compare $BEFORE with $AFTER (API error); nothing undone - the founders restore main by hand"
+            elif [ "$rel" != ahead ]; then   # a force push rewrote main (AFTER is not ahead of BEFORE): put the previous tip back
+              gh api -X PATCH "repos/$R/git/refs/heads/main" -f "sha=$BEFORE" -F force=true >/dev/null && done="restored main to $BEFORE after a force push" || done="main was force-pushed and could not be restored to $BEFORE; the founders restore it by hand"
+            else   # one undo commit with exactly the previous tip's tree (never per-commit reverts), made and pushed through the API
+              tree=$(gh api "repos/$R/git/commits/$BEFORE" --jq .tree.sha 2>/dev/null) || tree=""
+              undo=$(gh api -X POST "repos/$R/git/commits" -f "message=main-guard: undo push $BEFORE..$AFTER by user ID $PUSHER_ID" -f "tree=$tree" -f "parents[]=$AFTER" --jq .sha 2>/dev/null) || undo=""
+              if [ -n "$tree" ] && [ -n "$undo" ] && gh api -X PATCH "repos/$R/git/refs/heads/main" -f "sha=$undo" -F force=false >/dev/null; then
+                done="restored main to the tree of $BEFORE with one undo commit ($undo)"
+                gh api -X POST "repos/$R/statuses/$undo" -f state=success -f context=guards/main-guard -f "description=undo by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the undo commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"
+              else
+                done="the undo commit could not be made or pushed (see the job log); the founders restore main by hand"
+              fi
+            fi
           fi
           for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml; do
             for st in in_progress queued; do for id in $(gh run list --workflow "$w" --status "$st" --json databaseId --jq '.[].databaseId' 2>/dev/null); do gh run cancel "$id" || true; done; done
             gh workflow disable "$w" || true
           done
-          gh issue create --title "SECURITY: push to main changed pinned files (user ID $PUSHER_ID)" \
+          gh issue create --title "SECURITY: push to main changed pinned files or broke the checkout (user ID $PUSHER_ID)" \
             --label area:security --label blocked --label priority:1 \
-            --body "A push to main ($BEFORE..$AFTER by user ID $PUSHER_ID) changed pinned files (.github/pins.txt and the files it lists: the lock action, the guard scripts, the accounts list) without a founder's pin update. main-guard ${done:-could not undo it (see the job log)}; every workflow that holds a secret is disabled. Founders: check that push, finish undoing it if needed, run scripts/check-pins.sh update in a founder PR if the change was yours, then re-enable the workflows." || true
+            --body "A push to main ($BEFORE..$AFTER by user ID $PUSHER_ID) changed pinned files (.github/pins.txt and the files it lists: the lock action, the guard scripts, the accounts list) without a founder's pin update, or broke the checkout. main-guard ${done:-could not undo it (see the job log)}; every workflow that holds a secret is disabled. Founders: check that push, finish undoing it if needed, run scripts/check-pins.sh update in a founder PR if the change was yours, then re-enable the workflows." || true
           exit 1

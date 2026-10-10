@@ -198,6 +198,11 @@
   <before>`, tree equality checked before the push and the mark), never per-commit reverts: a pushed merge whose first
   parent was an older `main` commit made `git revert -m 1` roll `main` back to that older tree and mark the head; script and
   inline fallback; a push that creates `main` or whose previous tip cannot be fetched is left to the founders, unmarked.
+- **Round 21:** the fallback step runs whenever the guard step was skipped (pins mismatch or a failed checkout), uses the
+  GitHub API alone (no checkout: undo commit from the previous tip's tree, fast-forward ref update, status) and checks the
+  previous tip like the script (push run, bot status or floor) before restoring or marking anything; the script builds its
+  undo commit with `commit-tree` (no working tree needed); tests for the laundering attack (a `[skip ci]` push followed by
+  one touching a pinned file), the API failures, the schedule and by-hand runs.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

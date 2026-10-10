@@ -15,7 +15,7 @@
 #        scripts/check-main-push.sh schedule - - <accounts-file>                           (the schedule: main's head)
 #        scripts/check-main-push.sh accept <actor-id> <sha> <accounts-file>                (workflow_dispatch by a founder)
 #   Needs gh with GH_TOKEN (contents: write, actions: write, issues: write, statuses: write) and GH_REPO; git in the checkout
-#   of main with the pushed commits present.
+#   of main with the pushed commits present (no working tree needed: the undo commit is built with commit-tree).
 #   MAIN_GUARD_WAIT (seconds to wait for a main-guard run still going; default 120) and MAIN_GUARD_WORKFLOWS: tests only,
 #   ignored inside Actions (a step that ran before could have written $GITHUB_ENV).
 set -euo pipefail
@@ -107,16 +107,17 @@ elif ! git merge-base --is-ancestor "$BEFORE" "$AFTER" 2>/dev/null; then
 elif [ "$(git rev-parse HEAD 2>/dev/null)" != "$AFTER" ]; then   # main moved on (or this is a re-run): undoing again would undo more
   left="main is no longer at $AFTER (a later push, or a re-run of this job); nothing undone - the founders check main by hand"
 else
-  # One undo commit whose tree is exactly the previous tip's: never per-commit reverts (a pushed merge whose first parent is
-  # an older main commit would make `revert -m 1` roll main back to that older tree, and a revert can conflict or stop
-  # halfway). read-tree cannot conflict; the commit may be empty (a push that changed no file) and still becomes the head.
-  if git read-tree --reset -u "$BEFORE" 2>/dev/null && git commit -q --allow-empty --no-verify -m "main-guard: undo push $BEFORE..$AFTER by user ID $PUSHER" >/dev/null 2>&1 \
-     && git diff --quiet "$BEFORE" HEAD 2>/dev/null; then
-    if ! git push origin HEAD:refs/heads/main >/dev/null 2>&1; then left="the undo commit could not be pushed (check the job log); the founders restore main by hand"
+  # One undo commit whose tree is exactly the previous tip's, built without a working tree (commit-tree; the checkout may be
+  # sparse or broken): never per-commit reverts (a pushed merge whose first parent is an older main commit would make
+  # `revert -m 1` roll main back to that older tree, and a revert can conflict or stop halfway). The commit may be empty (a
+  # push that changed no file) and still becomes the head.
+  if undo=$(git commit-tree "$BEFORE^{tree}" -p "$AFTER" -m "main-guard: undo push $BEFORE..$AFTER by user ID $PUSHER" 2>/dev/null) \
+     && [[ "$undo" =~ ^[0-9a-f]{40}$ ]] && git diff --quiet "$BEFORE" "$undo" 2>/dev/null; then
+    if ! git push origin "$undo:refs/heads/main" >/dev/null 2>&1; then left="the undo commit could not be pushed (check the job log); the founders restore main by hand"
     else   # that push starts no run of its own (a workflow's token): mark its head checked
-      what="restored main to the tree of $BEFORE with one undo commit ($(git rev-parse HEAD))"
-      mark_main_guard_passed "$(git rev-parse HEAD)" "undo by main-guard run ${GITHUB_RUN_ID:-local}" \
-        || left="the undo commit $(git rev-parse HEAD) could not be marked with the $MAIN_GUARD_STATUS status; the next run will flag it, so a founder accepts it (Actions -> Main guard -> Run workflow)"
+      what="restored main to the tree of $BEFORE with one undo commit ($undo)"
+      mark_main_guard_passed "$undo" "undo by main-guard run ${GITHUB_RUN_ID:-local}" \
+        || left="the undo commit $undo could not be marked with the $MAIN_GUARD_STATUS status; the next run will flag it, so a founder accepts it (Actions -> Main guard -> Run workflow)"
     fi
   else left="the undo commit could not be made (check the job log); the founders restore main by hand"; fi
 fi
