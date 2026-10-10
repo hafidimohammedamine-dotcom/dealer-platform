@@ -139,6 +139,13 @@ sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null 
 sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock
 sudo gpasswd -d "$USER" sudo >/dev/null 2>&1 || true
 sudo gpasswd -d "$USER" docker >/dev/null 2>&1 || true
+# The setuid helpers newuidmap/newgidmap map whole uid ranges into a user namespace, which makes an unconfined program
+# (podman, or anything calling them) root with every capability inside one, around the AppArmor restriction below.
+# bubblewrap does not use them (it writes its own single mapping). Measured 2026-10-10: `podman unshare id` was root.
+SETUID_DIR="${AGENT_LOCK_TEST_SETUID_DIR:-/usr/bin}"
+for f in newuidmap newgidmap; do
+  if [ -e "$SETUID_DIR/$f" ]; then sudo chmod u-s,g-s "$SETUID_DIR/$f" || die "could not remove setuid from $SETUID_DIR/$f"; fi
+done
 # Who sudo could match: this user, ALL, and every group the job's processes still carry (they keep their start-up groups).
 WHO="$USER|ALL"; for g in $(id -Gn); do [[ "$g" =~ ^[A-Za-z0-9_.-]+$ ]] && WHO+="|%$g"; done
 sudo sed -i -E "/^[[:space:]]*($WHO)[[:space:]]/d" /etc/sudoers
@@ -181,10 +188,11 @@ if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (
   # Ubuntu's restriction lets an unconfined program create a user namespace without any capability in it (profile
   # unprivileged_userns), so it cannot become root there; only bwrap (agent-bwrap) may.
   if unshare -Ur true 2>/dev/null; then bad "a program outside bubblewrap can become root in a user namespace"; fi
-  if command -v podman >/dev/null; then
-    podman unshare true >/dev/null 2>/tmp/podman-err; echo "DIAG lock podman unshare rc=$? stderr: $(head -c 400 /tmp/podman-err)"
-    podman unshare true >/dev/null 2>/tmp/podman-err; echo "DIAG lock podman unshare again rc=$? stderr: $(head -c 400 /tmp/podman-err)"
-  fi
+  for f in newuidmap newgidmap; do
+    if [ -u "$SETUID_DIR/$f" ] || [ -g "$SETUID_DIR/$f" ]; then bad "$SETUID_DIR/$f is still setuid/setgid (maps root into a user namespace)"; fi
+  done
+  if command -v podman >/dev/null && [ "$(podman unshare id -u 2>/dev/null)" = 0 ]; then bad "podman can still become root in a user namespace"; fi
+  podman unshare id >/tmp/podman-out 2>/tmp/podman-err || true; echo "DIAG lock podman: $(cat /tmp/podman-out) / $(head -c 300 /tmp/podman-err)"
   if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
     bad "a program started by bubblewrap can create user namespaces"
   fi
