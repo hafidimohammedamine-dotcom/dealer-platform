@@ -18,7 +18,6 @@ die() { echo "::error::agent egress lock: $*"; exit 1; }
 
 # Allowed names (founder-owned list; no extras from workflows) plus the runner's own services.
 read_allow_list() {
-  # --- Allowed names (founder-owned list; no extras from workflows) ---------------------------------------------------------
   mapfile -t NAMES < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$HERE/allow-domains.txt" | sed '/^$/d')
   [ "${#NAMES[@]}" -gt 0 ] || die "empty allow-list"
   for d in "${NAMES[@]}"; do   # exact host names only, no wildcards
@@ -40,7 +39,6 @@ read_allow_list() {
 
 # 1. Install the pinned Claude Code binary and Bun, each checked against its pinned sha256.
 install_binaries() {
-  # --- 1. Install the pinned Claude Code binary, checked against its pinned sha256 (from Anthropic's release manifest) ------
   BIN="$HOME/.local/bin/claude"
   mkdir -p "$HOME/.local/bin"
   DL=$(mktemp)
@@ -63,7 +61,6 @@ install_binaries() {
 
 # 2a. Packages for the DNS server, the proxy and bubblewrap.
 install_packages() {
-  # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
   PKGS=(dnsmasq-base nginx libnginx-mod-stream bubblewrap socat)
   apt_install() { sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${PKGS[@]}" >/dev/null 2>&1; }
   apt_install || { sudo apt-get update -qq >/dev/null && apt_install; } || die "could not install ${PKGS[*]}"
@@ -149,7 +146,6 @@ start_proxy() {
 
 # 3. Firewall.
 apply_firewall() {
-  # --- 3. Firewall -----------------------------------------------------------------------------------------------------------
   # NAT: every new TCP/443 connection, except the proxy's own, goes to the SNI proxy.
   sudo iptables -t nat -F OUTPUT
   sudo iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner "$PROXY_UID" -j REDIRECT --to-ports 8443
@@ -174,7 +170,6 @@ apply_firewall() {
 
 # 4. Nothing later in the job may undo this: stop Docker, remove sudo.
 drop_privileges() {
-  # --- 4. Nothing later in the job may undo this: stop Docker, remove sudo ---------------------------------------------------
   sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
   sudo systemctl mask docker.socket docker.service containerd.service 2>/dev/null || true   # no restart by socket activation or polkit
   sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock

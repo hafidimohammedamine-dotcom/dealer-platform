@@ -90,6 +90,13 @@ rm -f "$W/statuses/$O1"; run fail "record: statuses unreadable is an error" "cou
 check "no status was posted while the API failed" bash -c '[ ! -f "$1/$2" ]' _ "$W/statuses" "$O1"
 run fail "verify: statuses unreadable is an error, not 'unknown'" "could not read the statuses of" STUB_GH_GET_FAIL=1 -- verify main work "$W/accounts"
 run fail "record: gh fails entirely" "could not read the statuses of" STUB_GH_FAIL=1 -- record work origin/main "$Z" "$C2" 111
+# A commit that survives only in a PR head (its branch deleted) is never credited to whoever pushes it again
+git -C "$R" checkout -qb gone "$O1" && echo g > "$R/g" && git -C "$R" add g && git -C "$R" commit -qm g1 && git -C "$R" push -q origin gone; G1=$(git -C "$R" rev-parse HEAD)
+git -C "$R" push -q origin "$G1:refs/pull/5/head" && git -C "$R" push -q origin --delete gone 2>/dev/null
+git -C "$R" fetch -q --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/pull/*/head:refs/remotes/pull/*'
+git -C "$R" checkout -qb founder-copy "$G1" && echo f > "$R/f" && git -C "$R" add f && git -C "$R" commit -qm f1 && git -C "$R" push -q origin founder-copy; F1=$(git -C "$R" rev-parse HEAD); git -C "$R" fetch -q origin
+run ok "record: a founder's new branch on top of a PR-only commit credits only the founder's own commit" "Recorded 1 new commit(s) as pushed by user ID 111." -- record founder-copy origin/main "$Z" "$F1" 111
+check "the PR-only commit got no record (it is reachable from refs/remotes/pull/5)" bash -c '[ ! -f "$1/$2" ] && [ -f "$1/$3" ]' _ "$W/statuses" "$G1" "$F1"
 git -C "$R" checkout -qb lonely "$C2" && echo l > "$R/l" && git -C "$R" add l && git -C "$R" commit -qm l1 && git -C "$R" push -q origin lonely; L1=$(git -C "$R" rev-parse HEAD); git -C "$R" fetch -q origin
 printf '#!/usr/bin/env bash\necho "gh $*" >> "$GH_LOG"; [ "$2" = --paginate ] && exit 0; exit 1\n' > "$W/stub/gh"
 run fail "record: posting the status fails" "could not record the pusher of" -- record lonely origin/main "$C2" "$L1" 111

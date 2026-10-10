@@ -33,10 +33,11 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}

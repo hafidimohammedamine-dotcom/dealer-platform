@@ -17,7 +17,8 @@ PIN_STEP="      - name: The repository files this job runs are the reviewed ones
           PINS_SHA256: \"$PINS_HASH\"
         run: |
           echo \"\$PINS_SHA256  .github/pins.txt\" | sha256sum --check --strict --quiet
-          sha256sum --check --strict --quiet .github/pins.txt"
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify"
 # plain <file>: a minimal non-claude workflow (one job, checkout + pin step + one run step) for argument/format cases
 plain() { printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: echo\n' "$PIN_STEP" > "$T/$W/$1"; }
 expect() { # expect <ok|fail> <name> <message> [extra args]
@@ -62,7 +63,7 @@ PIN_STEP_HERE
           prompt: "Do the task."
           claude_args: |
             --model haiku
-            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"
       - name: After
         if: always() && steps.claude.outputs.execution_file != ''
         run: echo "steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude"

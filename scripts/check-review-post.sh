@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
-# Posts an agent's final answer from a fixed workflow step (the agent itself cannot post or label).
-# Reads the final answer from the claude-code-action execution file, scans it for secrets with the repo's
-# .gitleaks.toml, and posts it.
+# Posts an agent's final answer from a fixed workflow step (the agent itself cannot post or label): scans the answer for
+# secrets with the repo's .gitleaks.toml, then posts it.
 #   pr mode:    the answer must start with "REVIEW TEAM RESULT: PASS|FAIL"; labels are set from that line.
 #   issue mode: the answer is posted as a comment on the issue (daily report, weekly audit); no labels.
 #   daily-reports mode: like issue mode on the open issue titled "Daily reports" (created if missing); no number argument.
-# The answer comes from the ANSWER environment variable (the text a Claude job handed over as a job output: the post job
-# runs no Claude, so it has no execution file), or from an execution file given as the third argument.
-# Usage: scripts/check-review-post.sh <pr|issue> <number> [execution-file]   or   check-review-post.sh daily-reports
+# The answer comes from the ANSWER environment variable: the text a Claude job handed over as a job output
+# (scripts/check-claude-answer.sh); the post job runs no Claude and has no execution file.
+# Usage: ANSWER=<text> scripts/check-review-post.sh <pr|issue> <number>   or   check-review-post.sh daily-reports
 #        GH_BIN / GITLEAKS_BIN may point to stubs.
 set -euo pipefail
 MODE="${1:?pr, issue or daily-reports}"
 case "$MODE" in
-  pr|issue) PR="${2:?number}"; EXEC="${3:-}";;
-  daily-reports) PR=""; EXEC="${2:-}";;
+  pr|issue) PR="${2:?number}";;
+  daily-reports) PR="";;
   *) echo "ERROR: mode must be pr, issue or daily-reports"; exit 1;;
 esac
 GH="${GH_BIN:-gh}"; GITLEAKS="${GITLEAKS_BIN:-/tmp/gitleaks}"
@@ -22,9 +21,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 
 text="${ANSWER:-}"
-if [ -z "$text" ] && [ -n "$EXEC" ] && [ -f "$EXEC" ]; then
-  text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC" 2>/dev/null || true)
-fi
 if [ "$MODE" = daily-reports ]; then   # the founders' running thread; MODE becomes issue below
   PR=$("$GH" issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
   [ -n "$PR" ] || PR=$("$GH" issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')

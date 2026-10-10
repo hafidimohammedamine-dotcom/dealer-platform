@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - ".github/actions/agent-egress-lock/**"
+      - ".github/actions/install-gitleaks/**"
       - ".github/workflows/egress-lock-*.yml"
       - ".github/workflows/agent-*.yml"
       - ".github/workflows/claude.yml"

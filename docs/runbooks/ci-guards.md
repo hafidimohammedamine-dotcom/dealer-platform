@@ -14,9 +14,14 @@ token).
 Every workflow except `ci.yml` and `egress-lock-test.yml` (which run PR code on purpose, with no secrets) runs the same
 step right after each checkout: `The repository files this job runs are the reviewed ones (pinned here, outside any push's
 reach)`. It checks `.github/pins.txt` against the sha256 written in the workflow file (`PINS_SHA256`), then every pinned
-file against `pins.txt`: the lock action, every `scripts/check-*` script (not the tests), `.gitleaks.toml` and
-`.github/accounts.txt`. The agents' token cannot change workflow files, so a push that changes a pinned file without a
-founder's workflow change fails every job before any secret, sudo or Claude is used. Steps that run a pinned script after
+file against `pins.txt`, then (`bash scripts/check-pins.sh verify`, a script the second line just proved) that the tree holds
+no pinned-kind file `pins.txt` does not list. The pinned files are `pins_required` in `scripts/check-workflows-policy.json`:
+all of `.github/actions/`, every `scripts/check-*` script except `*.test.sh` and `*testlib.sh`, `.gitleaks.toml`,
+`.github/accounts.txt`, and - anywhere in the tree outside `.git`, `.worktrees` and `node_modules` - every `CLAUDE.md`,
+`CLAUDE.local.md`, `.mcp.json` and every file under a `.claude/` folder (the files Claude loads from a checkout). The agents'
+token cannot change workflow files, so a push that changes a pinned file, or adds an agent-instruction file, without a
+founder's workflow change fails every job before any secret, sudo or Claude is used. `the pinned files do not match
+.github/pins.txt (...)` lists what is wrong: a founder reviews the change and runs `update`. Steps that run a pinned script after
 Claude repeat the check. A founder who changes a pinned file runs `bash scripts/check-pins.sh update` in the same PR (it
 rewrites `pins.txt` and every `PINS_SHA256`); `scripts/check-pins.test.sh` and the workflow checker fail until it is done.
 `pusher-ledger.yml` runs on a pushed branch but checks out the default branch, so its pin step takes the expected hash
@@ -43,7 +48,7 @@ pushed before the PR existed is never credited to whoever opens it). The workflo
 agents' token cannot change workflow files); the scripts come from the default branch, pinned. It records exactly this
 push's commits - `before..after` when `before` is an ancestor of `after` (a fast-forward), or everything since the default
 branch on a new branch or after a force push (whoever rewrote the branch answers for what is on it), in both cases minus
-the commits any other branch already holds (`Recording fast-forward ...` / `Recording new branch or force push: ...`) -
+the commits any other branch or any pull request head (`refs/pull/*/head`, which outlives a deleted branch) already holds (`Recording fast-forward ...` / `Recording new branch or force push: ...`) -
 as pushed by the sender: `scripts/check-pushers.sh record` posts one
 commit status `guards/pusher`
 (`id=<user id> mac=<40 hex>`) on every such commit without a valid record; the mac is an HMAC-SHA256 of "<sha> <id>" with
@@ -51,8 +56,8 @@ the secret `GUARDS_LEDGER_KEY`, which nobody with the agents' token can read, so
 A commit with valid records naming more than one pusher verifies as `unknown (valid records name more than one pusher)`.
 `GUARDS_LEDGER_KEY is missing or shorter than 32 characters` - a founder creates that repository secret (any random string
 of 32+ characters; `openssl rand -hex 32`). `could not record the pusher of <sha>` / `could not read the statuses of <sha>
-(GitHub API error)` - re-run the workflow once (nothing is recorded as "unknown" on an API error). `bad after sha` - the
-event is inconsistent; re-run once, then tell a founder. `branch deleted; nothing to record` is normal. Known limit:
+(GitHub API error)` - re-run the workflow once (nothing is recorded as "unknown" on an API error). `before/after must be 40-hex commit
+shas` - the event is inconsistent; re-run once, then tell a founder. `branch deleted; nothing to record` is normal. Known limit:
 commits pushed before the ledger existed have no record (see the founder-only step); a founder re-pushes the branch
 (a rebase, or an empty commit of their own) to record them under their own ID.
 
@@ -93,9 +98,9 @@ absolute path` - the runner or the call is broken; re-run once, then a founder l
 another repo)" and "Third-party skills equal their pinned upstream with deletions only (fresh fetch of the locked commit)":
 every message and fix is in `docs/runbooks/skill-guards.md`.
 
-### Step "Agent workflows keep their denies (base script, PR's workflows as data)"
-Unpacks the PR's `.github/workflows` and `.github/actions` as data and runs the `main` copy of `scripts/check-workflows.sh` on
-them, with both skill manifests and the base branch's `.github/accounts.txt` (so a PR cannot list itself). Every message and
+### Step "Agent workflows keep their denies and pins (base script, the PR's tree as data)"
+Unpacks the PR head's whole tree as data (`git archive`, into `/tmp/pr-wf`) and runs the `main` copy of `scripts/check-workflows.sh`
+on it, with both skill manifests and the base branch's `.github/accounts.txt` (so a PR cannot list itself). Every message and
 fix: `docs/runbooks/workflow-checker.md`.
 
 ### Step "Secret scan of the PR's commits (base config, no ignore files, no inline allow)" fails
@@ -105,6 +110,8 @@ gitleaks found something that looks like a secret in this PR's commits (`main`'s
   create a new one, store it only in GitHub secrets / Railway, and tell both founders. Deleting the commit is not enough.
 - Documented fake value from vendor docs: a founder may add that exact value to `.gitleaks.toml` (anchored, `regexTarget = "secret"`)
   in a founder PR, with a case in `scripts/gitleaks-config.test.sh`.
+- Rule `anthropic-claude-token` (`sk-ant-<kind><nn>-...`) is ours: gitleaks 8.18's default rules match neither a Claude OAuth
+  token nor an API key (measured), and the same config scans every answer before it is posted.
 
 ## Workflow "Agent - Review team" (job `review`)
 Also `pull_request_target`, also from `main`.
@@ -119,7 +126,7 @@ Also `pull_request_target`, also from `main`.
   it did, it posts `REVIEW TEAM RESULT: FAIL` saying there was no valid result. If no result comment appears and no label
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
 - The `review` job runs Claude with a read-only token; its last step runs the pinned `scripts/check-claude-answer.sh`,
-  which prints the blocked tool calls and hands the answer (text, at most 60000 characters) to the job `post` as a job
+  which prints the blocked tool calls and hands the answer (text, at most 60000 bytes) to the job `post` as a job
   output. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
   answer from `ANSWER`, scans it, posts it and sets labels. The daily report and weekly audit do the same with
   `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing).
@@ -180,7 +187,7 @@ update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs,
 the script's.
 
 ## After changing agent permissions (founder, manual)
-Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only)" step. Once vendored
+Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only, pinned script)" step. Once vendored
 skills exist (the Payload skill, #22), a `Skill(payload)` deny must not stop builders from preloading `payload` with
 `payload-dealer-overrides`. If a builder reports it can't see the skill, **do not remove the deny**: open an `area:security`
 issue for the founders.
@@ -189,8 +196,10 @@ issue for the founders.
 - Pushes by the agents' account cannot be blocked by a ruleset on the current plan (rulesets for a private repo need a paid
   plan). What holds instead: the token has no `workflow` scope (it cannot change `.github/workflows/`); a non-founder push to
   `main` is reverted by "Main guard" (above) and stops the agents; founder-only changes need every commit pushed by a founder
-  (the pusher ledger); the agents' account may own no repository (`scripts/check-agent-token.sh`). Founder decision 4 in
-  `docs/runbooks/agent-network-lock.md`.
+  (the pusher ledger); the agents' account may own no repository, the four guard workflows must be active and the default
+  branch's head must have passed the main guard (`scripts/check-agent-token.sh`, start and end of every shift: the token
+  could disable those workflows or cancel their runs, and this is what turns that into a visible failure). Founder
+  decision 4 in `docs/runbooks/agent-network-lock.md`.
 - The agents' own account (`mohammedaminehafidi-ctrl`, ID 250452267) exists and holds the `AGENT_GH_TOKEN` secret's token. If
   that secret ever holds a founder's or anyone else's token, the manager stops at its step "Agents must run on their own GitHub
   token, never a founder's" on every run. That is on purpose: the founder check in `guards` trusts GitHub accounts, so agents

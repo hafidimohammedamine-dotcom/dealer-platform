@@ -1,7 +1,7 @@
 # Runbook: workflow checker (`scripts/check-workflows.sh`)
 
-Runs in the `guards` step "Agent workflows keep their denies (base script, PR's workflows as data)" (the `main` copy, on the
-PR's workflows and local actions as data, with the base branch's `.github/accounts.txt`), and in CI inside the step "Guard
+Runs in the `guards` step "Agent workflows keep their denies and pins (base script, the PR's tree as data)" (the `main` copy,
+on the PR head's whole tree unpacked as data with `git archive`, with the base branch's `.github/accounts.txt`), and in CI inside the step "Guard
 script tests and coverage (every guard script at least 90%)" (the PR's own copy). Overview: `docs/runbooks/ci-guards.md`.
 
 `scripts/check-workflows.sh` reads the skill manifests (`manifest_entries` from `scripts/check-skills-lib.sh`) and
@@ -31,8 +31,10 @@ Files and arguments
 Any workflow or composite action
 - `.github/pins.txt is missing`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is not
   a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly `pins_required` from the policy: all
-  of `.github/actions/` and `.claude/`, every `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml`,
-  `.github/accounts.txt` and `CLAUDE.md`, with their current sha256: `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
+  of `.github/actions/`, every `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml`,
+  `.github/accounts.txt`, and every `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere outside `.git`,
+  `.worktrees` and `node_modules`, with their current sha256 (`bash scripts/check-pins.sh verify` applies the same rule in
+  every pin step): `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
   the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
   <x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
   outside `pins_exempt` (`ci.yml`, `egress-lock-test.yml`) checks out and then runs the exact pin step from the policy
@@ -43,7 +45,8 @@ Any workflow or composite action
 - `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
   token before the main guard could act; use schedule or a founder-gated `workflow_dispatch`.
 - `--disallowedTools does not deny <x> (every claude step must)` - every Claude step denies the policy's `claude_denies`
-  (`WebFetch`, `WebSearch` and the `Read(//...)` paths), not only the manager.
+  (`WebFetch`, `WebSearch` and the `Read(//...)` paths: `/proc`, `/sys`, `/dev`, `/etc`, the runner's `_temp`, dot-folders
+  and `runners` install folder), not only the manager.
 - `secrets used other than as secrets.<NAME> outside a claude step's claude_code_oauth_token` - no `secrets['x']`,
   `secrets[format(...)]`, `toJSON(secrets)`, `join(secrets)` or the whole object anywhere.
 - `Claude/Anthropic credential secrets.<NAME> ...` / `Claude/Anthropic credential variable ...` - a secret named
@@ -133,6 +136,9 @@ Claude steps
 - `--add-dir <x> not allowed (allowed: ...)` - only `/tmp/pr` and `/tmp/pr-meta` in `review.yml`, `/tmp/audit-meta` in
   `agent-weekly-audit.yml`.
 - `--allowedTools item '<x>' not allowed outside agent-manager.yml (read-only tools only)` - answer-only jobs may allow only
-  `read_only_tools` and the fixed `read_only_bash` commands (`gh` views and lists, `yarn npm audit/info`, `yarn why`, `date`), plus
-  any `extra_tools` listed for that file. No `git`, `find`, `sort`, `cat` or anything that can write a file: the PR's history
+  `read_only_tools` (`Read(./**)`, never a bare `Read`: Read is allowed under the checkout only, and Grep and Glob follow the
+  Read rules, so the process that holds the Claude token cannot be made to read `/proc`, `/dev` or the runner's folders;
+  measured, see `docs/runbooks/agent-network-lock.md`) and the fixed `read_only_bash` commands (`gh` views and lists,
+  `yarn npm audit/info`, `yarn why`, `date`), plus any `extra_tools` listed for that file (`Read(//tmp/pr/**)` and
+  `Read(//tmp/pr-meta/**)` for the review, `Read(//tmp/audit-meta/**)` for the audit, the scrub probe's one command). No `git`, `find`, `sort`, `cat` or anything that can write a file: the PR's history
   is written as plain files before Claude starts (`/tmp/pr-meta`, `/tmp/audit-meta`).

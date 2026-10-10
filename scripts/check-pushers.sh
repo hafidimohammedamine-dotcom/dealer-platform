@@ -7,9 +7,10 @@
 # token cannot read, so a forged, copied or edited status never verifies and a deleted one is "no record".
 #   record <ref-name> <default-ref> <before> <after> <pusher-id>   from a push event (pusher-ledger.yml): post a record, as
 #       the pusher, on every commit this push brought that no other branch already has: before..after (a fast-forward), or
-#       everything since the default branch for a new branch or a force push; commits reachable from any other branch stay
-#       as they are (an unrecorded commit a founder re-pushes under a new branch name is never credited to the founder);
-#       a deleted branch (after = zeros) records nothing
+#       everything since the default branch for a new branch or a force push; commits reachable from any other branch or
+#       from any pull request head (refs/remotes/pull/*, fetched by the workflow: a PR keeps its commits after its branch
+#       is deleted) stay as they are, so an unrecorded commit a founder re-pushes under a new branch name is never
+#       credited to the founder; a deleted branch (after = zeros) records nothing
 #   verify <base-ref> <head-ref> <accounts-file>   print "<sha> <id> <founder|agent|unknown>" for every commit, or
 #       "<sha> - unknown" when no record has a valid mac, or when valid records name more than one pusher (a commit never
 #       passes on a founder's record if another valid record names someone else); check-founder-files.sh then requires
@@ -67,7 +68,7 @@ case "$CMD" in
       from="$BEFORE"; kind="fast-forward $BEFORE..$AFTER"
     fi
     # Only what this push brought: not reachable from the base, nor from any other branch of the repository.
-    others=$(git for-each-ref --format='%(refname)' refs/remotes/origin | grep -vx "refs/remotes/origin/$REF_NAME" || true)
+    others=$(git for-each-ref --format='%(refname)' refs/remotes/origin refs/remotes/pull | grep -vx "refs/remotes/origin/$REF_NAME" || true)
     # shellcheck disable=SC2086
     if ! commits=$(git rev-list "$AFTER" --not "$from" $others 2>/dev/null); then
       echo "ERROR: could not list commits for $kind"; exit 1

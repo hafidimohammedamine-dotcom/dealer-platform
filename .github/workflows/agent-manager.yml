@@ -43,10 +43,11 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
@@ -72,7 +73,7 @@ jobs:
             --model opus
             --max-turns 200
             --permission-mode bypassPermissions
-            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(gh workflow:*),Bash(gh run cancel:*),Bash(gh run delete:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
           # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
           # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The other layers: the
@@ -87,7 +88,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -96,7 +97,7 @@ jobs:
       - name: After the shift, the agents' account still owns no repository (re-checked with the pinned script)
         if: always()
         env:
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet

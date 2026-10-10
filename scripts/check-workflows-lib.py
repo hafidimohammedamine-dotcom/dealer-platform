@@ -61,7 +61,10 @@ def _sha256(path):
 
 
 def pinned_paths(root):
-    """The repo-relative files .github/pins.txt must list (same rule as scripts/check-pins.sh)."""
+    """The repo-relative files .github/pins.txt must list (policy `pins_required`; scripts/check-pins.sh runs this file to get
+    the same list): everything under `dirs`, the `globs` minus `exclude_suffixes`, the `files`, and - anywhere in the tree
+    outside `skip_dirs` - every file named in `rule_files` and every file under a folder named in `rule_dirs` (the agent
+    instruction files Claude loads from a checkout: a new one must be reviewed and pinned too)."""
     req = P["pins_required"]
     out = set()
     for d in req["dirs"]:
@@ -75,46 +78,85 @@ def pinned_paths(root):
     for f in req["files"]:
         if os.path.isfile(os.path.join(root, f)):
             out.add(f)
+    for dp, dns, fns in os.walk(root):
+        dns[:] = sorted(d for d in dns if d not in req["skip_dirs"])
+        rel = os.path.relpath(dp, root)
+        if any(part in req["rule_dirs"] for part in rel.split(os.sep)):
+            out.update(os.path.normpath(os.path.join(rel, fn)) for fn in fns)
+        else:
+            out.update(os.path.normpath(os.path.join(rel, fn)) for fn in fns if fn in req["rule_files"])
     return out
+
+
+def pins_listing(root):
+    """{path: sha256} from pins.txt, or (None, problems) when it is missing or malformed."""
+    path = os.path.join(root, P["pins_file"])
+    if not os.path.isfile(path):
+        return None, [f"{P['pins_file']} is missing; run: bash scripts/check-pins.sh update"]
+    listed, problems = {}, []
+    with open(path, encoding="utf-8") as fh:
+        for n, line in enumerate(fh, 1):
+            m = re.match(r"^([0-9a-f]{64})  (\S.*)$", line.rstrip("\n"))
+            if not m:
+                problems.append(f"{P['pins_file']} line {n}: want '<sha256>  <path>'")
+                continue
+            listed[m.group(2)] = m.group(1)
+    return listed, problems
+
+
+def pins_problems(root):
+    """Everything wrong with pins.txt against the tree: malformed lines, files it should list, files it must not, and
+    listed files whose sha256 changed. Empty means the pins are right (scripts/check-pins.sh verify prints these)."""
+    listed, problems = pins_listing(root)
+    if listed is None:
+        return problems
+    want = pinned_paths(root)
+    for f in sorted(want - set(listed)):
+        problems.append(f"{P['pins_file']} does not list {f}; run: bash scripts/check-pins.sh update")
+    for f in sorted(set(listed) - want):
+        problems.append(f"{P['pins_file']} lists {f}, which is not a pinned file (or no longer exists); run: bash scripts/check-pins.sh update")
+    for f in sorted(want & set(listed)):
+        if _sha256(os.path.join(root, f)) != listed[f]:
+            problems.append(f"{P['pins_file']}: {f} changed but its pin did not; run: bash scripts/check-pins.sh update")
+    return problems
 
 
 def check_pins_file(root):
     """pins.txt lists exactly the required files with their current sha256; remembers its own hash for the pin steps."""
     global PINS_HASH
     path = os.path.join(root, P["pins_file"])
-    if not os.path.isfile(path):
-        err(f"{P['pins_file']} is missing; run: bash scripts/check-pins.sh update")
-        return
-    PINS_HASH = _sha256(path)
-    listed = {}
-    with open(path, encoding="utf-8") as fh:
-        for n, line in enumerate(fh, 1):
-            m = re.match(r"^([0-9a-f]{64})  (\S.*)$", line.rstrip("\n"))
-            if not m:
-                err(f"{P['pins_file']} line {n}: want '<sha256>  <path>'")
-                continue
-            listed[m.group(2)] = m.group(1)
-    want = pinned_paths(root)
-    for f in sorted(want - set(listed)):
-        err(f"{P['pins_file']} does not list {f}; run: bash scripts/check-pins.sh update")
-    for f in sorted(set(listed) - want):
-        err(f"{P['pins_file']} lists {f}, which is not a pinned file (or no longer exists); run: bash scripts/check-pins.sh update")
-    for f in sorted(want & set(listed)):
-        if _sha256(os.path.join(root, f)) != listed[f]:
-            err(f"{P['pins_file']}: {f} changed but its pin did not; run: bash scripts/check-pins.sh update")
+    if os.path.isfile(path):
+        PINS_HASH = _sha256(path)
+    for problem in pins_problems(root):
+        err(problem)
+
+
+def pins_step_problems(fname, step):
+    """Everything wrong with a step that should be the pin step (one rule, used both to recognise the exact step and to
+    report it): the policy's run (the default-branch form for a workflow in pins_default_branch_workflows, whose expected
+    hash comes from the default branch's own guards.yml instead of its env), env exactly {PINS_SHA256: the current hash of
+    pins.txt} (no env in the default-branch form), and no other keys but an optional id."""
+    out = []
+    if fname in P["pins_default_branch_workflows"]:
+        if str(step.get("run", "")) != P["pins_step_run_default_branch"]:
+            out.append("the pin step's run must be exactly the policy's pins_step_run_default_branch")
+        if set(step) - {"name", "run", "id"}:
+            out.append("the pin step may only have name, run and id (the hash comes from the default branch's guards.yml)")
+        return out
+    if str(step.get("run", "")) != P["pins_step_run"]:
+        out.append("the pin step's run must be exactly the policy's pins_step_run")
+    env = step.get("env") if isinstance(step.get("env"), dict) else {}
+    got = str(env.get("PINS_SHA256", ""))
+    if PINS_HASH and got != PINS_HASH:
+        out.append(f"PINS_SHA256 is {got or 'missing'} but {P['pins_file']} is {PINS_HASH}; run: bash scripts/check-pins.sh update")
+    if (set(step) - {"name", "env", "run", "id"}) or set(env) != {"PINS_SHA256"}:
+        out.append("the pin step may only have name, env (PINS_SHA256), run and id")
+    return out
 
 
 def is_pins_step(step, fname=None):
-    """True only for the exact pin step: the policy's name and run (the default-branch form for a workflow in
-    pins_default_branch_workflows), env exactly {PINS_SHA256: the current hash of pins.txt} (no env in the default-branch
-    form), and no other keys but an optional id. A step that merely carries the name is not one."""
-    if not isinstance(step, dict) or step.get("name") != P["pins_step_name"]:
-        return False
-    if fname in P["pins_default_branch_workflows"]:
-        return str(step.get("run", "")) == P["pins_step_run_default_branch"] and not (set(step) - {"name", "run", "id"})
-    env = step.get("env") if isinstance(step.get("env"), dict) else {}
-    return (str(step.get("run", "")) == P["pins_step_run"] and set(env) == {"PINS_SHA256"}
-            and (PINS_HASH is None or str(env["PINS_SHA256"]) == PINS_HASH) and not (set(step) - {"name", "env", "run", "id"}))
+    """True only for the exact pin step (the policy's name, and nothing pins_step_problems objects to)."""
+    return names_pins_step(step) and not pins_step_problems(fname, step)
 
 
 def names_pins_step(step):
@@ -123,24 +165,9 @@ def names_pins_step(step):
 
 
 def check_pins_step(fname, where, step):
-    """Errors for a pin step that is not exactly right (called when is_pins_step matched the name). A workflow in
-    pins_default_branch_workflows runs on a pushed branch but checks out the default branch, so its step takes the expected
-    hash from the default branch's own guards.yml (which the agents' token cannot change) instead of its env."""
-    if fname in P["pins_default_branch_workflows"]:
-        if str(step.get("run", "")) != P["pins_step_run_default_branch"]:
-            err(f"{where}: the pin step's run must be exactly the policy's pins_step_run_default_branch")
-        if set(step) - {"name", "run", "id"}:
-            err(f"{where}: the pin step may only have name, run and id (the hash comes from the default branch's guards.yml)")
-        return
-    if str(step.get("run", "")) != P["pins_step_run"]:
-        err(f"{where}: the pin step's run must be exactly the policy's pins_step_run")
-    env = step.get("env") if isinstance(step.get("env"), dict) else {}
-    got = str(env.get("PINS_SHA256", ""))
-    if PINS_HASH and got != PINS_HASH:
-        err(f"{where}: PINS_SHA256 is {got or 'missing'} but {P['pins_file']} is {PINS_HASH}; run: bash scripts/check-pins.sh update")
-    extra = set(step) - {"name", "env", "run", "id"}
-    if extra or set(env) != {"PINS_SHA256"}:
-        err(f"{where}: the pin step may only have name, env (PINS_SHA256), run and id")
+    """Errors for a pin step that is not exactly right (called where a step carries the pin step's name)."""
+    for problem in pins_step_problems(fname, step):
+        err(f"{where}: {problem}")
 
 
 def check_permissions(fname, where, perms, triggers):
@@ -172,3 +199,15 @@ def accounts_from_rows(rows):
         if len(parts) == 3:
             out[parts[0]] = (parts[1], parts[2])
     return out
+
+
+if __name__ == "__main__":   # scripts/check-pins.sh: the pinned paths of a tree (update), or its pin problems (verify)
+    if len(sys.argv) == 3 and sys.argv[1] == "paths":
+        print("\n".join(sorted(pinned_paths(sys.argv[2]))))
+    elif len(sys.argv) == 3 and sys.argv[1] == "verify":
+        found = pins_problems(sys.argv[2])
+        print("\n".join(found))
+        sys.exit(1 if found else 0)
+    else:
+        print("usage: check-workflows-lib.py paths|verify <repo-root>")
+        sys.exit(2)

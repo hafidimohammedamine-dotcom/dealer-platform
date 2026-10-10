@@ -2,7 +2,8 @@
 # Runs on every push to main (main-guard.yml, founder-owned). Only founders merge: a push to main by anyone else is a
 # bypass of guards, review and founder approval (the free plan cannot block pushes with a ruleset, and the agents' token
 # has write access). For a non-founder push it: reverts the pushed commits with new commits (never a force push), stops
-# the agents (disables the manager workflow) and opens a blocked security issue for the founders.
+# the agents (cancels and disables every workflow that holds a secret or write scope) and opens a blocked security issue
+# for the founders.
 # Usage: scripts/check-main-push.sh <pusher-id> <before-sha> <after-sha> <accounts-file>
 #   Needs gh with GH_TOKEN (contents: write, actions: write, issues: write) and GH_REPO; git in the checkout of main
 #   with the pushed commits present. Pushes made with the workflow's own token start no workflow, so this cannot loop.

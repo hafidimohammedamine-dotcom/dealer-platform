@@ -31,6 +31,7 @@ jobs:
           h=$(sed -n -E 's/^ *PINS_SHA256: "([0-9a-f]{64})".*/\1/p' .github/workflows/guards.yml | head -n1)
           echo "$h  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
       - name: Record the pushed commits as this push's sender
         env:
           GH_TOKEN: ${{ github.token }}
@@ -42,5 +43,6 @@ jobs:
           AFTER: ${{ github.event.after }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          git fetch -q origin '+refs/heads/*:refs/remotes/origin/*'   # every branch, so commits other branches have are not re-credited
+          # every branch and every pull request head, so commits another branch or a PR already has are not re-credited
+          git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' '+refs/pull/*/head:refs/remotes/pull/*' 
           bash scripts/check-pushers.sh record "$REF_NAME" "origin/$DEFAULT_BRANCH" "$BEFORE" "$AFTER" "$SENDER_ID"

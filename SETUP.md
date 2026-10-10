@@ -60,9 +60,11 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 1. Write `packages/contracts` (the first issue, labeled `agent:founder`). Most agents wait for it. Ask Claude to help you draft it.
 2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
 
-When you (a founder) change the network lock, a guard script, `.gitleaks.toml` or `.github/accounts.txt`, run
-`bash scripts/check-pins.sh update` in the same PR: every workflow checks those files against `.github/pins.txt` before it
-runs them, and the agents cannot change that check.
+When you (a founder) change a pinned file - anything under `.github/actions/`, a `scripts/check-*` script (tests excepted),
+`.gitleaks.toml`, `.github/accounts.txt`, `CLAUDE.md`, a `CLAUDE.local.md`, a `.mcp.json` or anything under a `.claude/`
+folder (the full rule is `pins_required` in `scripts/check-workflows-policy.json`) - run `bash scripts/check-pins.sh update`
+in the same PR: every workflow checks those files against `.github/pins.txt` before it runs them, fails if the tree holds
+one that is not listed, and the agents cannot change that check.
 
 ## 6. Your daily routine (about 30 minutes)
 1. Read the morning **Daily report**. Founders' actions are listed first.

@@ -10,6 +10,7 @@ T=$(mktemp -d "$TMPROOT/glt.XXXXXX") || exit 2
 trap 'rm -rf "$T"' EXIT
 cp "$REPO/.gitleaks.toml" "$T/.gitleaks.toml"; mkdir -p "$T/noignore"
 OTHER="AKIA""Z3QF7KLM2XWB9RTN"   # built at run time so this file isn't flagged
+OAT="sk-ant-""oat01-""$(printf 'A%.0s' {1..40})_x-y"; API="sk-ant-""api03-""$(printf 'b%.0s' {1..60})"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 scan() { # scan <found|clean> <name> <file> <content>
   rm -rf "$T/case"; mkdir -p "$T/case"; printf '%s\n' "$4" > "$T/case/$3"
@@ -25,4 +26,8 @@ scan found "other AWS-style key is caught (.json)"              a.json "{\"k\": 
 scan found "real key on the same line as the example is caught" a.md   "AKIAIOSFODNN7EXAMPLE $OTHER"
 scan found "near-copy of the example key is caught (exact match only)" a.md "key = \"AKIA""IOSFODNN7EXAMPLF\""
 scan found "inline gitleaks:allow does not hide a key"          a.ts   "const k = \"$OTHER\"; // gitleaks:allow"
+scan found "a Claude OAuth token is caught (.ts)"               a.ts   "const t = \"$OAT\";"
+scan found "a Claude API key is caught (.md)"                   a.md   "key: $API"
+scan found "a Claude token inside a review answer is caught"    a.txt  "The file says: $OAT and more"
+scan clean "the token prefix alone is not a finding"            a.md   "look for sk-ant-oat01- shaped strings"
 summary

@@ -35,7 +35,7 @@ Z=0000000000000000000000000000000000000000
 
 fresh; push_commits 1; run ok "a founder's push is fine" "Push to main by founder 'founder-one' (ID 111): OK." 111 "$BASE" "$HEAD"
 check "founder push: nothing reverted, nothing disabled, no issue" bash -c '! grep -q . "$1"' _ "$W/gh.log"
-fresh; push_commits 1 2; run fail "an agent's push is reverted, the manager disabled, an issue opened" "reverted 2 pushed commit(s) with new commits on main; cancelled 1 running or queued run(s); disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml (re-enable them after the review)" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
+fresh; push_commits 1 2; run fail "an agent's push is reverted, the secret-holding workflows cancelled and disabled, an issue opened" "reverted 2 pushed commit(s) with new commits on main; cancelled 1 running or queued run(s); disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml (re-enable them after the review)" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
 check "origin main now has the two reverts on top and the base content" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && git show origin/main:f | grep -qx base && ! git ls-tree --name-only origin/main | grep -q "^f1$"' _ "$W/clone"
 check "the running shift is cancelled before the disables (both states asked for every workflow)" bash -c 'grep -q "gh run cancel 4242" "$1" && [ "$(grep -c "gh run list --workflow " "$1")" = 16 ] && [ "$(grep -n "gh run cancel 4242" "$1" | cut -d: -f1)" -lt "$(grep -n "gh workflow disable agent-manager.yml" "$1" | cut -d: -f1)" ]' _ "$W/gh.log"
 check "every secret-holding workflow disabled and the issue labeled security + blocked" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh workflow disable review.yml" "$1" && grep -q "gh workflow disable guards.yml" "$1" && grep -q "gh issue create --title SECURITY: non-founder push to main by user ID 333 --label area:security --label blocked --label priority:1" "$1" && grep -q "@founder-one @founder-two" "$1"' _ "$W/gh.log"
@@ -99,7 +99,7 @@ pins = [s for s in steps if s.get("id") == "pins"][0]
 fb = [s for s in steps if s.get("name", "").startswith("If the pins did not match")][0]
 assert fb["if"] == "failure() && steps.pins.outcome == 'failure'", fb["if"]
 assert not re.search(r"(^|[\s;&|])(bash|sh|source|\.)\s+\S*(scripts/|\./)", fb["run"], re.M), "the fallback must not run repo files"
-assert pins["run"] == 'echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\n', pins["run"]
+assert pins["run"] == 'echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\nbash scripts/check-pins.sh verify\n', pins["run"]
 founders = sorted(l.split()[0] for l in open(f"{root}/.github/accounts.txt") if l.split() and not l.startswith("#") and l.split()[2] == "founder")
 assert sorted(fb["env"]["FOUNDER_IDS"].split()) == founders, (fb["env"]["FOUNDER_IDS"], founders)
 for lab in ("area:security", "blocked", "priority:1"):
@@ -108,6 +108,11 @@ assert "git revert --no-edit" in fb["run"] and "force-with-lease" in fb["run"]
 wfs = re.search(r"for w in ([^;\n]+); do", fb["run"]).group(1).split()
 src = open(f"{root}/scripts/check-main-push.sh").read()
 assert wfs == re.search(r'MAIN_GUARD_WORKFLOWS:-([^}]+)\}', src).group(1).split(), (wfs, "must equal the script's list")
+# ... and that list is every workflow that holds a secret or a write scope, except the main guard itself: a new one must be added
+import glob, os
+holding = sorted(os.path.basename(f) for f in glob.glob(f"{root}/.github/workflows/*.yml")
+                 if os.path.basename(f) != "main-guard.yml" and re.search(r"secrets\.|: write", open(f).read()))
+assert sorted(wfs) == holding, (sorted(wfs), "must equal the workflows with secrets. or ': write'", holding)
 main = [s for s in steps if s.get("name", "").startswith("The pusher must be a founder")][0]
 assert main["run"].strip() == 'bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt'
 assert wf.get("on", wf.get(True)) == {"push": {"branches": ["main"]}} and wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write"}

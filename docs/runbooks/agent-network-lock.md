@@ -51,8 +51,12 @@ only to the exact names and that pattern.
 - `.github/workflows/egress-lock-claude.yml`: from `main` only, weekly (Mondays) and started by a founder (never on a push:
   a push to main by the agents' token would run its own lock before the main guard could revert it; every file it runs is
   pinned, see `docs/runbooks/ci-guards.md`). Job `probe` runs the real claude-code-action under the lock and checks the
-  `Skill(payload)` deny. Job `scrub` checks the subprocess isolation. Job `oidc` (`id-token: write`) fetches an OIDC token
-  under the lock, proving the run service's generated name is allowed and nginx accepts it.
+  `Skill(payload)` deny. Job `scrub` checks the subprocess isolation. Job `reads` checks the reviewers' tool rules: with
+  `Read(./**)` as the only Read allow, Read, Grep and Glob outside the checkout are denied (measured 2026-10-10, run
+  38028365846: `/proc/self/environ`, `/dev/fd/../environ` (normalised to `/dev/environ`), `/dev/stdin`, `/etc/hostname`,
+  `/home/runner/runners`, `/home/runner/work/_temp`, and Grep or Glob in `/proc/self` were all denied; reads under the
+  working folder worked). Job `oidc` (`id-token: write`) fetches an OIDC token under the lock, proving the run service's
+  generated name is allowed and nginx accepts it.
 
 ## Messages and fixes
 - `Linux x64 runners only` / `must run inside GitHub Actions` - only for GitHub-hosted Ubuntu x64 runners.
@@ -94,7 +98,11 @@ only to the exact names and that pattern.
   The probe counts Claude tokens (`sk-ant...`) visible to a tool, in its own environment and in every readable
   `/proc/<pid>/environ`, and prints counts only. A count above 0 means the subprocess isolation is not working. Open an
   `area:security` issue; do not turn the scrub off.
-- `ERROR: cannot read the execution file (<error>)` (either probe job) - the Claude step did not produce its execution file
+- Job `reads` fails - the check step (`scripts/check-claude-probe.py read-deny`) prints one `denied` / `NOT DENIED` line
+  per probe read and `token-shaped strings in tool results and the answer: <n>`. A `NOT DENIED` line means a Read rule
+  no longer holds (a Claude Code change, or an edited allow list): the Claude process, which holds the token, could be
+  talked into reading its own environment. Open an `area:security` issue and stop the review workflows until it is fixed.
+- `ERROR: cannot read the execution file (<error>)` (any probe job) - the Claude step did not produce its execution file
   (it failed before running); read that step's log.
 
 ## Bumping the pins
@@ -128,6 +136,14 @@ checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the j
   (no fork either): one would be a place to push our code or data out with the token's own rights. A founder reads what was
   pushed there, deletes those repositories and rotates `AGENT_GH_TOKEN` if anything of ours left this repository.
   `could not list the agent account's own repositories` - the token could not call GitHub; re-run once.
+- `workflow <name> is '<state>', not active` - one of `main-guard.yml`, `pusher-ledger.yml`, `guards.yml` or `review.yml`
+  is disabled. Nobody but a founder should do that: a founder reads the repository's audit log for who disabled it, and
+  re-enables it (Actions -> the workflow -> Enable); agents do not run until then. `the default branch's head (<sha>) has no
+  successful main-guard run (runs: ...)` - a push to the default branch whose main-guard run was cancelled, failed or never
+  happened: a founder reads that push (who, what) before any agent runs; `has not finished after <n>s; re-run this job
+  later` - the run is still going (right after a merge), re-run. `could not read the state of workflow ...` / `could not
+  read the default branch's head commit` / `could not list the main-guard runs ...` - the token could not call GitHub;
+  re-run once. `GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set` / `bad GH_REPO` - the job environment is wrong.
 - `accounts file not found: <file>`, `bad line <n> in <file> ...`, `no founder listed in <file>` - fix `.github/accounts.txt`.
 
 **What the agents' own token can do, and what catches it.** A classic `repo` token on a collaborator account can push to any
@@ -148,8 +164,9 @@ The command deny lists are a second layer. They block `npm`, `npx`, `yarn npm pu
 auth`, `gh secret`, `curl` and `wget` in the manager. They match command prefixes, so they are not a boundary on their own.
 
 ## Measured limits
-Measured from GitHub runners on 2026-10-09 by the author of this change, accepted by founder Mohammed without a re-check (see
-"Founder decisions"). The test sent `curl -H 'Host: <other site>' https://<allowed name>/` through the lock.
+Measured from GitHub runners on 2026-10-09 and 2026-10-10 in the session that built PR #30 (the run logs are the record;
+they are not reproducible from this repository alone, see "Founder decisions" 2). The test sent
+`curl -H 'Host: <other site>' https://<allowed name>/` through the lock.
 
 **Not used for fronting.** These did not answer for another site, and the self-test repeats the check against every exact
 allowed name on every run:
@@ -212,7 +229,8 @@ them powerless instead:
 ## Evidence for the Skill deny and the pins
 - Versions: Claude Code 2.1.295 and Bun 1.3.14. Tag v1.0.247 of claude-code-action is commit 2dca132f; its
   `src/entrypoints/run.ts` pins Claude Code 2.1.295 and its `action.yml` installs Bun 1.3.14.
-- Verified on 2026-10-10 against the vendors' sources, in founder Mohammed's session: Claude Code 2.1.295 linux-x64 checksum
+- Compared on 2026-10-10 with the vendors' sources, in the session that built PR #30 (a founder re-checks them before merging;
+  see "Founder decisions" 2): Claude Code 2.1.295 linux-x64 checksum
   from `https://downloads.claude.ai/claude-code-releases/2.1.295/manifest.json`; Bun 1.3.14 `bun-linux-x64.zip` from the
   release's `SHASUMS256.txt`; coverage.py 7.16.2 cp312/cp313 manylinux x86_64 wheel digests and PyYAML 6.0.3 cp312/cp313
   digests from `https://pypi.org/pypi/<name>/<version>/json`; tag `v1.0.247` of claude-code-action = commit
@@ -238,30 +256,39 @@ them powerless instead:
 Re-check when a pin changes.
 
 ## Founder decisions (accepted risks)
-Accepted by founder Mohammed (`hafidimohammedamine-dotcom`) on 2026-10-09 (decisions 1-2) and 2026-10-10 (decisions 3-4),
-in the session that built PR #30; recorded at his
-request. Owner: Mohammed. Review by 2026-11-08, or earlier if any of them changes.
+Proposed in PR #30 (written there by the agent session that built it; the PR thread holds the founder's instructions). A
+founder accepts them by merging PR #30, and that merge is the record of acceptance; until then they are pending. Owner: the
+merging founder. Review by 2026-11-08, or earlier if any of them changes.
 1. **Open exit routes.** An agent misled by an injected instruction that also carries an attacker's own credentials could
    still send data to GitHub (push, issue, gist), npm (publish) or the Anthropic API. Closing these needs a read-only package
    mirror and a GitHub proxy that accepts only this job's own token; that is a later issue, not this PR. Until then the
    limits are the agents' repo-only token (classic with only `repo`, or fine-grained), the manager's command denies and the
    reviews.
-2. **Pins and measurements.** The pins were verified against the vendors' sources on 2026-10-10 (see "Evidence"); the
-   measurements above were taken on GitHub's runners on 2026-10-09 and 2026-10-10 and are accepted as recorded. A founder
-   re-checks them at the next pin bump.
+2. **Pins and measurements.** The pins were compared with the vendors' sources on 2026-10-10 in the PR's session (see
+   "Evidence"); the measurements in this runbook were taken on GitHub's runners on 2026-10-09 and 2026-10-10 (run IDs are
+   cited where they matter) and cannot be reproduced from this repository alone: they need a runner, the lock and, for the
+   Claude probes, a Claude token. Merging accepts them as recorded; a founder re-checks the pins at the next bump and the
+   probes by starting `egress-lock-claude.yml` (decision 3).
 3. **The Claude jobs run under the lock for the first time after merge.** Before merge they are checked statically
    (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml` (jobs `lock` and
    `break-on-purpose`). The jobs that need a Claude token or an OIDC token (`egress-lock-claude.yml`: the `Skill(payload)`
    deny probe, the subprocess-isolation scrub probe and the `oidc` job; the manager, review, reports) never run next to PR
-   code, so they first run under the lock after merge. **Accepted on 2026-10-10:** right after merging, a founder starts
-   `egress-lock-claude.yml` by hand (Actions -> Run workflow) and reads its result; a failure there is a revert trigger (the
-   founder reverts the merge in the web UI and the fix comes as a new founder PR).
+   code, so they first run under the lock after merge. Right after merging, a founder starts `egress-lock-claude.yml` by
+   hand (Actions -> Run workflow) and reads its result; a failure there is a revert trigger (the founder reverts the merge
+   in the web UI and the fix comes as a new founder PR).
 4. **What the agents' token can still do (2026-10-10).** The free plan cannot block pushes to `main` or repository
-   creation by the agents' account. Accepted with these controls: `main-guard.yml` reverts any non-founder push to `main`,
-   stops the manager and opens a blocked security issue; the pusher ledger in `guards` keeps non-founder commits out of
-   founder-only changes; the owns-no-repositories check stops every agent job (hourly with the manager; the daily report lists the
-   failed runs) if the agents' account ever owns a repository; the manager denies `gh repo`. Measured 2026-10-10 on this repository with a token that lacks the workflow permission: GitHub refuses any ref update
-   that changes `.github/workflows/`, even a rewind of `main` to an older commit with no new commits (`refusing to allow a
-   GitHub App to create or update workflow ... without workflows permission`; a classic token without the `workflow` scope,
-   like the agents', gets the same refusal), so the agents' token cannot roll `main` back past a workflow change either. These detect and undo rather than prevent; prevention
-   (rulesets, a fine-grained token) needs a paid plan or an organization-owned repository and is a later founder issue.
+   creation by the agents' account. Accepted with these controls: `main-guard.yml` reverts any non-founder push to
+   `main`, cancels and disables every workflow that holds a secret or write scope and opens a blocked security issue;
+   the pusher ledger in `guards` keeps non-founder commits out of founder-only changes; the owns-no-repositories check
+   stops every agent job (hourly with the manager; the daily report lists the failed runs) if the agents' account ever
+   owns a repository; the manager denies `gh repo`, `gh workflow`, `gh run cancel` and `gh run delete`; and
+   `scripts/check-agent-token.sh` (start and end of every shift) fails unless `main-guard.yml`, `pusher-ledger.yml`,
+   `guards.yml` and `review.yml` are active and the default branch's head has a successful main-guard run, because the
+   agents' token (classic `repo` covers the Actions API) could disable those workflows or cancel their runs - a
+   residual risk: between such a tampering and the next shift start nothing runs, and the failing check is what tells
+   a founder. Measured 2026-10-10 on this repository with a token that lacks the workflow permission: GitHub refuses
+   any ref update that changes `.github/workflows/`, even a rewind of `main` to an older commit with no new commits
+   (`refusing to allow a GitHub App to create or update workflow ... without workflows permission`; a classic token
+   without the `workflow` scope, like the agents', gets the same refusal), so the agents' token cannot roll `main`
+   back past a workflow change either. These detect and undo rather than prevent; prevention (rulesets, a fine-grained
+   token) needs a paid plan or an organization-owned repository and is a later founder issue.

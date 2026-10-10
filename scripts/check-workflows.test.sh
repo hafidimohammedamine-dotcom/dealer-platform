@@ -13,7 +13,7 @@ for wf in agent-daily-report.yml agent-weekly-audit.yml review.yml claude.yml ag
 done
 # Every manager deny is required
 mapfile -t MD < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["manager_denies"]))' "$(dirname "$PY")/check-workflows-policy.json")
-[ "${#MD[@]}" = 32 ] || t FAIL "expected 32 manager denies, got ${#MD[@]}"
+[ "${#MD[@]}" = 37 ] || t FAIL "expected 37 manager denies, got ${#MD[@]}"
 for d in "${MD[@]}"; do
   [ "$d" = 'Skill(payload)' ] && continue
   fresh; drop agent-manager.yml "$d";                   expect fail "manager missing $d" "missing deny $d"
@@ -22,7 +22,7 @@ done
 fx; python3 - "$T/$W/t.yml" <<'EOF'
 import sys; p=sys.argv[1]; s=open(p).read()
 s=s.replace('prompt: "Do the task."', 'prompt: |\n            --disallowedTools "Skill(payload)"\n            - x')
-s=s.replace('            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"\n', '            --permission-mode bypassPermissions\n')
+s=s.replace('            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"\n', '            --permission-mode bypassPermissions\n')
 open(p,"w").write(s)
 EOF
                                                         expect fail "decoy deny in prompt, list line, no deny in claude_args" "needs exactly one --disallowedTools (found 0)"
@@ -46,7 +46,7 @@ fresh; sed -i 's|allowed_bots: github-actions|allowed_bots: "*"|' "$T/$W/agent-m
 # Structure: duplicate keys, the lock step and the pinned action
 fx; sed -i 's|          prompt: "Do the task."|          prompt: "Do the task."\n          claude_args: "--model haiku"|' "$T/$W/t.yml"; expect fail "duplicate claude_args key" "duplicate key"
 fx; sed -i '/- id: lock/,+1d' "$T/$W/t.yml";              expect fail "claude job without the lock" "must start with actions/checkout, the pin step, then ./.github/actions/agent-egress-lock"
-fx; sed -i '/- name: The repository files this job runs are the reviewed ones/,+5d' "$T/$W/t.yml"; expect fail "claude job without the pin step" "the step after the checkout must be the pin step"
+fx; sed -i '/- name: The repository files this job runs are the reviewed ones/,+6d' "$T/$W/t.yml"; expect fail "claude job without the pin step" "the step after the checkout must be the pin step"
 fx; sed -i 's|PINS_SHA256: "[0-9a-f]*"|PINS_SHA256: "0000000000000000000000000000000000000000000000000000000000000000"|' "$T/$W/t.yml"; expect fail "pin step with a stale hash" "PINS_SHA256 is 0000000000000000000000000000000000000000000000000000000000000000 but .github/pins.txt is"
 fx; sed -i 's|          sha256sum --check --strict --quiet .github/pins.txt|          true|' "$T/$W/t.yml"; expect fail "pin step with a changed run" "the pin step's run must be exactly the policy's pins_step_run"
 fx; sed -i '/PINS_SHA256:/a\          EXTRA: x' "$T/$W/t.yml"; expect fail "pin step with an extra env" "the pin step may only have name, env (PINS_SHA256), run and id"
@@ -146,7 +146,10 @@ fresh; sed -i 's|--add-dir /tmp/pr|--add-dir /etc|' "$T/$W/review.yml"; expect f
 for tool in 'Bash' 'Bash(*)' 'Write' 'Edit' 'WebFetch' 'Bash(find /tmp/pr:*)' 'Bash(git -C /tmp/pr grep:*)' 'Bash(yarn install:*)'; do
   fx; sed -i "s|            --model haiku|            --model haiku\n            --allowedTools \"Read,$tool\"|" "$T/$W/t.yml"; expect fail "allowedTools $tool outside the manager" "--allowedTools item '$tool' not allowed"
 done
-fx; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read,Grep,Bash(gh pr view:*),Bash(gh issue view:*)"|' "$T/$W/t.yml"; expect ok "read-only allowedTools" "Workflow denies OK"
+fx; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read(./**),Grep,Glob,Bash(gh pr view:*),Bash(gh issue view:*)"|' "$T/$W/t.yml"; expect ok "read-only allowedTools" "Workflow denies OK"
+fx; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read,Grep"|' "$T/$W/t.yml"; expect fail "a bare Read allow (anywhere on the runner) is not read-only" "--allowedTools item 'Read' not allowed"
+fx; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read(//tmp/pr/**)"|' "$T/$W/t.yml"; expect fail "another file's extra Read scope" "--allowedTools item 'Read(//tmp/pr/**)' not allowed"
+fx; sed -i 's|            --model haiku|            --model haiku\n            --allowedTools "Read(//**)"|' "$T/$W/t.yml"; expect fail "a Read allow for every path" "--allowedTools item 'Read(//**)' not allowed"
 fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
 import sys; p=sys.argv[1]; s=open(p).read()
 s=s.replace("--permission-mode bypassPermissions", "--permission-mode bypassPermissions\n            --allowedTools \"Bash(*),Write\"", 1)

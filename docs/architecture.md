@@ -6,7 +6,7 @@ writes the full version here.
 ## CI and review
 ```
 PR opened / pushed
- ├─ CI (ci.yml, pull_request and push, from the PR, no secrets)
+ ├─ CI (ci.yml, pull_request, and push to main, from the PR, no secrets)
  │    guard-script tests · install · lint · typecheck · test · build · audit
  ├─ Pusher ledger (pusher-ledger.yml, every push to a branch but main, scripts from main, no concurrency): who pushed → signed statuses
  ├─ Guards (guards.yml, pull_request_target, from main)
@@ -17,7 +17,7 @@ PR opened / pushed
       answer handed over as text → job post (write scopes, no Claude) scans it, posts it, labels PASS (ready-to-merge) or
       FAIL (changes-requested). The daily report and weekly audit post the same way.
 A founder reads the result and merges.
-Push to main (main-guard.yml): a founder's push (a merge) is fine; any other push is reverted, the manager disabled, a security issue opened.
+Push to main (main-guard.yml): a founder's push (a merge) is fine; any other push is reverted, every workflow that holds a secret or write scope cancelled and disabled, a security issue opened.
 ```
 Agents (manager and builders) open and push PRs with the agents' own GitHub account (`mohammedaminehafidi-ctrl`, the `agent`
 line of `.github/accounts.txt`); founders use their own accounts. People are identified by numeric user ID, never by login.
@@ -45,12 +45,15 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   and every commit was pushed by a founder according to the ledger.
 - `scripts/check-pushers.sh` (`pusher-ledger.yml` records, guards verifies): records who pushed each commit as a commit status
   signed with `GUARDS_LEDGER_KEY` (HMAC), and reads it back; GitHub keeps no durable pusher per commit and commit authors can be forged.
-- `scripts/check-main-push.sh` (main-guard, every push to `main`): a non-founder push is reverted, the manager disabled, a
-  blocked security issue opened.
+- `scripts/check-main-push.sh` (main-guard, every push to `main`): a non-founder push is reverted, every workflow that holds a secret or
+  write scope cancelled and disabled, a blocked security issue opened.
 - `scripts/check-python-deps.sh` (guards and CI): the guard scripts' Python packages (PyYAML, coverage.py) from a hash-pinned
   requirements file into a private venv.
-- `scripts/check-pins.sh` (founders, and the tests): regenerates `.github/pins.txt` (sha256 of the lock action, every guard
-  script, `.gitleaks.toml`, `.github/accounts.txt`) and the `PINS_SHA256` every workflow checks before running any of them.
+- `scripts/check-pins.sh` (`update`: founders and the tests; `verify`: every pin step): regenerates `.github/pins.txt` (sha256
+  of every file in `pins_required`, `scripts/check-workflows-policy.json`: `.github/actions/`, the `scripts/check-*` scripts
+  except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`, and every `CLAUDE.md`, `CLAUDE.local.md`,
+  `.mcp.json` and `.claude/` file anywhere) and the `PINS_SHA256` every workflow checks before running any of them; `verify`
+  fails a job whose tree holds such a file that is not listed.
 - `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
   answer to the post job as a job output.
 - `scripts/check-accounts-lib.sh` (sourced by the guards that read `.github/accounts.txt`): the one parser of that file and

@@ -74,8 +74,9 @@
   real runner even with the profiles unloaded; the self-test now checks the helpers and `podman unshare id -u`).
 - `scripts/check-claude-probe.py` decides the Claude probes (was inline Python); `scripts/check-coverage-sh.test.sh` tests
   the coverage runner, and Python coverage is compared with two decimals.
-- Founder decisions on the remaining open routes, the measurements, post-merge first runs and the agents' token are recorded
-  in `docs/runbooks/agent-network-lock.md` ("Founder decisions"); the pins were verified against the vendors' sources.
+- Founder decisions on the remaining open routes, the measurements, post-merge first runs and the agents' token are proposed
+  in `docs/runbooks/agent-network-lock.md` ("Founder decisions") and accepted by the merge of this PR; the pins were
+  compared with the vendors' sources in the PR's session.
 - **Round 8:** `main-guard.yml` (`scripts/check-main-push.sh`) reverts any non-founder push to `main`, disables the manager and
   opens a blocked security issue; the **pusher ledger** (`scripts/check-pushers.sh`: `guards/pusher` commit statuses signed
   with the `GUARDS_LEDGER_KEY` secret) records who pushed every commit, and founder-only changes now need every commit pushed
@@ -118,6 +119,17 @@
   symlinks and special files; the fallback revert handles a zero `before`; `egress-lock-claude.yml`'s probe and scrub
   use the standard pin step; `lock.sh` and `check-skills.sh` are split into functions of at most 50 lines; measured:
   GitHub refuses a rewind of `main` past a workflow change even with no new commits (decision 4 in the lock runbook).
+- **Round 12:** `scripts/check-agent-token.sh` also requires the four guard workflows to be active and the default branch's
+  head to have a successful main-guard run (the agents' token could disable or cancel them); the manager denies
+  `gh workflow`, `gh run cancel` and `gh run delete`; the pin step's third line, `bash scripts/check-pins.sh verify`, fails
+  on any unlisted file of a pinned kind, and the pinned kinds now include every `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`
+  and `.claude/` file anywhere (`pins_required`); Read is allowed only under the checkout (`Read(./**)`, plus the review's
+  and audit's data folders) with `/dev` and the runner's install folder denied, proved by the new `reads` probe job
+  (`check-claude-probe.py read-deny`); `.gitleaks.toml` gains a rule for Claude tokens; the ledger also excludes commits
+  any pull request head holds; one `pins_step_problems` rule, `check-pins.sh` reads its list from the checker library,
+  the main-push test checks the stop list against every workflow holding a secret or write scope, the review poster
+  takes the answer only from `ANSWER`; docs corrected (pinned-file list, step names, bytes, the ledger's messages, founder
+  decisions proposed rather than recorded as accepted).
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
@@ -127,5 +139,7 @@
    (founder decision 3 in `docs/runbooks/agent-network-lock.md`); a failure is a revert trigger.
 4. Earlier PRs have no ledger records: re-push each open founder branch (a rebase, or one empty commit of your own) so the
    ledger records them under your ID; founder-only changes fail the guards until then.
-5. Whenever a founder PR changes the lock action, a guard script, `.gitleaks.toml` or `.github/accounts.txt`, run
+5. Whenever a founder PR changes a pinned file (`pins_required` in `scripts/check-workflows-policy.json`: anything under
+   `.github/actions/`, a `scripts/check-*` script except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`,
+   `CLAUDE.md`, any `CLAUDE.local.md` or `.mcp.json`, anything under a `.claude/` folder), run
    `bash scripts/check-pins.sh update` in that PR.

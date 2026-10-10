@@ -30,10 +30,11 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
       - id: lock
         # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
         uses: ./.github/actions/agent-egress-lock
@@ -55,15 +56,15 @@ jobs:
             --model opus
             --max-turns 150
             --add-dir /tmp/audit-meta
-            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
-            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --allowedTools "Agent,Task,Read(./**),Read(//tmp/audit-meta/**),Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
+            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"
           # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
       - name: Show blocked tool calls and hand the answer to the post job (pinned script)
         id: answer
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -88,10 +89,11 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
+          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
       - uses: ./.github/actions/install-gitleaks
       - name: Post the report (secret-scanned) to the "Daily reports" issue
         env:
