@@ -7,7 +7,6 @@ permissions:
   contents: read
 jobs:
   completes:
-    # No id-token: the job must finish right after its last step (the runner reports through the allowed service names).
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -16,7 +15,15 @@ jobs:
           persist-credentials: false
       - id: lock
         uses: ./.github/actions/agent-egress-lock
-      - run: |
-          date -u +%T; echo "locked; now the job should complete within a minute"
-          curl -sS -o /dev/null -w 'broker foreign-host: %{http_code}\n' -H 'Host: example.com' https://broker.actions.githubusercontent.com/ || true
-          curl -sS -o /dev/null -w 'results-receiver foreign-host: %{http_code}\n' -H 'Host: example.com' https://results-receiver.actions.githubusercontent.com/ || true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u; fail=0
+          getent ahostsv4 github.com | head -1
+          curl -fsS -o /dev/null --max-time 20 https://api.github.com/zen && echo "api.github.com OK" || { echo "::error::api.github.com failed"; fail=1; }
+          curl -fsS -o /dev/null --max-time 20 https://registry.npmjs.org/ && echo "npm OK" || { echo "::error::npm failed"; fail=1; }
+          (cd "$(mktemp -d)" && corepack yarn@4.18.1 --version) || { echo "::error::yarn failed"; fail=1; }
+          { gh auth setup-git && git ls-remote origin HEAD >/dev/null; } && echo "git OK" || { echo "::error::git failed"; fail=1; }
+          curl -sS -o /dev/null --max-time 8 https://x.github.com && { echo "::error::x.github.com reachable"; fail=1; } || echo "x.github.com blocked"
+          curl -sS -o /dev/null --max-time 8 https://example.com && { echo "::error::example.com reachable"; fail=1; } || echo "example.com blocked"
+          exit $fail

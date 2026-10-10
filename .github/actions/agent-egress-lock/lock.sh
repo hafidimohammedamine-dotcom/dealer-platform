@@ -39,7 +39,8 @@ fi
 BIN="$HOME/.local/bin/claude"
 mkdir -p "$HOME/.local/bin"
 DL=$(mktemp)
-curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude"
+curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude" \
+  || die "could not download Claude Code $CLAUDE_CODE_VERSION from downloads.claude.ai"
 echo "$CLAUDE_CODE_SHA256  $DL" | sha256sum --check --quiet || die "Claude Code download does not match its pinned sha256"
 install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 "$BIN" --version | grep -q "^$CLAUDE_CODE_VERSION " || die "Claude Code $CLAUDE_CODE_VERSION not installed"
@@ -48,9 +49,10 @@ install -m 0755 "$DL" "$BIN" && rm -f "$DL"
 # pinned to the version the action expects and checked against the release's SHASUMS256.txt.
 BUN="$HOME/.local/bin/bun"
 DL=$(mktemp); UZ=$(mktemp -d)
-curl -fsSL --retry 3 -o "$DL" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+curl -fsSL --retry 3 -o "$DL" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" \
+  || die "could not download Bun $BUN_VERSION from github.com"
 echo "$BUN_SHA256  $DL" | sha256sum --check --quiet || die "Bun download does not match its pinned sha256"
-unzip -q -o "$DL" -d "$UZ" && install -m 0755 "$UZ/bun-linux-x64/bun" "$BUN" && rm -rf "$DL" "$UZ"
+{ unzip -q -o "$DL" -d "$UZ" && install -m 0755 "$UZ/bun-linux-x64/bun" "$BUN" && rm -rf "$DL" "$UZ"; } || die "the Bun archive did not unpack (corrupt zip or missing bun-linux-x64/bun)"
 [ "$("$BUN" --version)" = "$BUN_VERSION" ] || die "Bun $BUN_VERSION not installed"
 
 # --- 2. DNS allow-list (dnsmasq) and SNI proxy (nginx stream) ------------------------------------------------------------
@@ -77,18 +79,22 @@ if [ -f "$USERNS" ]; then
   UNS_NAMES=$( { [ "${#UNS[@]}" = 0 ] || awk '$1 == "profile" {print $2}' "${UNS[@]}"; } | sort -u)
   UNS_LEFT=$(sudo cat "$AA_LOADED" 2>/dev/null | awk '{print $1}' | grep -xF -f <(printf '%s\n' "$UNS_NAMES" | sed '/^$/d') || true)
 fi
+SINK_IP=192.0.2.1   # TEST-NET-1: never routable; only the firewall's redirect to the proxy gives it meaning
 UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
 [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
 id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
 id www-data >/dev/null 2>&1 || die "no www-data user for nginx"
-DNS_UID=$(id -u dnsmasq); PROXY_UID=$(id -u www-data)
+PROXY_UID=$(id -u www-data)
 
 CONF=$(mktemp)
 {
-  echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"
+  # dnsmasq forwards nothing: every allowed name (and anything under it) answers a fixed unroutable address, which the
+  # firewall redirects to the proxy; the proxy resolves the exact name itself. So no query from the job ever reaches an
+  # outside resolver (no DNS tunnelling through a subdomain), and a subdomain that is not an allowed name dies at the proxy.
+  echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"; echo "no-hosts"
   echo "user=dnsmasq"; echo "cache-size=1000"; echo "filter-AAAA"
-  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "server=/$d/$UPSTREAM"; done
-  echo "server=/actions.githubusercontent.com/$UPSTREAM"   # the run service's generated name (proxy: RUNNER_PATTERN only)
+  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "address=/$d/$SINK_IP"; done
+  echo "address=/actions.githubusercontent.com/$SINK_IP"   # the run service's generated name (the proxy allows RUNNER_PATTERN only)
 } > "$CONF"
 sudo install -m 0644 "$CONF" /etc/agent-dnsmasq.conf
 sudo systemctl stop systemd-resolved.service 2>/dev/null || true
@@ -105,7 +111,7 @@ NG=$(mktemp)
   echo "events { worker_connections 1024; }"
   echo "stream {"
   echo "  map_hash_bucket_size 128;   # room for long generated names such as this run's OIDC host"
-  echo "  resolver 127.0.0.1 ipv6=off valid=60s; resolver_timeout 10s;"
+  echo "  resolver $UPSTREAM ipv6=off valid=60s; resolver_timeout 10s;"   # the proxy resolves exact names itself
   echo "  map \$ssl_preread_server_name \$agent_upstream {"
   echo "    hostnames;"
   for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "    $d \$ssl_preread_server_name:443;"; done
@@ -125,12 +131,13 @@ sudo nginx -c /etc/nginx/agent-egress.conf
 # NAT: every new TCP/443 connection, except the proxy's own, goes to the SNI proxy.
 sudo iptables -t nat -F OUTPUT
 sudo iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner "$PROXY_UID" -j REDIRECT --to-ports 8443
-# Filter: loopback, replies, DNS only from dnsmasq to the upstream, 443 only from the proxy, Azure host services for root.
+# Filter: loopback, replies, DNS only from the proxy to the upstream (dnsmasq forwards nothing), 443 only from the proxy,
+# Azure host services for root.
 sudo iptables -F OUTPUT
 sudo iptables -A OUTPUT -o lo -j ACCEPT
 sudo iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT   # connections redirected to the local proxy keep their outer interface
 sudo iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-for p in udp tcp; do sudo iptables -A OUTPUT -p "$p" --dport 53 -d "$UPSTREAM" -m owner --uid-owner "$DNS_UID" -j ACCEPT; done
+for p in udp tcp; do sudo iptables -A OUTPUT -p "$p" --dport 53 -d "$UPSTREAM" -m owner --uid-owner "$PROXY_UID" -j ACCEPT; done
 sudo iptables -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$PROXY_UID" -j ACCEPT
 sudo iptables -A OUTPUT -d 168.63.129.16 -m owner --uid-owner 0 -j ACCEPT
 sudo iptables -A OUTPUT -d 169.254.169.254 -m owner --uid-owner 0 -j ACCEPT
@@ -144,6 +151,7 @@ sudo ip6tables -P OUTPUT DROP
 
 # --- 4. Nothing later in the job may undo this: stop Docker, remove sudo ---------------------------------------------------
 sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
+sudo systemctl mask docker.socket docker.service containerd.service 2>/dev/null || true   # no restart by socket activation or polkit
 sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock
 sudo gpasswd -d "$USER" sudo >/dev/null 2>&1 || true
 sudo gpasswd -d "$USER" docker >/dev/null 2>&1 || true
@@ -168,6 +176,9 @@ if sudo -n true 2>/dev/null; then bad "sudo still works"; fi
 if sudo -n -l >/dev/null 2>&1; then bad "sudo still lists rules for this user (a command-limited rule is left)"; fi
 DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point these AGENT_LOCK_* hooks at temp paths
 if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
+# Nor can the job bring Docker back through systemd or polkit without sudo.
+if systemctl --no-ask-password start docker.socket >/dev/null 2>&1; then bad "systemd lets this user start docker.socket"; fi
+if command -v pkexec >/dev/null && pkexec --disable-internal-agent true >/dev/null 2>&1; then bad "polkit (pkexec) lets this user run commands as root"; fi
 # The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
 RUN_DIRS="${AGENT_LOCK_TEST_RUN_DIRS:-/run /var/run}"
 GROUP_SOCKS=""
@@ -187,6 +198,10 @@ blocked --resolve "example.com:443:$NPM_IP" https://example.com || bad "allowed 
 blocked -k "https://$NPM_IP" || bad "raw IP without a name reachable"
 blocked http://registry.npmjs.org || bad "plain HTTP (port 80) reachable"
 if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolves"; fi
+[ "$NPM_IP" = "$SINK_IP" ] || bad "DNS for an allowed name does not answer the sink address (dnsmasq forwards queries)"
+if grep -qE '^(server|rev-server)=' "$CONF"; then bad "dnsmasq forwards DNS queries (server= lines)"; fi
+blocked https://x.github.com || bad "a subdomain of an allowed name (x.github.com) is reachable"
+blocked https://x.registry.npmjs.org || bad "a subdomain of an allowed name (x.registry.npmjs.org) is reachable"
 if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
 blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
 bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
