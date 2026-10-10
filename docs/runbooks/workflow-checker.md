@@ -42,11 +42,20 @@ Any workflow or composite action
   exactly (plus an optional `id`), so a decoy with the right name is reported as a wrong pin step; `update` rewrites the hash. `the pin step's run must be
   exactly the policy's pins_step_run_default_branch` / `may only have name, run and id` - a workflow in
   `pins_default_branch_workflows` (`pusher-ledger.yml`) reads the hash from the default branch's `guards.yml`.
+- `github_token must be exactly ${{ github.token }} (...)` (`${{ secrets.AGENT_GH_TOKEN }}` in the manager; policy
+  `claude_github_token`) - every Claude step passes the job's own token; without one, claude-code-action trades the job's
+  OIDC token for an app token that the job's `permissions:` block does not limit. With it, `id-token: write` is needed
+  nowhere but the probe workflow's `oidc` job (`per_file_permission_scopes`).
+- `needs a job 'after' that runs the after-shift checks on a fresh runner`, `must have needs: shift and if: always()`,
+  `must run exactly '<script>'`, `the after-shift event check belongs in job 'after' only` (policy `after_shift`) - the
+  manager's checks that run after Claude (`scripts/check-agent-token.sh`, `scripts/check-agent-events.sh`) live in their
+  own job, which the shift's Claude (bypassPermissions) cannot have touched.
 - `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
   token before the main guard could act; use schedule or a founder-gated `workflow_dispatch`.
 - `--disallowedTools does not deny <x> (every claude step must)` - every Claude step denies the policy's `claude_denies`
-  (`WebFetch`, `WebSearch` and the `Read(//...)` paths: `/proc`, `/sys`, `/dev`, `/etc`, the runner's `_temp`, dot-folders
-  and `runners` install folder), not only the manager.
+  (`WebFetch`, `WebSearch`, the `Read(//...)` paths: `/proc`, `/sys`, `/dev`, `/etc`, the runner's `_temp`, dot-folders
+  and `runners` install folder, and `Read(./.git/**)`), not only the manager; `missing deny <x>` - the manager's own
+  `manager_denies` (27 command denies) come on top.
 - `secrets used other than as secrets.<NAME> outside a claude step's claude_code_oauth_token` - no `secrets['x']`,
   `secrets[format(...)]`, `toJSON(secrets)`, `join(secrets)` or the whole object anywhere.
 - `Claude/Anthropic credential secrets.<NAME> ...` / `Claude/Anthropic credential variable ...` - a secret named
@@ -126,7 +135,8 @@ Claude steps
   self-test passed; the action's own Bun download would need hosts the lock closes).
 - `a claude step without a prompt (tag mode) may run only on issue_comment, issues (found ...)` / `... needs the job if to
   contain '!github.event.issue.pull_request'` - without a prompt the action checks out an open PR's code itself and restores
-  only the top-level rule files, so nested `CLAUDE.md` files from the PR would load. Tag mode answers on issues only.
+  only the top-level rule files, so nested `CLAUDE.md` files from the PR would load. No workflow uses tag mode any more
+  (`claude.yml` passes a prompt and posts through its `post` job); the rule stays for any step that drops its prompt.
 - `claude_args cannot be parsed (...)` - fix the quoting. `claude_args flag '<x>' not allowed (allowed: ...)` / `claude_args flag
   <x> needs a value` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`,
   each with a value.

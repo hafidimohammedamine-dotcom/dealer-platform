@@ -154,7 +154,7 @@ def pins_step_problems(fname, step):
     return out
 
 
-def is_pins_step(step, fname=None):
+def is_pins_step(step, fname):
     """True only for the exact pin step (the policy's name, and nothing pins_step_problems objects to)."""
     return names_pins_step(step) and not pins_step_problems(fname, step)
 

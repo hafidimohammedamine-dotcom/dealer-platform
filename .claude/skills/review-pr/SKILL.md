@@ -16,7 +16,8 @@ The PR's history is already written as plain files in `/tmp/pr-meta` (you have n
 - `/tmp/pr-meta/log.txt` - the PR's commits, `/tmp/pr-meta/log-patch.txt` - every commit's patch (secrets added and removed
   again show up here).
 Read them and the files under `/tmp/pr` with Read, Grep and Glob (absolute paths). Never run anything from the PR. The only
-command you may run is `gh pr view <pr-number> --json title,body,headRefName,files,labels,author`.
+commands you may run are `gh pr view <pr-number> --json title,body,headRefName,files,labels,author` and
+`gh issue view <issue-number>` (the issue the PR links to).
 CI and guards results come from your arguments (`success`, `failure`, `pending`...). CI runs install, lint, typecheck, tests and
   build; guards run the founder-file, skills and secret checks. Do not install or run the PR's code.
 

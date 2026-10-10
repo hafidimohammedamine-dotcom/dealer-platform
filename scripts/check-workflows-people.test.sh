@@ -74,4 +74,20 @@ if [ $rc = 0 ] && grep -qF "Workflow denies OK" <<<"$out" && [ -f "$W2/pr-wf/.gi
   t PASS "the guards.yml step passes with the whole PR tree unpacked as data (workflows, actions, pins, rule files)"
 else t FAIL "the guards.yml step (rc=$rc)"; echo "$out" | tail -n 4; fi
 rm -rf "$W2"
+# The manager's after-shift checks live in their own job (policy after_shift): fresh runner, always after the shift
+fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
+import sys; p = sys.argv[1]; s = open(p).read(); open(p, "w").write(s[:s.index("  after:\n")])
+PYEOF
+expect fail "manager without the after job" "needs a job 'after' that runs the after-shift checks on a fresh runner"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always()\n' $'    needs: shift\n    if: success()\n'; expect fail "after job that skips failed shifts" "must have needs: shift and if: always()"
+fresh; swap agent-manager.yml $'    needs: shift\n    if: always()\n' $'    if: always()\n'; expect fail "after job without needs" "must have needs: shift and if: always()"
+fresh; swap agent-manager.yml '        run: bash scripts/check-agent-events.sh .github/accounts.txt "${SINCE:-1970-01-01T00:00:00Z}"' '        run: echo skipped'; expect fail "after job without the event check" "must run exactly 'bash scripts/check-agent-events.sh .github/accounts.txt"
+fresh; python3 - "$T/$W/agent-manager.yml" <<'PYEOF'
+import sys; p = sys.argv[1]; s = open(p).read()
+i = s.index("  after:\n"); after = s[i:]
+tok = [l for l in after.split("\n") if "check-agent-token.sh" in l][0]
+open(p, "w").write(s[:i] + after.replace(tok + "\n", "", 1))
+PYEOF
+expect fail "after job without the token re-check" "must run exactly 'bash scripts/check-agent-token.sh .github/accounts.txt'"
+fresh; swap agent-manager.yml '      - name: Show blocked tool calls (names and commands only, pinned script)' $'      - run: bash scripts/check-agent-events.sh .github/accounts.txt "$SINCE"\n      - name: Show blocked tool calls (names and commands only, pinned script)'; expect fail "event check inside the shift job (after Claude)" "the after-shift event check belongs in job 'after' only"
 summary

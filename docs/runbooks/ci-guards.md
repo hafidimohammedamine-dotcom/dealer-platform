@@ -129,7 +129,11 @@ Also `pull_request_target`, also from `main`.
   which prints the blocked tool calls and hands the answer (text, at most 60000 bytes) to the job `post` as a job
   output. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
   answer from `ANSWER`, scans it, posts it and sets labels. The daily report and weekly audit do the same with
-  `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing).
+  `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
+  (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
+  naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread
+  with `gh issue view`, and its answer is posted by the `post` job after the scan. The daily and weekly runs, like the
+  manager's, start only from their schedule or a founder's manual run.
 - **"Post the result (secret-scanned) and set labels"** (job `post`): if the answer looked like it contained a secret, it
   posts FAIL without the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
 - **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'
@@ -197,9 +201,16 @@ issue for the founders.
   plan). What holds instead: the token has no `workflow` scope (it cannot change `.github/workflows/`); a non-founder push to
   `main` is reverted by "Main guard" (above) and stops the agents; founder-only changes need every commit pushed by a founder
   (the pusher ledger); the agents' account may own no repository, the four guard workflows must be active and the default
-  branch's head must have passed the main guard (`scripts/check-agent-token.sh`, start and end of every shift: the token
-  could disable those workflows or cancel their runs, and this is what turns that into a visible failure). Founder
-  decision 4 in `docs/runbooks/agent-network-lock.md`.
+  branch's head must have passed the main guard (`scripts/check-agent-token.sh`, start of every shift and again in the
+  manager's job `after`: the token could disable those workflows or cancel their runs, and this is what turns that into a
+  visible failure); and the agents' account must have no event outside this repository during a shift
+  (`scripts/check-agent-events.sh`, job `after`: the token can comment on or open issues in any repository it can see).
+  Job `after` is a fresh runner (`needs: shift`, `if: always()`), because the shift's Claude runs with bypassPermissions
+  and could have written its own job's `$GITHUB_ENV` or `$GITHUB_PATH`; inside Actions both scripts ignore every
+  environment override (`GH_BIN`, `GH_REPO`, `GUARD_WORKFLOWS`, `AGENT_TOKEN_WAIT`) and take gh from PATH and the
+  repository from `GITHUB_REPOSITORY`. `the agents' account '<login>' acted outside <repo> since <time>:` lists the
+  events: a founder reads what was posted where, rotates `AGENT_GH_TOKEN` and checks the shift's log; `could not read the
+  events of '<login>'` - re-run once. Founder decisions 1 and 4 in `docs/runbooks/agent-network-lock.md`.
 - The agents' own account (`mohammedaminehafidi-ctrl`, ID 250452267) exists and holds the `AGENT_GH_TOKEN` secret's token. If
   that secret ever holds a founder's or anyone else's token, the manager stops at its step "Agents must run on their own GitHub
   token, never a founder's" on every run. That is on purpose: the founder check in `guards` trusts GitHub accounts, so agents

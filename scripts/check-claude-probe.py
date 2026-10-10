@@ -39,15 +39,19 @@ def messages(path):
     return [m for m in data if isinstance(m, dict)] if isinstance(data, list) else []
 
 
-def skill_deny(msgs):
+def last_result(msgs):
+    """The last result message's text and permission denials (dicts only); empty when Claude produced no result."""
     results = [m for m in msgs if m.get("type") == "result"]
     last = results[-1] if results else {}
-    text = str(last.get("result") or "")
-    denials = last.get("permission_denials") or []
+    denials = [x for x in (last.get("permission_denials") or []) if isinstance(x, dict)]
+    return str(last.get("result") or ""), denials
+
+
+def skill_deny(msgs):
+    text, denials = last_result(msgs)
     print("result:", text[:200])
     print("denials:", json.dumps(denials)[:300])
-    denied = any(isinstance(x, dict) and x.get("tool_name") == "Skill" and (x.get("tool_input") or {}).get("skill") == "payload"
-                 for x in denials)
+    denied = any(x.get("tool_name") == "Skill" and (x.get("tool_input") or {}).get("skill") == "payload" for x in denials)
     return "EGRESS-LOCK-OK" in text and "PROBE-LOADED" not in text and denied
 
 
@@ -63,10 +67,7 @@ def scrub(msgs):
 
 
 def read_deny(msgs):
-    results = [m for m in msgs if m.get("type") == "result"]
-    last = results[-1] if results else {}
-    text = str(last.get("result") or "")
-    denials = [x for x in (last.get("permission_denials") or []) if isinstance(x, dict)]
+    text, denials = last_result(msgs)
     print("result:", text[:300])
     print("denials:", len(denials))
     ok = "READ-PROBE-DONE" in text

@@ -7,6 +7,8 @@ on:
 
 jobs:
   audit:
+    # The schedule, or a founder's manual run (the agents' token could otherwise start it: each run spends Claude turns).
+    if: github.event_name == 'schedule' || github.actor_id == '238822878'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
@@ -30,7 +32,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
+          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -57,14 +59,14 @@ jobs:
             --max-turns 150
             --add-dir /tmp/audit-meta
             --allowedTools "Agent,Task,Read(./**),Read(//tmp/audit-meta/**),Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
-            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"
+            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
           # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
       - name: Show blocked tool calls and hand the answer to the post job (pinned script)
         id: answer
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
+          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -89,7 +91,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
+          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

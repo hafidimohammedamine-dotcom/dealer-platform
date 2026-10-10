@@ -60,10 +60,11 @@ PIN_STEP_HERE
           claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
+          github_token: ${{ github.token }}
           prompt: "Do the task."
           claude_args: |
             --model haiku
-            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"
+            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: After
         if: always() && steps.claude.outputs.execution_file != ''
         run: echo "steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude"

@@ -6,7 +6,7 @@ writes the full version here.
 ## CI and review
 ```
 PR opened / pushed
- ├─ CI (ci.yml, pull_request, and push to main, from the PR, no secrets)
+ ├─ CI (ci.yml; pull_request: from the PR; push to main: from main; no secrets)
  │    guard-script tests · install · lint · typecheck · test · build · audit
  ├─ Pusher ledger (pusher-ledger.yml, every push to a branch but main, scripts from main, no concurrency): who pushed → signed statuses
  ├─ Guards (guards.yml, pull_request_target, from main)
@@ -58,8 +58,8 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   answer to the post job as a job output.
 - `scripts/check-accounts-lib.sh` (sourced by the guards that read `.github/accounts.txt`): the one parser of that file and
   the one lookup (`account_field`). `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
-- `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny and scrub probes from the
-  claude-code-action's execution file.
+- `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny, scrub and read-deny
+  probes from the claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard
   script's tests through `scripts/check-coverage.sh` (each guard script at least 90% line coverage).
 

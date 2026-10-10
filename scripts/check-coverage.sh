@@ -10,23 +10,18 @@ set -euo pipefail
 MIN="${1:-90}"
 [[ "$MIN" =~ ^[0-9]+$ ]] || { echo "ERROR: bad minimum percent"; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
-TESTS=(check-founder-files check-skills check-skill-upstream check-skill-deletions check-skills-upstream-all
-       check-skills-vs-base check-skills-lib check-workflows check-egress-lock check-review-prepare check-pr-ci-status
-       check-review-post check-agent-token check-scrub-probe check-claude-probe check-coverage check-coverage-sh
-       check-workflows-people check-python-deps check-pushers check-main-push check-accounts-lib check-pins
-       check-claude-answer
-       gitleaks-config)
+# Every scripts/*.test.sh runs (built from the files, so none is silently skipped; a test file name is <name>.test.sh).
 # COV_TESTS / COV_VENV: only for scripts/check-coverage-sh.test.sh (a small tree of its own, one shared venv).
+TESTS=()
+for f in "$HERE"/*.test.sh; do [ -f "$f" ] && TESTS+=("$(basename "$f" .test.sh)"); done
 [ -z "${COV_TESTS:-}" ] || read -r -a TESTS <<<"$COV_TESTS"
+[ "${#TESTS[@]}" -gt 0 ] || { echo "ERROR: no scripts/*.test.sh found"; exit 1; }
 LOCK="$ROOT/.github/actions/agent-egress-lock/lock.sh"
 BASH_SCRIPTS=("$LOCK")   # every guard script except the tests (this runner too: check-coverage-sh.test.sh runs copies of it)
 for f in "$ROOT"/scripts/check-*.sh; do
   case "$f" in *.test.sh) ;; */check-coverage.sh) [ -n "${COV_INNER:-}" ] || BASH_SCRIPTS+=("$f");; *) BASH_SCRIPTS+=("$f");; esac
 done   # a runner started by check-coverage-sh.test.sh (COV_INNER) is traced by the outer run, not by itself
 PY_SCRIPTS=("$ROOT"/scripts/check-*.py)
-for f in "$HERE"/*.test.sh; do   # every test file must be in TESTS, so none is silently skipped
-  b=$(basename "$f" .test.sh); case " ${TESTS[*]} " in *" $b "*) ;; *) echo "ERROR: $f is not in TESTS in $0"; exit 1;; esac
-done
 W=$(mktemp -d "${TMPDIR:-/tmp}/cov.XXXXXX"); trap 'rm -rf "$W"' EXIT
 
 # Python: a private venv with the pinned coverage.py and PyYAML (no system site-packages).

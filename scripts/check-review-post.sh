@@ -29,7 +29,7 @@ if [ "$MODE" = daily-reports ]; then   # the founders' running thread; MODE beco
 fi
 first=$(printf '%s\n' "$text" | head -n1 | tr -d '\r')
 if [ "$MODE" = issue ]; then
-  [ -n "$text" ] || text="The scheduled agent job did not produce a report. A founder should check the job log."
+  [ -n "$text" ] || text="The agent job did not produce an answer. A founder should check the job log."
   first="REVIEW TEAM RESULT: PASS"   # format check only applies to PRs
 fi
 case "$first" in

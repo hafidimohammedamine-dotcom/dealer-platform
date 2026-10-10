@@ -78,3 +78,30 @@ def check_workflow_env(name, doc):
     top = json.dumps({k: v for k, v in doc.items() if k != "jobs"}, default=str).lower()
     if core.P["agent_token_secret"].lower() in top:
         core.err(f"{name}: the agents' token may only be set in a job's env, after its token check")
+
+
+def check_after_shift(name, doc):
+    """The manager's checks that run after Claude (token, guard workflows, the account's events) live in their own job
+    (policy `after_shift`): a fresh runner that the shift's Claude (bypassPermissions) could not have touched, which always
+    runs after the shift and runs exactly the pinned scripts."""
+    want = core.P["after_shift"].get(name)
+    if not want:
+        return
+    job = (doc.get("jobs") or {}).get(want["job"])
+    if not isinstance(job, dict):
+        core.err(f"{name}: needs a job '{want['job']}' that runs the after-shift checks on a fresh runner")
+        return
+    jw = f"{name} job {want['job']}"
+    if job.get("needs") != want["needs"] or str(job.get("if", "")).strip() != want["if"]:
+        core.err(f"{jw}: must have needs: {want['needs']} and if: {want['if']} (it runs after every shift, failed ones too)")
+    runs = [str(s.get("run", "")).strip() for s in (job.get("steps") or []) if isinstance(s, dict)]
+    for r in want["runs"]:
+        if r not in runs:
+            core.err(f"{jw}: must run exactly '{r}'")
+    for jn, other in (doc.get("jobs") or {}).items():
+        if jn == want["job"] or not isinstance(other, dict):
+            continue
+        for i, st in enumerate(other.get("steps") or [], 1):
+            run = str(st.get("run", "")) if isinstance(st, dict) else ""
+            if "check-agent-events.sh" in run:
+                core.err(f"{name} job {jn} step {i}: the after-shift event check belongs in job '{want['job']}' only")

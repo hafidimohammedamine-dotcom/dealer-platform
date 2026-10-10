@@ -52,5 +52,5 @@ rm -f "$W/gh.log" "$W/posted.md"; ANSWER="report text" STUB_CREATED_NUMBER=77 GH
 rm -f "$W/gh.log"; out=$(ANSWER="x" STUB_CREATED_NUMBER=nope GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" daily-reports 2>&1); rc=$?
 [ $rc = 1 ] && grep -q "could not find or create the Daily reports issue" <<<"$out" && t PASS "daily-reports: a bad issue number fails" || t FAIL "daily-reports bad number ($rc)"
 rm -f "$W/gh.log" "$W/posted.md"; ANSWER="" GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" issue 2 >/dev/null 2>&1; rc=$?
-[ $rc = 0 ] && grep -q "did not produce a report" "$W/posted.md" && t PASS "issue mode with an empty answer posts the placeholder" || t FAIL "empty answer ($rc)"
+[ $rc = 0 ] && grep -q "did not produce an answer" "$W/posted.md" && t PASS "issue mode with an empty answer posts the placeholder" || t FAIL "empty answer ($rc)"
 summary

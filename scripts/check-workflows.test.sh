@@ -13,7 +13,7 @@ for wf in agent-daily-report.yml agent-weekly-audit.yml review.yml claude.yml ag
 done
 # Every manager deny is required
 mapfile -t MD < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["manager_denies"]))' "$(dirname "$PY")/check-workflows-policy.json")
-[ "${#MD[@]}" = 37 ] || t FAIL "expected 37 manager denies, got ${#MD[@]}"
+[ "${#MD[@]}" = 27 ] || t FAIL "expected 27 manager denies, got ${#MD[@]} (Skill(payload) and claude_denies are required of every Claude step already)"
 for d in "${MD[@]}"; do
   [ "$d" = 'Skill(payload)' ] && continue
   fresh; drop agent-manager.yml "$d";                   expect fail "manager missing $d" "missing deny $d"
@@ -22,7 +22,7 @@ done
 fx; python3 - "$T/$W/t.yml" <<'EOF'
 import sys; p=sys.argv[1]; s=open(p).read()
 s=s.replace('prompt: "Do the task."', 'prompt: |\n            --disallowedTools "Skill(payload)"\n            - x')
-s=s.replace('            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"\n', '            --permission-mode bypassPermissions\n')
+s=s.replace('            --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"\n', '            --permission-mode bypassPermissions\n')
 open(p,"w").write(s)
 EOF
                                                         expect fail "decoy deny in prompt, list line, no deny in claude_args" "needs exactly one --disallowedTools (found 0)"
@@ -225,9 +225,30 @@ fx; before '      - run: git log --oneline -5'; expect ok "git log is not a chec
 fx; sed -i 's/^on: workflow_dispatch$/on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]/' "$T/$W/t.yml"; expect fail "claude step in a workflow_run workflow" "must not run on workflow_run"
 fresh; sed -i 's/^      issues: read$/      issues: read\n      id-token: write/' "$T/$W/agent-manager.yml"; expect fail "id-token in agent-manager.yml" "permission id-token: write not allowed"
 fresh; sed -i 's/^      contents: read$/      contents: write/' "$T/$W/agent-manager.yml"; expect fail "a write scope on the manager's job token" "permission contents: write is not allowed in agent-manager.yml (its job token is read-only"
-fresh; grep -q 'id-token: write' "$T/$W/claude.yml" && expect ok "id-token stays allowed in claude.yml" "Workflow denies OK"
-fresh; sed -i 's/^  issue_comment:$/  pull_request_review_comment:\n    types: [created]\n  issue_comment:/' "$T/$W/claude.yml"; expect fail "tag mode on PR review comments" "a claude step without a prompt (tag mode) may run only on issue_comment, issues (found pull_request_review_comment)"
-fresh; sed -i 's/ \&\& !github.event.issue.pull_request//' "$T/$W/claude.yml"; expect fail "tag mode answering on PRs" "needs the job if to contain '!github.event.issue.pull_request'"
+fresh; sed -i 's/^      pull-requests: read$/      pull-requests: read\n      id-token: write/' "$T/$W/claude.yml"; expect fail "id-token in claude.yml (prompt mode needs no OIDC token)" "permission id-token: write not allowed"
+fresh; grep -q 'id-token: write' "$T/$W/egress-lock-claude.yml" && expect ok "id-token stays allowed in the probe workflow's oidc job" "Workflow denies OK"
+# Tag mode (a claude step without a prompt) is still checked where it could appear: on issue_comment only, never on PRs
+tagmode() { python3 - "$T/$W/claude.yml" "$1" "$2" <<'PYEOF'
+import re, sys; p, old, new = sys.argv[1:4]; s = open(p).read()
+s = re.sub(r'\n          # The comment.s text is not in the prompt[^\n]*\n          prompt: "[^\n]*"', "", s, count=1)   # no prompt: tag mode
+assert old in s, old; open(p, "w").write(s.replace(old, new, 1))
+PYEOF
+}
+fresh; tagmode "  issue_comment:
+    types: [created]" "  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]"; expect fail "tag mode on PR review comments" "a claude step without a prompt (tag mode) may run only on issue_comment, issues (found pull_request_review_comment)"
+fresh; tagmode " && !github.event.issue.pull_request" ""; expect fail "tag mode answering on PRs" "needs the job if to contain '!github.event.issue.pull_request'"
+# Every claude step passes the job's own token (never the action's OIDC-backed app token), the manager the agents' token
+fx; sed -i '/          github_token: \${{ github.token }}/d' "$T/$W/t.yml"; expect fail "claude step without github_token" "github_token must be exactly \${{ github.token }}"
+fx; sed -i 's|          github_token: \${{ github.token }}|          github_token: \${{ secrets.AGENT_GH_TOKEN }}|' "$T/$W/t.yml"; expect fail "claude step with the agents' token as github_token" "github_token must be exactly \${{ github.token }}"
+fresh; sed -i 's|          github_token: \${{ secrets.AGENT_GH_TOKEN }}|          github_token: \${{ github.token }}|' "$T/$W/agent-manager.yml"; expect fail "the manager with the job token as github_token" "github_token must be exactly \${{ secrets.AGENT_GH_TOKEN }}"
+# The reports' manual runs are founder-gated like the manager's
+fresh; swap agent-daily-report.yml "    if: github.event_name == 'schedule' || github.actor_id == '238822878'
+" ""; expect fail "daily report without its founder gate" "agent-daily-report.yml: must let only a founder account start it"
+fresh; swap agent-weekly-audit.yml "    if: github.event_name == 'schedule' || github.actor_id == '238822878'
+" ""; expect fail "weekly audit without its founder gate" "agent-weekly-audit.yml: must let only a founder account start it"
 fx; printf '      - run: |\n          /tmp/gitleaks detect\n          printf x | sha256sum --check --strict\n' >> "$T/$W/t.yml"; expect fail "pin check after /tmp/gitleaks does not count" "must check its pinned files"
 # Missing or broken policy file: fails closed
 P0=$(mktemp -d "$TMPROOT/cwp.XXXXXX"); P2="$P0/scripts"; mkdir "$P2"; cp "$(dirname "$PY")"/check-workflows*.py "$P2/"

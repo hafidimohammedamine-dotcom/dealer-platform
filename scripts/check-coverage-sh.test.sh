@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests the coverage runner scripts/check-coverage.sh on a small tree of its own: argument check, the TESTS list, failing
+# Tests the coverage runner scripts/check-coverage.sh on a small tree of its own: argument check, the test list, failing
 # and missing tests, the python3 shim, and the per-script minimum for bash and Python (with decimals).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -20,13 +20,14 @@ tree() { # a fresh tree: scripts/check-a.sh (bash), scripts/check-b.py (Python),
 }
 run() { # run <ok|fail> <name> <message> [args...]   (COV_TESTS from the caller's environment)
   local want=$1 name=$2 msg=$3; shift 3
-  out=$(env COV_INNER=1 COV_VENV="$W/venv" COV_TESTS="${TESTS:-check-a check-b check-coverage}" bash "$T/scripts/check-coverage.sh" "$@" 2>&1); rc=$?
+  out=$(env COV_INNER=1 COV_VENV="$W/venv" COV_TESTS="${TESTS-check-a check-b check-coverage}" bash "$T/scripts/check-coverage.sh" "$@" 2>&1); rc=$?
   got=$([ $rc = 0 ] && echo ok || echo fail)
   if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"; else t FAIL "$name ($got)"; echo "$out" | tail -n 12; fi; }
 tree; run ok   "full coverage passes" "Coverage OK (every guard script at least 90%)"
 tree; run fail "bad minimum" "bad minimum percent" ninety
-tree; printf 'echo hi\n' > "$T/scripts/check-c.test.sh"; run fail "a test file not in TESTS" "check-c.test.sh is not in TESTS"
-tree; TESTS="check-a check-b check-coverage check-zz" run fail "a test in TESTS that does not exist" "missing test"
+tree; printf '#!/usr/bin/env bash\necho "0 passed, 1 failed"; exit 1\n' > "$T/scripts/check-c.test.sh"; TESTS= run fail "every test file runs (a new failing one is not skipped)" "ERROR: check-c tests failed"
+tree; TESTS="check-a check-b check-coverage check-zz" run fail "a test in COV_TESTS that does not exist" "missing test"
+tree; rm "$T"/scripts/*.test.sh; TESTS= run fail "no test files at all" "no scripts/*.test.sh found"
 tree; printf '#!/usr/bin/env bash\necho "0 passed, 1 failed"; exit 1\n' > "$T/scripts/check-b.test.sh"; run fail "a failing test stops the run" "ERROR: check-b tests failed"
 tree; sed -i 's/bash "$D\/check-a.sh" x; //' "$T/scripts/check-a.test.sh"; run fail "bash script below the minimum" "check-a.sh  <-- below minimum"
 tree; sed -i 's/python3 -I "$D\/check-b.py" x; //' "$T/scripts/check-b.test.sh"; run fail "Python script below the minimum" "check-b.py line coverage 75.00% is below 90%"

@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
+          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -53,6 +53,9 @@ jobs:
         uses: ./.github/actions/agent-egress-lock
       - name: Agents must run on their own GitHub token, never a founder's
         run: bash scripts/check-agent-token.sh .github/accounts.txt
+      - name: When this shift started (read before Claude runs; the after-shift job checks the account's events since then)
+        id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - run: corepack enable
       - name: Git identity
         run: |
@@ -73,7 +76,7 @@ jobs:
             --model opus
             --max-turns 200
             --permission-mode bypassPermissions
-            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(gh workflow:*),Bash(gh run cancel:*),Bash(gh run delete:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**)"
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(gh workflow:*),Bash(gh run cancel:*),Bash(gh run delete:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
           # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
           # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The other layers: the
@@ -88,18 +91,42 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
+          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
-      - name: After the shift, the agents' account still owns no repository (re-checked with the pinned script)
-        if: always()
+    outputs:
+      started: ${{ steps.started.outputs.at }}
+  after:
+    # A fresh job after the shift (the shift's Claude ran with bypassPermissions and could have written $GITHUB_ENV or
+    # $GITHUB_PATH of its own job): the pinned scripts re-check the agents' token and the guard workflows, and that the
+    # agents' account did nothing outside this repository during the shift (the token can comment anywhere).
+    needs: shift
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b5a02519e49ca6c52840f5523484c221e55f78d559a5e96e8d439169e9c03fdf"
+          PINS_SHA256: "2570f02c23c8dafc046a3a81622a71172a7ed2ce23f56c9398e0aab12c363daf"
         run: |
-          set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
-          bash scripts/check-agent-token.sh .github/accounts.txt
+          bash scripts/check-pins.sh verify
+      - name: After the shift, the agents' token is still its own, the guard workflows are active and main passed the main guard
+        run: bash scripts/check-agent-token.sh .github/accounts.txt
+      - name: After the shift, the agents' account did nothing outside this repository
+        env:
+          SINCE: ${{ needs.shift.outputs.started }}
+        run: bash scripts/check-agent-events.sh .github/accounts.txt "${SINCE:-1970-01-01T00:00:00Z}"

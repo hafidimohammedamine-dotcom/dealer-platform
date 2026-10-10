@@ -215,10 +215,15 @@ unconfined program (allowed by Ubuntu's `unprivileged_userns` profile: no capabi
 mapping. After the lock removed their setuid bits, podman reported `newuidmap: write to uid_map failed: Operation not
 permitted`, and bubblewrap still started.
 
-**What the lock still does not stop:** an injected instruction that also carries an attacker's own credentials could still
-send data to an allowed service: GitHub (a push, issue or gist), npm (a publish) or the Anthropic API (the attacker's key).
-Each run prints a `Known open routes` notice. The founders decide whether to accept these routes or close them, for example
-with a read-only package mirror for the manager.
+**What the lock still does not stop:** `api.github.com` is allowed, and the job's own GitHub token - the agents' classic
+`repo` token - can comment on or open issues in any repository the account can see, public ones included. An injected
+instruction (or a dependency's install script, which gets `GH_TOKEN` from the environment) needs no credentials of its own
+to post data there. With an attacker's own credentials, the other allowed services are open too: GitHub (a push, issue or
+gist), npm (a publish) or the Anthropic API (the attacker's key). Each run prints a `Known open routes` notice. What
+catches the first route: `scripts/check-agent-events.sh` runs after every manager shift (job `after`) and fails if the
+agents' account has any event outside this repository since the shift started; the manager denies `gh api`, `gh gist`
+and `gh repo` as hygiene. Prevention needs an organization-owned repository with a fine-grained token limited to this
+repository (founder decision 1).
 
 The job's processes keep the groups they started with (sudo, docker, adm); Linux cannot take them away mid-job. The lock makes
 them powerless instead:
@@ -259,11 +264,17 @@ Re-check when a pin changes.
 Proposed in PR #30 (written there by the agent session that built it; the PR thread holds the founder's instructions). A
 founder accepts them by merging PR #30, and that merge is the record of acceptance; until then they are pending. Owner: the
 merging founder. Review by 2026-11-08, or earlier if any of them changes.
-1. **Open exit routes.** An agent misled by an injected instruction that also carries an attacker's own credentials could
-   still send data to GitHub (push, issue, gist), npm (publish) or the Anthropic API. Closing these needs a read-only package
-   mirror and a GitHub proxy that accepts only this job's own token; that is a later issue, not this PR. Until then the
-   limits are the agents' repo-only token (classic with only `repo`, or fine-grained), the manager's command denies and the
-   reviews.
+1. **Open exit routes.** The agents' own token can comment on or open issues in any repository its account can see
+   through `api.github.com`, which the lock allows: an agent misled by an injected instruction, or a dependency's install
+   script, could post data (the token itself included) to a repository an attacker reads, with no credentials of its
+   own. With an attacker's own credentials, GitHub (push, issue, gist), npm (publish) and the Anthropic API are open as
+   well. Accepted for now with these controls: `scripts/check-agent-events.sh` after every shift (job `after` of the
+   manager) fails on any event of the agents' account outside this repository and tells a founder to rotate the token;
+   the manager denies `gh api`, `gh gist`, `gh repo`, `gh workflow` and `gh run cancel/delete` (hygiene: `bash -c` gets
+   around prefix denies); the reviews. This detects after the fact. Prevention - an organization-owned repository with a
+   fine-grained token limited to this repository, a read-only package mirror and a GitHub proxy that accepts only this
+   job's own token - is founder issue #35 ("Move the repository to an organization and give the agents a fine-grained
+   token"), not this PR.
 2. **Pins and measurements.** The pins were compared with the vendors' sources on 2026-10-10 in the PR's session (see
    "Evidence"); the measurements in this runbook were taken on GitHub's runners on 2026-10-09 and 2026-10-10 (run IDs are
    cited where they matter) and cannot be reproduced from this repository alone: they need a runner, the lock and, for the
@@ -272,7 +283,8 @@ merging founder. Review by 2026-11-08, or earlier if any of them changes.
 3. **The Claude jobs run under the lock for the first time after merge.** Before merge they are checked statically
    (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml` (jobs `lock` and
    `break-on-purpose`). The jobs that need a Claude token or an OIDC token (`egress-lock-claude.yml`: the `Skill(payload)`
-   deny probe, the subprocess-isolation scrub probe and the `oidc` job; the manager, review, reports) never run next to PR
+   deny probe, the subprocess-isolation scrub probe, the `reads` probe and the `oidc` job; the manager, review, mention
+   answers, reports) never run next to PR
    code, so they first run under the lock after merge. Right after merging, a founder starts `egress-lock-claude.yml` by
    hand (Actions -> Run workflow) and reads its result; a failure there is a revert trigger (the founder reverts the merge
    in the web UI and the fix comes as a new founder PR).

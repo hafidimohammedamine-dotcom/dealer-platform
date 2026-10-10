@@ -10,14 +10,20 @@
 #  - The guard workflows must be active and the default branch's head must have passed the main guard: the agents' token
 #    (classic `repo` covers the Actions API) could disable `main-guard.yml` or cancel its run and then push to the default
 #    branch; this check, run at the start and end of every shift, turns that into a stopped shift and a visible failure.
-# Usage: scripts/check-agent-token.sh <accounts-file>     GH_BIN may point to a stub (tests). The token is never printed.
-# Env: GH_REPO or GITHUB_REPOSITORY (owner/repo; Actions sets the latter), GUARD_WORKFLOWS (default below), AGENT_TOKEN_WAIT (seconds to wait
-# for a main-guard run still in progress; default 120).
+# Usage: scripts/check-agent-token.sh <accounts-file>     The token is never printed.
+# Outside GitHub Actions (tests) the environment may override: GH_BIN (a stub gh), GH_REPO (owner/repo), GUARD_WORKFLOWS,
+# AGENT_TOKEN_WAIT (seconds to wait for a main-guard run still in progress). Inside Actions (GITHUB_ACTIONS set) none of
+# these is read - a Claude step that ran before could have written $GITHUB_ENV - and the repository is GITHUB_REPOSITORY.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
-ACCOUNTS="${1:?accounts file}"; GH="${GH_BIN:-gh}"
+ACCOUNTS="${1:?accounts file}"
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  GH=gh; REPO="${GITHUB_REPOSITORY:-}"; WFS="main-guard.yml pusher-ledger.yml guards.yml review.yml"; WAIT=120
+else
+  GH="${GH_BIN:-gh}"; REPO="${GH_REPO:-${GITHUB_REPOSITORY:-}}"; WFS="${GUARD_WORKFLOWS:-main-guard.yml pusher-ledger.yml guards.yml review.yml}"; WAIT="${AGENT_TOKEN_WAIT:-120}"
+fi
 rows=$(accounts_rows "$ACCOUNTS") || { echo "$rows"; exit 1; }
 case "${GH_TOKEN:-}" in
   github_pat_*) kind=fine-grained;;
@@ -44,15 +50,15 @@ owned=$("$GH" api 'user/repos?type=owner&per_page=100' --jq '[.[].full_name] | j
 [ -z "$owned" ] || { echo "ERROR: the agents' account '$login' owns repositories ($owned); it must own none. A founder checks what was pushed there, deletes them and revokes the token if anything of ours left the repository."; exit 1; }
 # The guard workflows are enabled, and the default branch's head passed the main guard (a non-founder push with the
 # workflow disabled, or its run cancelled, would otherwise go unnoticed until the next founder look).
-REPO="${GH_REPO:-${GITHUB_REPOSITORY:-}}"; [ -n "$REPO" ] || { echo "ERROR: GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set"; exit 1; }
+[ -n "$REPO" ] || { echo "ERROR: GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set"; exit 1; }
 [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || { echo "ERROR: bad GH_REPO"; exit 1; }
-for w in ${GUARD_WORKFLOWS:-main-guard.yml pusher-ledger.yml guards.yml review.yml}; do
+for w in $WFS; do
   state=$("$GH" api "repos/$REPO/actions/workflows/$w" --jq .state 2>/dev/null) || { echo "ERROR: could not read the state of workflow $w."; exit 1; }
   [ "$state" = active ] || { echo "ERROR: workflow $w is '$state', not active. A founder checks who disabled it (the repository's audit log) and re-enables it; agents must not run until then."; exit 1; }
 done
 head=$("$GH" api "repos/$REPO/commits/HEAD" --jq .sha 2>/dev/null) || { echo "ERROR: could not read the default branch's head commit."; exit 1; }
 [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: could not read the default branch's head commit."; exit 1; }
-waited=0; wait_max="${AGENT_TOKEN_WAIT:-120}"
+waited=0; wait_max="$WAIT"
 while :; do
   runs=$("$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?head_sha=$head&per_page=100" --jq '[.workflow_runs[] | "\(.status)/\(.conclusion)"] | join(" ")' 2>/dev/null) \
     || { echo "ERROR: could not list the main-guard runs of the default branch's head ($head)."; exit 1; }

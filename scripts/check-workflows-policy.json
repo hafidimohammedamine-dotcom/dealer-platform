@@ -82,7 +82,6 @@
   "PR_NUMBER"
  ],
  "manager_denies": [
-  "Skill(payload)",
   "Bash(npx:*)",
   "Bash(npm:*)",
   "Bash(yarn dlx:*)",
@@ -108,17 +107,8 @@
   "Bash(gh workflow:*)",
   "Bash(gh run cancel:*)",
   "Bash(gh run delete:*)",
-  "WebFetch",
-  "WebSearch",
   "Bash(yarn npm publish:*)",
-  "Bash(yarn npm login:*)",
-  "Read(//proc/**)",
-  "Read(//sys/**)",
-  "Read(//home/runner/work/_temp/**)",
-  "Read(//home/runner/.*/**)",
-  "Read(//etc/**)",
-  "Read(//dev/**)",
-  "Read(//home/runner/runners/**)"
+  "Bash(yarn npm login:*)"
  ],
  "claude_denies": [
   "WebFetch",
@@ -129,8 +119,13 @@
   "Read(//home/runner/.*/**)",
   "Read(//etc/**)",
   "Read(//dev/**)",
-  "Read(//home/runner/runners/**)"
+  "Read(//home/runner/runners/**)",
+  "Read(./.git/**)"
  ],
+ "claude_github_token": {
+  "default": "${{ github.token }}",
+  "agent-manager.yml": "${{ secrets.AGENT_GH_TOKEN }}"
+ },
  "always_denied_skills": [
   "payload"
  ],
@@ -164,7 +159,6 @@
  ],
  "per_file_permission_scopes": {
   "id-token": [
-   "claude.yml",
    "egress-lock-claude.yml"
   ]
  },
@@ -184,8 +178,21 @@
  "agent_token_required_in": [
   "agent-manager.yml"
  ],
+ "after_shift": {
+  "agent-manager.yml": {
+   "job": "after",
+   "needs": "shift",
+   "if": "always()",
+   "runs": [
+    "bash scripts/check-agent-token.sh .github/accounts.txt",
+    "bash scripts/check-agent-events.sh .github/accounts.txt \"${SINCE:-1970-01-01T00:00:00Z}\""
+   ]
+  }
+ },
  "id_gated": {
+  "agent-daily-report.yml": "founder",
   "agent-manager.yml": "founder",
+  "agent-weekly-audit.yml": "founder",
   "claude.yml": "founder",
   "egress-lock-claude.yml": "founder",
   "review.yml": "agent"

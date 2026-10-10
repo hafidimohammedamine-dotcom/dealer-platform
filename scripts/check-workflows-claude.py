@@ -88,6 +88,10 @@ def check_claude_step(fname, where, step, required, lock_id):
         core.err(f"{where}: 'with' must be a mapping")
         return
     check_inputs(fname, where, w, lock_id)
+    want_token = P["claude_github_token"].get(fname, P["claude_github_token"]["default"])
+    if str(w.get("github_token", "")) != want_token:
+        core.err(f"{where}: github_token must be exactly {want_token} (without it the action swaps the job's OIDC token for "
+                 f"an app token the job's permissions do not limit)")
     have = parse_claude_args(fname, where, str(w.get("claude_args", "")))
     if have is None:
         return

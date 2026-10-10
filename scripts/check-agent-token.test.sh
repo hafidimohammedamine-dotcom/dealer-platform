@@ -26,7 +26,7 @@ FG=github_pat_test_not_a_real_token; CL=ghp_classic_test_not_real
 expect() { # expect <ok|fail> <name> <message> [env...]
   local want=$1 name=$2 msg=$3; shift 3
   echo 0 > "$T/count"
-  out=$(env GH_BIN="$T/gh" GH_TOKEN="$FG" ACC="$T/accounts" GH_REPO=owner/repo STUB_COUNT="$T/count" AGENT_TOKEN_WAIT=10 "$@" bash -c 'bash "$0" "$ACC"' "$SCRIPT" 2>&1); rc=$?
+  out=$(env -u GITHUB_ACTIONS GH_BIN="$T/gh" GH_TOKEN="$FG" ACC="$T/accounts" GH_REPO=owner/repo STUB_COUNT="$T/count" AGENT_TOKEN_WAIT=10 "$@" bash -c 'bash "$0" "$ACC"' "$SCRIPT" 2>&1); rc=$?
   assert_result "$want" "$rc" "$name" "$msg" "$out"
   check "no token in the output of: $name" bash -c '! grep -qe "$1" -e "$2" -e gho_oauth_test <<<"$3"' _ "$FG" "$CL" "$out"; }
 expect ok   "agents' fine-grained token"       "Agent token OK: fine-grained, runs as agent account 'agents-bot', owns no repositories; guard workflows active, main-guard passed on cccc" "STUB_WHO=333 agents-bot"
@@ -62,6 +62,13 @@ expect fail "run still queued after the wait"  "has not finished after 10s; re-r
 expect ok   "GITHUB_REPOSITORY as the fallback"  "main-guard passed" "$OK" GH_REPO= GITHUB_REPOSITORY=owner/repo
 expect fail "no repository name"               "GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set" "$OK" GH_REPO= GITHUB_REPOSITORY=
 expect fail "bad GH_REPO"                      "bad GH_REPO" "$OK" "GH_REPO=owner/re po"
+# Inside GitHub Actions the environment overrides are ignored (a Claude step before could have written $GITHUB_ENV):
+# gh comes from PATH, the repository from GITHUB_REPOSITORY, the workflow list and the wait are fixed.
+mkdir -p "$T/path"; cp "$T/gh" "$T/path/gh"
+expect ok   "in Actions: gh from PATH, repo from GITHUB_REPOSITORY" "main-guard passed" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GH_REPO=other/repo "PATH=$T/path:$PATH"
+expect fail "in Actions: GH_BIN is ignored (a stub there does not count)" "could not read the token's GitHub login" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo "PATH=$T/nowhere:/usr/bin:/bin"
+expect fail "in Actions: GUARD_WORKFLOWS cannot drop a workflow" "workflow main-guard.yml is 'disabled_manually'" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo "PATH=$T/path:$PATH" GUARD_WORKFLOWS=review.yml STUB_DISABLED=main-guard.yml
+expect fail "in Actions: no GITHUB_REPOSITORY is an error even with GH_REPO" "GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set" "$OK" GITHUB_ACTIONS=true GITHUB_REPOSITORY= "PATH=$T/path:$PATH"
 expect fail "repo list unavailable"            "could not list the agent account's own repositories" "STUB_WHO=333 agents-bot" GH_TOKEN=$CL STUB_SCOPES=repo STUB_OWNED_RC=1
 expect fail "gh fails"                         "could not read the token's GitHub login" STUB_WHO= STUB_RC=1
 expect fail "odd login text"                   "could not read the token's GitHub login" "STUB_WHO=333 x;y"

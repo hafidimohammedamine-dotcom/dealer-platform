@@ -279,7 +279,7 @@ finish() {
     die "self-test failed; see errors above"
   fi
   { echo "claude-path=$BIN"; echo "bun-path=$BUN"; } >> "$GITHUB_OUTPUT"   # only now: a Claude step can find them only after the self-test passed
-  echo "::notice::Known open routes (an attacker with their own credentials could use them): github.com / api.github.com (pushes, issues, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/agent-network-lock.md."
+  echo "::notice::Known open routes: the job's own GitHub token can comment on or open issues in ANY repository it can see (no attacker credentials needed; checked after each shift by scripts/check-agent-events.sh), and with an attacker's own credentials: github.com / api.github.com (pushes, issues, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/agent-network-lock.md."
   echo "Agent egress lock on: ${#NAMES[@]} allowed names + ${#RUNNER_NAMES[@]} runner services, SNI proxy, sudo and Docker removed."
 }
 

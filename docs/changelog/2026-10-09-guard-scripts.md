@@ -39,8 +39,10 @@
     `check-workflows-claude.py` the jobs with a claude step (checkout, lock, binaries, env, permissions, PR data, git moves,
     post-step pin checks, tag mode only on issues), both through `check-workflows-lib.py`: Claude runs only through the pinned
     claude-code-action after the lock; `claude_args` has only known flags and one `--disallowedTools` that denies
-    `Skill(<name>)` for `payload` and every third-party skill in the base or PR manifest; the manager keeps its 32 denies
-    (`Skill(payload)`, `WebFetch`, `WebSearch`, 24 command denies including `gh api`, `gh gist`, `gh repo` and `yarn npm publish/login`, and 5 path denies); `secrets` only as `secrets.<NAME>`, and Claude credentials only in
+    `Skill(<name>)` for `payload` and every third-party skill in the base or PR manifest; the manager's own list (`manager_denies`,
+    27 command denies including `gh api`, `gh gist`, `gh repo`, `gh workflow`, `gh run cancel/delete` and `yarn npm publish/login`)
+    comes on top of what every Claude step must deny (`Skill(payload)` and the 10 `claude_denies`: `WebFetch`, `WebSearch`
+    and the `Read(...)` paths); `secrets` only as `secrets.<NAME>`, and Claude credentials only in
     a claude step's `claude_code_oauth_token`; no unlisted local action, reusable workflow, Docker action, container or service.
 - `scripts/check-skills-lib.sh` holds the shared helpers (`manifest_lines`, `manifest_entries`, `valid_skill_name`,
   `lock_row_one`, `lock_row_error`, lock-row parsing) used by every skill guard, including `check-skills.sh`; its own test also
@@ -130,13 +132,23 @@
   the main-push test checks the stop list against every workflow holding a secret or write scope, the review poster
   takes the answer only from `ANSWER`; docs corrected (pinned-file list, step names, bytes, the ledger's messages, founder
   decisions proposed rather than recorded as accepted).
+- **Round 13:** the agents' token can comment anywhere through the allowed `api.github.com`, so decision 1 and the lock's
+  notice say so, `scripts/check-agent-events.sh` (new, with tests) fails a shift after which the agents' account has an
+  event outside this repository, and founder issue #35 (organization, fine-grained token) is opened; the manager's
+  after-shift checks (token, guard workflows, events) run in their own job `after` on a fresh runner (checker rule
+  `after_shift`), and inside Actions the scripts ignore environment overrides; `claude.yml` runs Claude in prompt mode
+  with the job's token and posts through the scanned `post` job (no `id-token: write`, no tag mode; checker rule
+  `claude_github_token`), every Claude step also denies `Read(./.git/**)`; the daily report and weekly audit start only
+  from their schedule or a founder (`id_gated`); `manager_denies` holds only the manager's own 27 denies; one
+  `last_result` helper in the probe checker; the coverage runner builds its test list from the files; `is_pins_step`
+  takes `fname`; docs corrected (probe modes, four jobs, the review skill's two commands, CI's triggers, the deny counts).
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
    ledger and the guards' ledger step fail on every PR.
 2. Merge in the web UI (that also re-registers the schedules).
-3. Right after merge, start `Agent egress lock - Claude probe` by hand (Actions -> Run workflow) and read its three jobs
-   (founder decision 3 in `docs/runbooks/agent-network-lock.md`); a failure is a revert trigger.
+3. Right after merge, start `Agent egress lock - Claude probe` by hand (Actions -> Run workflow) and read its four jobs
+   (`probe`, `scrub`, `reads`, `oidc`; founder decision 3 in `docs/runbooks/agent-network-lock.md`); a failure is a revert trigger.
 4. Earlier PRs have no ledger records: re-push each open founder branch (a rebase, or one empty commit of your own) so the
    ledger records them under your ID; founder-only changes fail the guards until then.
 5. Whenever a founder PR changes a pinned file (`pins_required` in `scripts/check-workflows-policy.json`: anything under

@@ -171,6 +171,7 @@ def check_file(path, required, accounts):
             check_other(f"{name} {key}", val)
     PEOPLE.check_workflow_env(name, doc)
     PEOPLE.check_file_ifs(name, doc, accounts)
+    PEOPLE.check_after_shift(name, doc)
     triggers = triggers_of(doc)
     LIB.check_permissions(name, name, doc.get("permissions"), triggers)
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
