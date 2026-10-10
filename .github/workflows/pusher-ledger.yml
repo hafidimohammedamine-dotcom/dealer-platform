@@ -25,10 +25,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
-        env:
-          PINS_SHA256: "38e8dd003e3c3741bf158085f46a5ae599d3075bc56ed27c85b03a2e3b66a348"
+        # This job runs on a pushed branch but checks out the default branch, so the expected hash comes from the default
+        # branch's own guards.yml (the agents' token cannot change workflow files), not from this file's env.
         run: |
-          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          h=$(sed -n -E 's/^ *PINS_SHA256: "([0-9a-f]{64})".*/\1/p' .github/workflows/guards.yml | head -n1)
+          echo "$h  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
       - name: Record the pushed commits as this push's sender
         env:

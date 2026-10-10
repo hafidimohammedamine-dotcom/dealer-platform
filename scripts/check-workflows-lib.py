@@ -111,8 +111,16 @@ def is_pins_step(step):
     return True
 
 
-def check_pins_step(where, step):
-    """Errors for a pin step that is not exactly right (called when is_pins_step matched the name)."""
+def check_pins_step(fname, where, step):
+    """Errors for a pin step that is not exactly right (called when is_pins_step matched the name). A workflow in
+    pins_default_branch_workflows runs on a pushed branch but checks out the default branch, so its step takes the expected
+    hash from the default branch's own guards.yml (which the agents' token cannot change) instead of its env."""
+    if fname in P["pins_default_branch_workflows"]:
+        if str(step.get("run", "")) != P["pins_step_run_default_branch"]:
+            err(f"{where}: the pin step's run must be exactly the policy's pins_step_run_default_branch")
+        if set(step) - {"name", "run", "id"}:
+            err(f"{where}: the pin step may only have name, run and id (the hash comes from the default branch's guards.yml)")
+        return
     if str(step.get("run", "")) != P["pins_step_run"]:
         err(f"{where}: the pin step's run must be exactly the policy's pins_step_run")
     env = step.get("env") if isinstance(step.get("env"), dict) else {}

@@ -19,6 +19,9 @@ file against `pins.txt`: the lock action, every `scripts/check-*` script (not th
 founder's workflow change fails every job before any secret, sudo or Claude is used. Steps that run a pinned script after
 Claude repeat the check. A founder who changes a pinned file runs `bash scripts/check-pins.sh update` in the same PR (it
 rewrites `pins.txt` and every `PINS_SHA256`); `scripts/check-pins.test.sh` and the workflow checker fail until it is done.
+`pusher-ledger.yml` runs on a pushed branch but checks out the default branch, so its pin step takes the expected hash
+from the default branch's own `guards.yml` instead of its env (the checker requires that exact form). Until this PR is on
+`main`, that step fails on every branch (no `pins.txt` on `main` yet); it works from the first push after merge.
 Failure messages: `sha256sum: WARNING: 1 computed checksum did NOT match` (a pinned file differs from the reviewed state:
 either run `update` in a founder PR or, if the push was not a founder's, see "Main guard"); from the checker, `PINS_SHA256
 is <x> but .github/pins.txt is <y>`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is

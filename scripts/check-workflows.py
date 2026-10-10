@@ -89,7 +89,7 @@ def check_pins_position(fname, jw, steps):
     if not LIB.is_pins_step(nxt):
         err(f"{jw}: the step after the checkout must be the pin step '{P['pins_step_name']}'")
         return
-    LIB.check_pins_step(f"{jw} step {at + 2}", nxt)
+    LIB.check_pins_step(fname, f"{jw} step {at + 2}", nxt)
 
 
 def check_job(fname, jname, job, required, triggers):

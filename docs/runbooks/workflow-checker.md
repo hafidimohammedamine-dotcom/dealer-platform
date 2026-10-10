@@ -36,7 +36,9 @@ Any workflow or composite action
   the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
   <x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
   outside `pins_exempt` (`ci.yml`, `egress-lock-test.yml`) checks out and then runs the exact pin step from the policy
-  (`pins_step_name`, `pins_step_run`) with the current hash; `update` rewrites the hash.
+  (`pins_step_name`, `pins_step_run`) with the current hash; `update` rewrites the hash. `the pin step's run must be
+  exactly the policy's pins_step_run_default_branch` / `may only have name, run and id` - a workflow in
+  `pins_default_branch_workflows` (`pusher-ledger.yml`) reads the hash from the default branch's `guards.yml`.
 - `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
   token before the main guard could act; use schedule or a founder-gated `workflow_dispatch`.
 - `--disallowedTools does not deny <x> (every claude step must)` - every Claude step denies the policy's `claude_denies`

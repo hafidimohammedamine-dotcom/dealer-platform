@@ -32,4 +32,5 @@ run fail "a workflow with a stale hash" "b.yml pins .github/pins.txt at ffff" ch
 sed -i '/PINS_SHA256/d' "$R/.github/workflows/a.yml" "$R/.github/workflows/b.yml"; run fail "no workflow carries the hash" "no workflow carries PINS_SHA256" check "$R"
 # The real repository is up to date (a founder who changes a pinned file runs update in the same PR)
 run ok "the real repository's pins are current" "Pins OK" check "$REPO"
+check "the ledger workflow takes its hash from guards.yml (no PINS_SHA256 of its own)" bash -c '! grep -qE "^ *PINS_SHA256: \"" "$1/pusher-ledger.yml" && grep -q "PINS_SHA256: \"" "$1/guards.yml" && grep -q "sed -n -E .s/\^ \*PINS_SHA256" "$1/pusher-ledger.yml"' _ "$REPO/.github/workflows"
 summary

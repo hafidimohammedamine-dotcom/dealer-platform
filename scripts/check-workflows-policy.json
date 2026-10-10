@@ -179,6 +179,10 @@
  "pins_file": ".github/pins.txt",
  "pins_step_name": "The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)",
  "pins_step_run": "echo \"$PINS_SHA256  .github/pins.txt\" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\n",
+ "pins_step_run_default_branch": "h=$(sed -n -E 's/^ *PINS_SHA256: \"([0-9a-f]{64})\".*/\\1/p' .github/workflows/guards.yml | head -n1)\necho \"$h  .github/pins.txt\" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\n",
+ "pins_default_branch_workflows": [
+  "pusher-ledger.yml"
+ ],
  "pins_exempt": [
   "ci.yml",
   "egress-lock-test.yml"
