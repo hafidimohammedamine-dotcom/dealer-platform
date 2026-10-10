@@ -6,18 +6,17 @@ on:
 permissions:
   contents: read
 jobs:
-  runnerhosts:
+  completes:
+    # No id-token: the job must finish right after its last step (the runner reports through the allowed service names).
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     steps:
-      - name: Service hosts in the runner processes' environment and config (host names only)
-        run: |
-          for p in $(pgrep -f 'Runner.Worker|Runner.Listener'); do
-            echo "--- pid $p $(cat /proc/$p/comm)"
-            sudo tr '\0' '\n' < /proc/$p/environ | grep -oE 'https?://[A-Za-z0-9.-]+' | sort -u
-            sudo tr '\0' '\n' < /proc/$p/environ | grep -oE '^[A-Z_]*(URL|HOST)[A-Z_]*=' | sort -u | tr '\n' ' '; echo
-          done
-          d=/home/runner/actions-runner/cached/2.337.0
-          echo "--- .runner"; sudo python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print({k: d[k] for k in ("ServerUrl","ServerUrlV2","IsHostedServer","useV2Flow","PoolName","WorkFolder") if k in d})' "$d/.runner"
-          echo "--- worker peers"; sudo ss -tnp state established | grep -i Runner.Worker | awk '{print $4}' | sort -u
-          echo "--- which hosts resolve to those peers"; for h in results-receiver.actions.githubusercontent.com run-actions-3-azure-eastus.actions.githubusercontent.com pipelinesghubeus6.actions.githubusercontent.com pipelinesghubeus9.actions.githubusercontent.com; do printf '%s ' "$h"; getent ahostsv4 "$h" | awk 'NR==1{print $1}'; done; true
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - run: |
+          date -u +%T; echo "locked; now the job should complete within a minute"
+          curl -sS -o /dev/null -w 'broker foreign-host: %{http_code}\n' -H 'Host: example.com' https://broker.actions.githubusercontent.com/ || true
+          curl -sS -o /dev/null -w 'results-receiver foreign-host: %{http_code}\n' -H 'Host: example.com' https://results-receiver.actions.githubusercontent.com/ || true

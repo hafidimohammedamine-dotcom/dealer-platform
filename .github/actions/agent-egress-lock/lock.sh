@@ -22,13 +22,17 @@ mapfile -t NAMES < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$HERE/allow-domains
 for d in "${NAMES[@]}"; do   # exact host names only, no wildcards
   [[ "$d" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "not a plain host name: '$d'"
 done
-# The runner's own services need no new connection during the steps (measured 2026-10-09). The one exception is the OIDC
-# token service of a job with `id-token: write` (claude.yml): its generated host name is read from the runner's variable and
-# allowed exactly, for this run only.
+# The runner's own services (measured 2026-10-10, docs/runbooks/agent-network-lock.md): the listener talks to the broker, the
+# worker streams results to results-receiver and reports the finished job to the run service, whose generated name
+# (run-actions-<n>-azure-<region>) a job without `id-token: write` cannot read. Without these the job hangs after its last
+# step until its timeout. They answer only a bare "OK" or 400 for a foreign Host header (no fronting), so the run service is
+# allowed as that one name pattern; the OIDC host of a job with `id-token: write` (claude.yml) is the same service.
+RUNNER_NAMES=(broker.actions.githubusercontent.com results-receiver.actions.githubusercontent.com)
+RUNNER_PATTERN='run-actions-[0-9]+-azure-[a-z0-9]+\.actions\.githubusercontent\.com'
 if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-  [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" =~ ^https://([a-z0-9-]+\.actions\.githubusercontent\.com)/ ]] \
+  [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" =~ ^https://($RUNNER_PATTERN)/ ]] \
     || die "unexpected OIDC host: '$(sed -E 's#^[a-z]+://([^/]*).*#\1#' <<<"$ACTIONS_ID_TOKEN_REQUEST_URL")'"
-  NAMES+=("${BASH_REMATCH[1]}")
+  RUNNER_NAMES+=("${BASH_REMATCH[1]}")
 fi
 
 # --- 1. Install the pinned Claude Code binary, checked against its pinned sha256 (from Anthropic's release manifest) ------
@@ -63,9 +67,11 @@ if [ -f "$USERNS" ]; then
   sudo apparmor_parser -r /etc/apparmor.d/agent-bwrap || die "could not load the AppArmor profile for bubblewrap"
   # Other profiles on the image grant user namespaces too (browsers, podman, lxc, ...); unload them so only bwrap keeps it.
   # unprivileged_userns stays: it is the profile the kernel uses to restrict user namespaces of unconfined programs.
-  AA_DIR="${AGENT_LOCK_TEST_APPARMOR_DIR:-/etc/apparmor.d}"
+  # Policy sources: the system folder and snapd's (empty on GitHub's image, measured 2026-10-10), searched recursively.
+  AA_DIRS="${AGENT_LOCK_TEST_APPARMOR_DIR:-/etc/apparmor.d /var/lib/snapd/apparmor/profiles}"
   AA_LOADED="${AGENT_LOCK_TEST_APPARMOR_LOADED:-/sys/kernel/security/apparmor/profiles}"
-  mapfile -t UNS < <(grep -lE '^[[:space:]]*(audit[[:space:]]+)?(allow[[:space:]]+)?userns' "$AA_DIR"/* 2>/dev/null | grep -vE '/(agent-bwrap|unprivileged_userns)$' || true)
+  # shellcheck disable=SC2086
+  mapfile -t UNS < <(grep -rlE '^[[:space:]]*(audit[[:space:]]+)?(allow[[:space:]]+)?userns' $AA_DIRS 2>/dev/null | grep -vE '/(agent-bwrap|unprivileged_userns)$' || true)
   for f in "${UNS[@]}"; do sudo apparmor_parser -R "$f" >/dev/null 2>&1 || true; done
   # Checked now, while sudo still works (the list of loaded profiles is root-only); reported by the self-test.
   UNS_NAMES=$( { [ "${#UNS[@]}" = 0 ] || awk '$1 == "profile" {print $2}' "${UNS[@]}"; } | sort -u)
@@ -81,7 +87,8 @@ CONF=$(mktemp)
 {
   echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"
   echo "user=dnsmasq"; echo "cache-size=1000"; echo "filter-AAAA"
-  for d in "${NAMES[@]}"; do echo "server=/$d/$UPSTREAM"; done
+  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "server=/$d/$UPSTREAM"; done
+  echo "server=/actions.githubusercontent.com/$UPSTREAM"   # the run service's generated name (proxy: RUNNER_PATTERN only)
 } > "$CONF"
 sudo install -m 0644 "$CONF" /etc/agent-dnsmasq.conf
 sudo systemctl stop systemd-resolved.service 2>/dev/null || true
@@ -101,7 +108,8 @@ NG=$(mktemp)
   echo "  resolver 127.0.0.1 ipv6=off valid=60s; resolver_timeout 10s;"
   echo "  map \$ssl_preread_server_name \$agent_upstream {"
   echo "    hostnames;"
-  for d in "${NAMES[@]}"; do echo "    $d \$ssl_preread_server_name:443;"; done
+  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "    $d \$ssl_preread_server_name:443;"; done
+  echo "    ~^${RUNNER_PATTERN}\$ \$ssl_preread_server_name:443;"
   echo "    default 127.0.0.1:1;"
   echo "  }"
   echo "  server { listen 127.0.0.1:8443; ssl_preread on; proxy_connect_timeout 15s; proxy_pass \$agent_upstream; }"
@@ -198,16 +206,19 @@ if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (
 fi
 # Every allowed name answers through the lock (a typo in the list shows up here, not in an agent run), and none of them,
 # asked for another site in the HTTP Host header, serves content (2xx, except a bare "OK" health answer that does not
-# depend on the Host) or sends us to another host (3xx).
+# depend on the Host) or sends us to another host (3xx). The Host values cover the CDNs behind the allowed names (Cloudflare
+# for api.anthropic.com and the registries, GitHub's own edge, Fastly, Google); measurements in agent-network-lock.md.
 FB=$(mktemp)
-for d in "${NAMES[@]}"; do
-  read -r code loc < <(curl -sS -o "$FB" --max-time 10 --retry 2 -w '%{http_code} %{redirect_url}\n' -H 'Host: example.com' "https://$d/" 2>/dev/null || echo "000")
-  lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
-  if [ "${code:-000}" = 000 ]; then
-    bad "allowed name $d not reachable through the lock"
-  elif { [[ "$code" == 2* ]] && [ "$(head -c 64 "$FB" | tr -d '[:space:]')" != OK ]; } || { [[ "$code" == 3* ]] && [ "$lh" != "$d" ]; }; then
-    bad "domain fronting through $d answers for another host (HTTP ${code} ${loc:-})"
-  fi
+for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do
+  for h in example.com www.cloudflare.com claude.ai pypi.org storage.googleapis.com; do
+    read -r code loc < <(curl -sS -o "$FB" --max-time 10 --retry 2 -w '%{http_code} %{redirect_url}\n' -H "Host: $h" "https://$d/" 2>/dev/null || echo "000")
+    lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
+    if [ "${code:-000}" = 000 ]; then
+      bad "allowed name $d not reachable through the lock"; break
+    elif { [[ "$code" == 2* ]] && [ "$(head -c 64 "$FB" | tr -d '[:space:]')" != OK ]; } || { [[ "$code" == 3* ]] && [ "$lh" != "$d" ]; }; then
+      bad "domain fronting through $d answers for another host (Host: $h, HTTP ${code} ${loc:-})"
+    fi
+  done
 done
 rm -f "$FB"
 [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
@@ -218,4 +229,4 @@ if [ "$fail" != 0 ]; then
 fi
 { echo "claude-path=$BIN"; echo "bun-path=$BUN"; } >> "$GITHUB_OUTPUT"   # only now: a Claude step can find them only after the self-test passed
 echo "::notice::Known open routes (an attacker with their own credentials could use them): github.com / api.github.com (pushes, issues, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/agent-network-lock.md."
-echo "Agent egress lock on: ${#NAMES[@]} allowed names, SNI proxy, sudo and Docker removed."
+echo "Agent egress lock on: ${#NAMES[@]} allowed names + ${#RUNNER_NAMES[@]} runner services, SNI proxy, sudo and Docker removed."
