@@ -32,7 +32,7 @@ fresh() { # a bare origin with main = base; a clone where the "pushed" commits a
 push_commits() { for i in "$@"; do echo "$i" > "f$i" && git add "f$i" && git commit -qm "c$i"; done; git push -q origin main; HEAD=$(git rev-parse HEAD); }
 run() { # run <ok|fail> <name> <message> <pusher> <before> <after> [VAR=value ...]
   local want=$1 name=$2 msg=$3 pusher=$4 before=$5 after=$6; shift 6
-  out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_REPO=owner/repo "$@" bash "$SCRIPT" "$pusher" "$before" "$after" "$W/accounts" 2>&1); rc=$?
+  out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_REPO=owner/repo "$@" bash "$SCRIPT" "$pusher" "$before" "$after" "$W/accounts" 2>&1); rc=$?
   assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 Z=0000000000000000000000000000000000000000
 
@@ -81,9 +81,9 @@ fresh; push_commits 1; run fail "revert conflict: aborted, the rest left to the 
 check "revert conflict: nothing pushed, workflows disabled, issue still opened" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable" "$2")" = 8 ] && grep -q "Left to do" "$2"' _ "$W/clone" "$W/gh.log"
 fresh; run fail "non-numeric pusher" "pusher id must be numeric" abc "$BASE" "$BASE"
 fresh; run fail "bad sha" "before/after must be 40-hex" 333 "$BASE" nope
-fresh; printf 'nonsense\n' > "$W/bad-accounts"; out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_REPO=owner/repo bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/bad-accounts" 2>&1); rc=$?
+fresh; printf 'nonsense\n' > "$W/bad-accounts"; out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_REPO=owner/repo bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/bad-accounts" 2>&1); rc=$?
 [ $rc = 1 ] && grep -q "bad line 1" <<<"$out" && t PASS "broken accounts file fails closed" || { t FAIL "broken accounts file ($rc)"; echo "$out"; }
-out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/accounts" 2>&1); rc=$?
+out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/accounts" 2>&1); rc=$?
 [ $rc != 0 ] && grep -q "GH_REPO or GITHUB_REPOSITORY" <<<"$out" && t PASS "GH_REPO required" || t FAIL "GH_REPO required ($rc)"
 # main-guard.yml's pin step (id pins) uses .github/pins.txt like every workflow; scripts/check-pins.sh checks it is current.
 REPO_ROOT="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
@@ -94,7 +94,7 @@ print(next(s["run"] for s in d["jobs"]["guard"]["steps"] if s.get("name", "").st
 FB=$(fb_run)
 runfb() { # runfb <name> <message> <pusher> <before> <after> [VAR=value ...]   (the step exits 1 on a non-founder push)
   local name=$1 msg=$2 pusher=$3 before=$4 after=$5; shift 5; : > "$W/gh.log"
-  out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_TOKEN=t GH_REPO=owner/repo PUSHER_ID="$pusher" BEFORE="$before" AFTER="$after" FOUNDER_IDS="111 222" "$@" bash -c "$FB" 2>&1); rc=$?
+  out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_TOKEN=t GH_REPO=owner/repo PUSHER_ID="$pusher" BEFORE="$before" AFTER="$after" FOUNDER_IDS="111 222" "$@" bash -c "$FB" 2>&1); rc=$?
   assert_result fail "$rc" "$name" "$msg" "$out"; }
 fresh; push_commits 1 2; runfb "fallback: normal push by the agent is reverted, runs cancelled, workflows disabled, issue opened" "::error::push to main by user ID 333 changed pinned files" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
 check "fallback: origin main has the base content back, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "reverted 2 pushed commit(s) with new commits" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files" "$2"' _ "$W/clone" "$W/gh.log"
