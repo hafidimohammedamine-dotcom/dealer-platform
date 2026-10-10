@@ -1,7 +1,7 @@
 # Review team, base-defined: pull_request_target always runs THIS file, CLAUDE.md, .claude/ and the review skill from
 # the base branch. The PR is fetched as data into /tmp/pr (outside the project, rule files removed) and never built or
-# run - CI runs the tests. Claude only reads and answers; a fixed step below scans its answer for secrets, posts it and
-# sets labels. Uses Founder 2's Claude subscription. Founder-owned file.
+# run - CI runs the tests. Claude only reads and answers with a read-only token; a second job with the write scopes scans
+# the answer for secrets, posts it and sets labels. Uses Founder 2's Claude subscription. Founder-owned file.
 name: Agent - Review team
 on:
   pull_request_target:
@@ -14,18 +14,25 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.pull_request.draft == false
+    # Claude reads untrusted PR data with a read-only token; posting and labels happen in the `post` job below, which has
+    # the write scopes and runs no Claude.
+    if: (github.event.pull_request.draft == false) && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
-      pull-requests: write    # used only by the fixed "Post the result" step
-      issues: write
-      actions: write          # used only to start a manager shift right after a failed review of an agent PR
+      pull-requests: read
+      actions: read   # the main-head check reads the main guard's runs
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
+      GH_TOKEN: ${{ github.token }}   # gh for the reviewers (read-only commands, read-only token)
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.base_ref }}
+    outputs:
+      answer: ${{ steps.answer.outputs.answer }}
+      has_result: ${{ steps.answer.outputs.has_result }}
     steps:
       - name: Check out the base branch (rules, agents, skills)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -33,50 +40,97 @@ jobs:
           ref: ${{ github.base_ref }}
           fetch-depth: 0
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push runs next to a Claude token)
+        run: bash scripts/check-main-head.sh
+      - id: lock
+        # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
+        uses: ./.github/actions/agent-egress-lock
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
-        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF" origin "$HEAD_SHA"
       - name: Wait for CI and guards on the PR head (max 30 min)
         id: status
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: echo "result=$(bash scripts/check-pr-ci-status.sh "$PR_NUMBER" "$HEAD_SHA" 1800 30)" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/install-gitleaks
+        run: bash scripts/check-pr-ci-status.sh "$PR_NUMBER" "$HEAD_SHA" 1800 30
       - name: Review (read-only)
         id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
-        env:
-          GH_TOKEN: ${{ github.token }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          # the action's post-session step "Post buffered inline comments" (it holds the GitHub token after Claude ran) is off
+          classify_inline_comments: "false"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
           prompt: "/review-pr ${{ github.event.pull_request.number }} ${{ steps.status.outputs.result }}"
           claude_args: |
             --model sonnet
             --max-turns 120
             --add-dir /tmp/pr
-            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git -C /tmp/pr diff:*),Bash(git -C /tmp/pr log:*),Bash(git -C /tmp/pr show:*),Bash(git -C /tmp/pr ls-files:*),Bash(git -C /tmp/pr ls-tree:*),Bash(git -C /tmp/pr grep:*),Bash(git -C /tmp/pr status:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(wc:*),Bash(sort:*),Bash(find /tmp/pr:*),Bash(gh pr view:*),Bash(gh issue view:*)"
-            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
-      - name: Show blocked tool calls (names and commands only)
-        if: always() && steps.claude.outputs.execution_file != ''
+            --add-dir /tmp/pr-meta
+            --allowedTools "Agent,Task,Read(./**),Read(//tmp/pr/**),Read(//tmp/pr-meta/**),Grep,Glob,TodoWrite,Skill,Bash(gh pr view:*),Bash(gh issue view:*)"
+            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
+      - name: Show blocked tool calls and hand the answer to the post job (pinned script)
+        id: answer
+        if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
         run: |
-          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
-            "$EXEC_FILE" || true
-      - name: Post the result (secret-scanned) and set labels
-        if: always() && steps.claude.outputs.execution_file != ''
+          set -euo pipefail
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+          bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"
+  post:
+    # The only job with write scopes; runs no Claude and reads only the review job's answer (data) and main's scripts.
+    needs: review
+    if: always() && needs.review.result != 'skipped' && needs.review.outputs.has_result == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write    # the result comment and labels
+      issues: write
+      actions: write          # start a manager shift right after a failed review of an agent PR
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out the base branch (the post script)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.base_ref }}
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          GH_TOKEN: ${{ github.token }}
-          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: bash scripts/check-review-post.sh pr "$PR_NUMBER" "$EXEC_FILE"
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - uses: ./.github/actions/install-gitleaks
+      - name: Post the result (secret-scanned) and set labels
+        env:
+          ANSWER: ${{ needs.review.outputs.answer }}
+        run: bash scripts/check-review-post.sh pr "$PR_NUMBER"
       - name: Start a fix round now (agent PRs that failed review)
         # Instead of waiting for the next hourly shift, start the manager as soon as an agent's PR fails review.
-        if: always() && startsWith(github.event.pull_request.head.ref, 'agent/')
+        # Only for PRs from this repo opened by the agents' own account: its numeric user ID from .github/accounts.txt
+        # (an ID cannot be re-registered the way a login can).
+        if: >-
+          always() &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.user.id == 250452267 &&
+          startsWith(github.event.pull_request.head.ref, 'agent/')
         env:
-          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail

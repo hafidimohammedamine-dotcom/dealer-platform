@@ -25,6 +25,8 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 1. **All data access goes through `packages/data`** (the tenant-safe helper). It always passes the logged-in `user`
    and `overrideAccess: false` and the dealer's tenant. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
+   The only place `overrideAccess: true` may appear is a reviewed system job listed in `packages/data/override-allowlist.txt`
+   (founder-only; the path is reserved and the file is created together with the lint rule that reads it).
 2. **Second lock in the database:** Postgres row-level security on `tenant` (dealer) for every CRM table, with
    `FORCE ROW LEVEL SECURITY`; the app sets the dealer per transaction. The app's database user is not the table owner.
 3. **Cross-dealer leak tests in CI:** logged in as dealer A, every collection and API must return nothing from dealer B.
@@ -69,7 +71,7 @@ Two founders run the company. Agents do the work. Founders approve every merge.
 | `tests/e2e/`, `fixtures/` | End-to-end tests, leak tests, fake data | tester |
 | `infra/`, `Dockerfile*` | Deploy, migrations job, monitoring, backups | devops |
 | `docs/` | API docs, dealer help center, runbooks | docs |
-| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), `.github/` (CI, guards, agent workflows, CODEOWNERS, founders.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore` | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
+| `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), `.github/` (CI, guards, agent workflows, CODEOWNERS, accounts.txt), `scripts/check-*`, `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt`, `.yarnrc.yml` and `.yarn/` (in any folder: lifecycle scripts stay off; a package that needs its build script is allowed one by one by a founder), `.gitattributes` (in any folder: the guards read every PR tree with attributes off) | Company rules, agents, skills, CI and the checks that guard them | **founders only** (devops proposes CI changes with `REQUEST:`) |
 
 **Never edit a folder you don't own.** If you need a change elsewhere, comment on the GitHub
 issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes it.
@@ -111,8 +113,8 @@ Our own code, our own skills, CI and workflows keep the full zero-findings rule.
 - Issue -> manager assigns a builder -> builder opens a pull request (one issue = one branch = one PR)
   -> review team posts findings -> builder fixes -> all PASS -> label `ready-to-merge` -> founder merges.
 - Branch names: `agent/<issue-number>-<short-name>`. PR title starts with the issue number.
-  Founder-only files may change only in PRs **opened and pushed by founders' GitHub accounts** (`.github/founders.txt`);
-  the `guards` check enforces this from the base branch. Agents must use their own GitHub account (`AGENT_GH_TOKEN`), never a founder's.
+  Founder-only files may change only in PRs **opened and pushed by founders' GitHub accounts** (`founder` user IDs in `.github/accounts.txt`);
+  the `guards` check enforces this from the base branch. Agents must use their own GitHub account (`AGENT_GH_TOKEN_V2`), never a founder's.
 
 ## Definition of done
 Tests, lint and type check pass; all reviewers PASS with zero findings; docs updated;

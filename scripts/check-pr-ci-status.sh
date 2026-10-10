@@ -5,7 +5,7 @@
 #   Guards: .github/workflows/guards.yml, event pull_request_target, title "Guards PR #<n> @ <head-sha>"
 #           (pull_request_target runs carry the base commit as headSha, so guards.yml puts the PR head in its run-name)
 # Usage: scripts/check-pr-ci-status.sh <pr-number> <head-sha> [timeout-seconds=1800] [interval-seconds=30]
-# GH_BIN may point to a stub for tests.
+# Also writes `result=<that line>` to $GITHUB_OUTPUT when set (the workflow step's output). GH_BIN may point to a stub for tests.
 set -euo pipefail
 PR="${1:?pr number}"; SHA="${2:?head sha}"; TIMEOUT="${3:-1800}"; INTERVAL="${4:-30}"
 GH="${GH_BIN:-gh}"
@@ -28,4 +28,6 @@ while :; do
   if [[ "$ci" == completed/* && "$guards" == completed/* ]] || [ "$(date +%s)" -ge "$deadline" ]; then break; fi
   sleep "$INTERVAL"
 done
-echo "ci=$(result "$ci") guards=$(result "$guards")"
+line="ci=$(result "$ci") guards=$(result "$guards")"
+echo "$line"
+[ -z "${GITHUB_OUTPUT:-}" ] || echo "result=$line" >> "$GITHUB_OUTPUT"   # the step output the review's prompt reads

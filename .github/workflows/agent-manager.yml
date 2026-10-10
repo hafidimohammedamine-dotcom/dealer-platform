@@ -19,52 +19,113 @@ jobs:
     # Runs: the hourly schedule; a founder's manual run; or the review job starting a fix round (no focus text allowed then,
     # since the focus text goes into the manager's prompt).
     if: >-
-      github.event_name == 'schedule' ||
-      github.actor == 'hafidimohammedamine-dotcom' ||
-      (github.actor == 'github-actions[bot]' && github.event.inputs.focus == '')
+      (github.event_name == 'schedule' ||
+      github.actor_id == '238822878' ||
+      (github.actor == 'github-actions[bot]' && github.event.inputs.focus == '')) &&
+      github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    # The job token stays read-only: the manager pushes, opens PRs and comments with the agents' own token (GH_TOKEN below),
+    # whose pushes start the review and ledger workflows; pushes with the job token would start none.
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      contents: read
+      pull-requests: read
+      issues: read
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}   # pushes/PRs with this token trigger the review workflow
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
+      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN_V2 }}   # pushes/PRs with this token trigger the review workflow
+      YARN_ENABLE_SCRIPTS: "false"   # no dependency lifecycle script runs next to this token, whatever a PR's .yarnrc.yml says (env beats rc files)
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: main   # always the default branch
           fetch-depth: 0
-          token: ${{ secrets.AGENT_GH_TOKEN }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
-      - run: corepack enable
-      - name: Git identity
+          persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
         run: |
-          git config user.name "agent-manager"
-          git config user.email "agents@users.noreply.github.com"
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push runs next to a Claude token)
+        run: bash scripts/check-main-head.sh
+      - id: lock
+        # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
+        uses: ./.github/actions/agent-egress-lock
+      - name: Agents must run on their own GitHub token, never a founder's
+        run: bash scripts/check-agent-token.sh .github/accounts.txt
+      - name: Before the shift, the agents' account did nothing outside this repository in the last 24 hours
+        run: bash scripts/check-agent-events.sh .github/accounts.txt "$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Shift setup (corepack, git identity, pushes through gh; pinned script)
+        run: bash scripts/check-shift-setup.sh
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
-          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          # the action's post-session step "Post buffered inline comments" (it holds the GitHub token after Claude ran) is off
+          classify_inline_comments: "false"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
+          # Instant fix rounds: review.yml starts this workflow as github-actions[bot] (see the job's if:).
+          allowed_bots: github-actions
+          github_token: ${{ secrets.AGENT_GH_TOKEN_V2 }}
           prompt: "/manager ${{ github.event.inputs.focus }}"
           claude_args: |
             --model opus
             --max-turns 200
             --permission-mode bypassPermissions
-            --disallowedTools "Bash(npx:*),Bash(npm:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(gh workflow:*),Bash(gh run cancel:*),Bash(gh run delete:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
           # bypassPermissions: builders must install, build and test freely; an allow-list blocked normal work
-          # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode:
-          # no npx/npm/curl/wget/sudo, no printing the environment, no force-push, merge, deleting via API, secrets or auth,
-          # and no reading runner internals. The runner is thrown away after the job; the agents' token reaches this repo only.
-      - name: Show blocked tool calls (names and commands only)
-        if: always() && steps.claude.outputs.execution_file != ''
+          # ('cd <worktree> && git ...', variable assignments, loops). The deny list above still applies in this mode, but it is
+          # hygiene, not a boundary: `bash -c`, `python3 -c` or `yarn node -e` get around prefix denies. The other layers: the
+          # agent egress lock (step `lock`: outbound HTTPS only to allow-listed host names, no sudo, no Docker), Claude Code's
+          # subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: tools never see the Claude token), and the scope of
+          # GH_TOKEN: the agents' own token (classic with exactly `repo`, or fine-grained), never with `workflow` scope; the step
+          # "Agents must run on their own GitHub token, never a founder's" checks that before Claude starts.
+          # None of these alone is a complete boundary (docs/runbooks/agent-network-lock.md).
+          # `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
+          # together with its override.
+      - name: Show blocked tool calls (names and commands only, pinned script)
+        if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
         run: |
-          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
-            "$EXEC_FILE" || true
+          set -euo pipefail
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+  after:
+    # A fresh job after the shift (the shift's Claude ran with bypassPermissions and could have written $GITHUB_ENV or
+    # $GITHUB_PATH of its own job): the pinned scripts re-check the agents' token and the guard workflows, and that the
+    # agents' account did nothing outside this repository in the last day (the token can comment anywhere).
+    needs: shift
+    if: always() && needs.shift.result != 'skipped' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN_V2 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: After the shift, the agents' token is still its own, the guard workflows are active and main passed the main guard
+        run: bash scripts/check-agent-token.sh .github/accounts.txt
+      - name: After the shift, the agents' account did nothing outside this repository in the last 24 hours
+        # A rolling day, not "since the shift started": the events feed can lag, so the check before the next shift sees
+        # what this one missed.
+        run: bash scripts/check-agent-events.sh .github/accounts.txt "$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"

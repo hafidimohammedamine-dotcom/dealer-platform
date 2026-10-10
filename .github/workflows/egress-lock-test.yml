@@ -1,0 +1,82 @@
+# Proves the agent egress lock on a real runner whenever it or the agent workflows change (founder-owned).
+# Runs the PR's own lock code, so it gets NO secrets and a read-only token. The lock's self-test fails the job if an allowed
+# host is unreachable, or if a blocked host, another name on an allowed IP (SNI), a raw IP, plain HTTP, outside DNS, IPv6,
+# sudo or Docker still works. A second job breaks the self-test on purpose and must see the lock fail. The id-token (OIDC)
+# job runs from main only (egress-lock-claude.yml): a PR must never run its own lock code next to an OIDC token.
+# The Claude part (real claude-code-action under the lock, Skill(payload) deny probe) needs a token, so it runs only from
+# main: .github/workflows/egress-lock-claude.yml.
+name: Agent egress lock test
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/actions/agent-egress-lock/**"
+      - ".github/actions/install-gitleaks/**"
+      - ".github/workflows/egress-lock-*.yml"
+      # Not listed on purpose: .github/pins.txt and .github/accounts.txt (this workflow runs PR code and is pins_exempt;
+      # the pins are checked by the workflow checker in CI and guards), scripts/check-egress-lock.test.sh (the unit test runs
+      # in CI, not here) and scripts/check-agent-token.sh (not part of the lock: the manager runs it, its test runs in CI).
+      - ".github/workflows/agent-*.yml"
+      - ".github/workflows/claude.yml"
+      - ".github/workflows/review.yml"
+      - "scripts/check-workflows*"
+permissions:
+  contents: read
+concurrency:
+  group: egress-lock-test-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - name: Still locked in a later step; the agents' tools still work
+        env:
+          GH_TOKEN: ${{ github.token }}   # read-only job token, to prove git through gh's credential helper works (manager push path)
+          BUN: ${{ steps.lock.outputs.bun-path }}
+        run: |
+          set -u
+          fail=0
+          for u in https://example.com https://storage.googleapis.com https://gist.github.com; do
+            if curl -sS -o /dev/null --max-time 8 "$u" 2>/dev/null; then echo "::error::$u reachable"; fail=1; fi
+          done
+          if sudo -n true 2>/dev/null; then echo "::error::sudo works"; fail=1; fi
+          curl -fsS -o /dev/null --max-time 20 https://registry.npmjs.org/ || { echo "::error::npm registry not reachable"; fail=1; }
+          (cd "$(mktemp -d)" && corepack yarn@4.18.1 --version) || { echo "::error::corepack/yarn download failed"; fail=1; }
+          { gh auth setup-git && git ls-remote origin HEAD >/dev/null; } || { echo "::error::git through gh auth setup-git failed"; fail=1; }
+          bwrap --unshare-pid --ro-bind / / true || { echo "::error::bubblewrap does not start"; fail=1; }
+          # Tools still work inside bubblewrap under the child profile (/dev bound after the read-only root).
+          bwrap --unshare-user --unshare-pid --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp \
+            bash -c 'git --version && python3 -c 1 && node --version && echo x > /dev/null && curl -sS -o /dev/null https://api.github.com/zen' \
+            || { echo "::error::tools do not work inside bubblewrap"; fail=1; }
+          if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then echo "::error::bubblewrap's children can create user namespaces"; fail=1; fi
+          [ -x /tmp/gitleaks ] && /tmp/gitleaks version || { echo "::error::the lock did not install gitleaks"; fail=1; }
+          "$BUN" --version || { echo "::error::the lock did not install Bun"; fail=1; }
+          exit "$fail"
+  break-on-purpose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - id: lock
+        continue-on-error: true
+        env:
+          AGENT_LOCK_SELFTEST_BREAK: "1"
+        uses: ./.github/actions/agent-egress-lock
+      - name: The self-test must have failed because of the deliberate break, and nothing else
+        # Every other check passed on this runner (a failed download, install or hash would show up as another line or no
+        # output at all); only the deliberate break failed.
+        env:
+          OUTCOME: ${{ steps.lock.outcome }}
+          FAILED: ${{ steps.lock.outputs.failed-checks }}
+        run: |
+          echo "lock outcome: $OUTCOME"; echo "failed checks: $FAILED"
+          [ "$OUTCOME" = failure ]
+          [ "$(printf '%s' "$FAILED" | sed '/^$/d')" = "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)" ]

@@ -133,10 +133,11 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 - Run `yarn test` locally. The log names the failing test file, or the coverage line that is under 90%.
 - Add tests for new code. Do not lower the threshold in `vitest.config.ts`. That is a founder decision.
 - Config tests in `infra/checks` also run here. They check `tsconfig.base.json`, every workspace's scripts, the
-  `.env.example` keys, and `.yarnrc.yml`. The `.yarnrc.yml` check parses the file as YAML. It allows only `nodeLinker`,
-  `enableTelemetry: false` and `enableScripts: false`, so a registry, scope, proxy or SSL setting fails. It also fails
-  on a duplicate key, on a second `.yarnrc.yml` anywhere in the repo, and on `dependenciesMeta` with `built: true` in any
-  `package.json`.
+  `.env.example` keys, and `.yarnrc.yml`. The `.yarnrc.yml` check parses the file as YAML. It requires `nodeLinker: node-modules`
+  and `enableScripts: false`, allows `enableTelemetry: false`, and allows `dependenciesMeta` only in the founder-approved
+  shape (`"<package>@<exact version>": { built: true }`, see the file's header), so a registry, scope, proxy or SSL
+  setting fails. It also fails on a duplicate key, on a second `.yarnrc.yml` anywhere in the repo, and on
+  `dependenciesMeta` with `built: true` in any `package.json` (the founder-owned `.yarnrc.yml` is the only place).
 
 ### Build fails
 

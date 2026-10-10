@@ -2,16 +2,44 @@ import { parse } from 'yaml';
 import { isRecord } from './repo.js';
 
 /**
- * The only settings `.yarnrc.yml` may hold, with their required values. Anything else (a registry,
- * scope, proxy, SSL or auth setting, or scripts turned back on) fails the check.
+ * The settings `.yarnrc.yml` must hold, with their required values. The file is founder-owned and pinned
+ * (`.github/pins.txt`), so this check follows it, not the other way round.
  */
 export const requiredYarnrc: Readonly<Record<string, unknown>> = {
   nodeLinker: 'node-modules',
-  enableTelemetry: false,
   enableScripts: false,
 };
 
-/** Problems with the text of `.yarnrc.yml`. Empty when it matches `requiredYarnrc` exactly. */
+/** Settings `.yarnrc.yml` may hold, with the only value allowed for each. */
+export const optionalYarnrc: Readonly<Record<string, unknown>> = {
+  enableTelemetry: false,
+};
+
+/** `dependenciesMeta` keys: one exact package version (`name@1.2.3`, scoped or not). */
+const builtEntryKey = /^(@[^@/\s]+\/)?[^@/\s]+@\d+\.\d+\.\d+$/;
+
+/**
+ * Problems with `dependenciesMeta` in `.yarnrc.yml`. A founder may allow one package its build script
+ * there (CLAUDE.md, `.yarnrc.yml` header): each entry is an exact version mapped to exactly `{ built: true }`.
+ * Anything else (a range, another key, `built: false` as noise) fails.
+ */
+function yarnrcDependenciesMetaProblems(meta: unknown): string[] {
+  if (!isRecord(meta)) return ['.yarnrc.yml: dependenciesMeta must be an object'];
+  const problems: string[] = [];
+  for (const [key, value] of Object.entries(meta)) {
+    if (!builtEntryKey.test(key)) {
+      problems.push(`.yarnrc.yml: dependenciesMeta key must be an exact package version: ${key}`);
+      continue;
+    }
+    const keys = isRecord(value) ? Object.keys(value) : [];
+    if (!isRecord(value) || keys.length !== 1 || value['built'] !== true) {
+      problems.push(`.yarnrc.yml: dependenciesMeta entry must be exactly { built: true }: ${key}`);
+    }
+  }
+  return problems;
+}
+
+/** Problems with the text of `.yarnrc.yml`. Empty when it holds `requiredYarnrc`, at most `optionalYarnrc` and a valid `dependenciesMeta`. */
 export function yarnrcProblems(text: string): string[] {
   let doc: unknown;
   try {
@@ -23,10 +51,17 @@ export function yarnrcProblems(text: string): string[] {
   if (!isRecord(doc)) return ['.yarnrc.yml: must be a mapping of settings'];
   const problems: string[] = [];
   for (const key of Object.keys(doc)) {
-    if (!(key in requiredYarnrc)) problems.push(`.yarnrc.yml: setting not allowed: ${key}`);
+    if (key === 'dependenciesMeta') problems.push(...yarnrcDependenciesMetaProblems(doc[key]));
+    else if (!(key in requiredYarnrc) && !(key in optionalYarnrc)) {
+      problems.push(`.yarnrc.yml: setting not allowed: ${key}`);
+    }
   }
   for (const [key, value] of Object.entries(requiredYarnrc)) {
     if (doc[key] !== value) problems.push(`.yarnrc.yml: ${key} must be ${String(value)}`);
+  }
+  for (const [key, value] of Object.entries(optionalYarnrc)) {
+    if (key in doc && doc[key] !== value)
+      problems.push(`.yarnrc.yml: ${key} must be ${String(value)}`);
   }
   return problems;
 }

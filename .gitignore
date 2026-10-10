@@ -11,3 +11,4 @@ coverage/
 *.tsbuildinfo
 # Builder worktrees used by the manager
 .worktrees/
+__pycache__/

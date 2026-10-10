@@ -1,0 +1,249 @@
+{
+ "_comment": "Founder-owned policy for scripts/check-workflows.py. Rules and messages: docs/runbooks/workflow-checker.md.",
+ "claude_actions": [
+  "anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b"
+ ],
+ "lock_action": "./.github/actions/agent-egress-lock",
+ "local_actions": [
+  "./.github/actions/agent-egress-lock",
+  "./.github/actions/install-gitleaks"
+ ],
+ "claude_inputs": [
+  "allowed_bots",
+  "claude_args",
+  "claude_code_oauth_token",
+  "classify_inline_comments",
+  "github_token",
+  "path_to_bun_executable",
+  "path_to_claude_code_executable",
+  "prompt"
+ ],
+ "claude_inputs_required": {
+  "classify_inline_comments": "false"
+ },
+ "allowed_bots": {
+  "agent-manager.yml": "github-actions"
+ },
+ "claude_flags": [
+  "--add-dir",
+  "--allowedTools",
+  "--disallowedTools",
+  "--max-turns",
+  "--model",
+  "--permission-mode"
+ ],
+ "claude_step_keys": [
+  "env",
+  "id",
+  "if",
+  "name",
+  "timeout-minutes",
+  "uses",
+  "with"
+ ],
+ "default_refs": [
+  "${{ github.event.repository.default_branch }}",
+  "main"
+ ],
+ "base_ref": "${{ github.base_ref }}",
+ "manager": "agent-manager.yml",
+ "read_only_tools": [
+  "Agent",
+  "Glob",
+  "Grep",
+  "Read(./**)",
+  "Skill",
+  "Task",
+  "TodoWrite"
+ ],
+ "read_only_bash": [
+  "Bash(date -u)",
+  "Bash(gh issue list:*)",
+  "Bash(gh issue view:*)",
+  "Bash(gh pr diff:*)",
+  "Bash(gh pr list:*)",
+  "Bash(gh pr view:*)",
+  "Bash(gh run list:*)"
+ ],
+ "add_dirs": {
+  "review.yml": [
+   "/tmp/pr",
+   "/tmp/pr-meta"
+  ],
+  "agent-weekly-audit.yml": [
+   "/tmp/audit-meta"
+  ]
+ },
+ "job_env": [
+  "BASE_REF",
+  "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+  "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+  "GH_TOKEN",
+  "HEAD_SHA",
+  "PR_NUMBER",
+  "YARN_ENABLE_SCRIPTS"
+ ],
+ "manager_env_required": {
+  "YARN_ENABLE_SCRIPTS": "false"
+ },
+ "manager_denies": [
+  "Bash(npx:*)",
+  "Bash(npm:*)",
+  "Bash(yarn dlx:*)",
+  "Bash(yarn create:*)",
+  "Bash(node -e:*)",
+  "Bash(node --eval:*)",
+  "Bash(node -p:*)",
+  "Bash(node --print:*)",
+  "Bash(curl:*)",
+  "Bash(wget:*)",
+  "Bash(sudo:*)",
+  "Bash(env:*)",
+  "Bash(printenv:*)",
+  "Bash(git push --force:*)",
+  "Bash(git push -f:*)",
+  "Bash(gh pr merge:*)",
+  "Bash(gh api -X DELETE:*)",
+  "Bash(gh secret:*)",
+  "Bash(gh auth:*)",
+  "Bash(gh api:*)",
+  "Bash(gh gist:*)",
+  "Bash(gh repo:*)",
+  "Bash(gh workflow:*)",
+  "Bash(gh run cancel:*)",
+  "Bash(gh run delete:*)",
+  "Bash(yarn npm publish:*)",
+  "Bash(yarn npm login:*)"
+ ],
+ "claude_denies": [
+  "WebFetch",
+  "WebSearch",
+  "Read(//proc/**)",
+  "Read(//sys/**)",
+  "Read(//home/runner/work/_temp/**)",
+  "Read(//home/runner/.*/**)",
+  "Read(//etc/**)",
+  "Read(//dev/**)",
+  "Read(//home/runner/runners/**)",
+  "Read(./.git/**)"
+ ],
+ "claude_github_token": {
+  "default": "${{ github.token }}",
+  "agent-manager.yml": "${{ secrets.AGENT_GH_TOKEN_V2 }}"
+ },
+ "always_denied_skills": [
+  "payload"
+ ],
+ "checkout_keys": [
+  "fetch-depth",
+  "persist-credentials",
+  "ref"
+ ],
+ "extra_tools": {
+  "egress-lock-claude.yml": [
+   "Bash(bash scripts/check-scrub-probe.sh)"
+  ],
+  "review.yml": [
+   "Read(//tmp/pr/**)",
+   "Read(//tmp/pr-meta/**)"
+  ],
+  "agent-weekly-audit.yml": [
+   "Read(//tmp/audit-meta/**)"
+  ]
+ },
+ "pr_data_runs": [
+  "bash scripts/check-review-prepare.sh \"$PR_NUMBER\" /tmp/pr \"origin/$BASE_REF\" origin \"$HEAD_SHA\""
+ ],
+ "runs_on": "ubuntu-latest",
+ "permission_scopes": [
+  "actions",
+  "contents",
+  "issues",
+  "pull-requests"
+ ],
+ "per_file_permission_scopes": {
+  "id-token": [
+   "egress-lock-claude.yml"
+  ],
+  "statuses": [
+   "main-guard.yml",
+   "pusher-ledger.yml"
+  ]
+ },
+ "permission_values": [
+  "none",
+  "read",
+  "write"
+ ],
+ "tag_mode_triggers": [
+  "issue_comment",
+  "issues"
+ ],
+ "tag_mode_job_if": "!github.event.issue.pull_request",
+ "post_pin_check": "sha256sum --check --strict",
+ "agent_token_secret": "AGENT_GH_TOKEN_V2",
+ "agent_token_guard": "bash scripts/check-agent-token.sh .github/accounts.txt",
+ "agent_token_required_in": [
+  "agent-manager.yml"
+ ],
+ "rerun_guard": "github.run_attempt == '1'",
+ "main_head_guard": "bash scripts/check-main-head.sh",
+ "pre_claude_run": "^bash scripts/check-[a-z0-9-]+\\.sh( (?:[^\\n&|;<>`$]|\\$(?!\\())*)?$",
+ "pre_claude_run_allowed_substitutions": ["$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"],
+ "pre_claude_actions": {
+  "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093": ["name", "path"]
+ },
+ "checker_test_fixtures": ["t.yml", "s.yml", "p.yml"],
+ "stop_workflows": [
+  "agent-manager.yml",
+  "review.yml",
+  "claude.yml",
+  "agent-daily-report.yml",
+  "agent-weekly-audit.yml",
+  "egress-lock-claude.yml",
+  "pusher-ledger.yml",
+  "guards.yml"
+ ],
+ "after_shift": {
+  "agent-manager.yml": {
+   "job": "after",
+   "needs": "shift",
+   "if": "always() && needs.shift.result != 'skipped' && github.run_attempt == '1'",
+   "runs": [
+    "bash scripts/check-agent-token.sh .github/accounts.txt",
+    "bash scripts/check-agent-events.sh .github/accounts.txt \"$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)\""
+   ]
+  }
+ },
+ "id_gated": {
+  "agent-daily-report.yml": "founder",
+  "agent-manager.yml": "founder",
+  "agent-weekly-audit.yml": "founder",
+  "claude.yml": "founder",
+  "egress-lock-claude.yml": "founder",
+  "review.yml": "agent"
+ },
+ "pins_file": ".github/pins.txt",
+ "pins_step_name": "The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)",
+ "pins_step_run": "echo \"$PINS_SHA256  .github/pins.txt\" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\nbash scripts/check-pins.sh verify\n",
+ "pins_step_run_default_branch": "h=$(sed -n -E 's/^ *PINS_SHA256: \"([0-9a-f]{64})\".*/\\1/p' .github/workflows/guards.yml | head -n1)\necho \"$h  .github/pins.txt\" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\nbash scripts/check-pins.sh verify\n",
+ "pins_default_branch_workflows": [
+  "pusher-ledger.yml"
+ ],
+ "pins_exempt": [
+  "ci.yml",
+  "egress-lock-test.yml"
+ ],
+ "pins_required": {
+  "dirs": [".github/actions"],
+  "globs": ["scripts/check-*"],
+  "files": [".gitleaks.toml", ".github/accounts.txt", ".yarnrc.yml"],
+  "exclude_suffixes": [".test.sh", "testlib.sh"],
+  "rule_files": ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json"],
+  "rule_dirs": [".claude"],
+  "skip_dirs": [".git", ".worktrees", "node_modules"]
+ },
+ "read_only_workflows": [
+  "agent-manager.yml"
+ ]
+}

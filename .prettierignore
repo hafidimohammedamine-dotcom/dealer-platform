@@ -8,3 +8,6 @@ CLAUDE.md
 SETUP.md
 # Founder-only files (formatted by founders, never by agents)
 .github
+scripts/check-*
+scripts/gitleaks-config*
+.gitleaks.toml

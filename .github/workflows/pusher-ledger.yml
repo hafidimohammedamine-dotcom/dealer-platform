@@ -1,0 +1,40 @@
+# Records who pushed every commit on every branch but main (founder-owned file). GitHub keeps no durable "pusher" per
+# commit and a commit's author can be forged, so this job writes its own record from the push event's sender (trusted): one
+# `guards/pusher` commit status per commit, signed with the GUARDS_LEDGER_KEY secret (scripts/check-pushers.sh). It runs on
+# the push itself, so a commit pushed before a pull request exists is recorded too; opening a PR records nothing. No
+# concurrency group: every push gets its own run. The workflow file comes from the pushed branch (the agents' token cannot
+# change workflow files); the scripts come from the default branch, pinned. guards.yml reads the ledger back and refuses
+# founder-only changes unless every commit was pushed by a founder.
+name: Pusher ledger
+run-name: "Pusher ledger ${{ github.ref_name }} by user ID ${{ github.event.sender.id }}"
+on:
+  push:
+    branches-ignore: [main]   # every branch a pull request can come from; main has its own guard
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  record:
+    if: github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the default branch (scripts), never the pushed branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        # This job runs on a pushed branch but checks out the default branch, so the expected hash comes from the default
+        # branch's own guards.yml (the agents' token cannot change workflow files), not from this file's env.
+        run: |
+          h=$(sed -n -E 's/^ *PINS_SHA256: "([0-9a-f]{64})".*/\1/p' .github/workflows/guards.yml | head -n1)
+          echo "$h  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: Record the commits this push brought (GitHub's list of what is new) as this push's sender
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
+        run: bash scripts/check-pushers.sh record "$GITHUB_EVENT_PATH"

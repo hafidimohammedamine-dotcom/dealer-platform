@@ -3,6 +3,7 @@ import { parseEnvTemplate } from './repo.js';
 import {
   dependenciesMetaProblems,
   envValueProblems,
+  optionalYarnrc,
   requiredYarnrc,
   yarnrcProblems,
 } from './checks.js';
@@ -10,10 +11,52 @@ import {
 const good = 'nodeLinker: node-modules\nenableTelemetry: false\nenableScripts: false\n';
 
 describe('yarnrcProblems', () => {
-  it('accepts exactly the allowed settings', () => {
-    expect(Object.keys(requiredYarnrc)).toEqual(['nodeLinker', 'enableTelemetry', 'enableScripts']);
+  it('accepts exactly the allowed settings, with or without the optional ones', () => {
+    expect(Object.keys(requiredYarnrc)).toEqual(['nodeLinker', 'enableScripts']);
+    expect(Object.keys(optionalYarnrc)).toEqual(['enableTelemetry']);
     expect(yarnrcProblems(good)).toEqual([]);
     expect(yarnrcProblems(good.replace(/\n/g, '\r\n'))).toEqual([]);
+    expect(yarnrcProblems(good.replace('enableTelemetry: false\n', ''))).toEqual([]);
+  });
+
+  it('accepts a comment-only header and the founder-approved built entries', () => {
+    const header =
+      '# founder-owned\n# dependenciesMeta:\n#   "<package>@<version>":\n#     built: true\n';
+    expect(yarnrcProblems(`${header}${good}`)).toEqual([]);
+    const built =
+      'dependenciesMeta:\n  "esbuild@0.25.0":\n    built: true\n  "@scope/pkg@1.2.3":\n    built: true\n';
+    expect(yarnrcProblems(`${good}${built}`)).toEqual([]);
+  });
+
+  it.each([
+    [
+      'a version range',
+      '"esbuild@^0.25.0":\n    built: true',
+      'key must be an exact package version: esbuild@^0.25.0',
+    ],
+    ['no version', '"esbuild":\n    built: true', 'key must be an exact package version: esbuild'],
+    [
+      'built false',
+      '"esbuild@0.25.0":\n    built: false',
+      'entry must be exactly { built: true }: esbuild@0.25.0',
+    ],
+    [
+      'another key',
+      '"esbuild@0.25.0":\n    built: true\n    optional: true',
+      'entry must be exactly { built: true }: esbuild@0.25.0',
+    ],
+    [
+      'not an object',
+      '"esbuild@0.25.0": true',
+      'entry must be exactly { built: true }: esbuild@0.25.0',
+    ],
+  ])('rejects a dependenciesMeta entry with %s', (_name, entry, message) => {
+    expect(yarnrcProblems(`${good}dependenciesMeta:\n  ${entry}\n`)).toEqual([
+      `.yarnrc.yml: dependenciesMeta ${message}`,
+    ]);
+    expect(yarnrcProblems(`${good}dependenciesMeta: []\n`)).toEqual([
+      '.yarnrc.yml: dependenciesMeta must be an object',
+    ]);
   });
 
   it('catches scripts turned on, missing or commented out', () => {

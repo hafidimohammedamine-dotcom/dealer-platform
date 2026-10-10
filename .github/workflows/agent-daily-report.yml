@@ -7,49 +7,93 @@ on:
 
 jobs:
   report:
+    # The schedule, or a founder's manual run (the agents' token could otherwise start it: each run spends Claude turns).
+    if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
     permissions:
       contents: read
-      issues: write   # used only by the fixed post step
+      issues: read
       pull-requests: read
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
+      GH_TOKEN: ${{ github.token }}   # read-only job token
+    outputs:
+      answer: ${{ steps.answer.outputs.answer }}
+      has_result: ${{ steps.answer.outputs.has_result }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: main   # always the default branch
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push runs next to a Claude token)
+        run: bash scripts/check-main-head.sh
+      - id: lock
+        # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
+        uses: ./.github/actions/agent-egress-lock
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW }}
+          # the action's post-session step "Post buffered inline comments" (it holds the GitHub token after Claude ran) is off
+          classify_inline_comments: "false"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
           prompt: "/daily-report"
           claude_args: |
             --model haiku
             --max-turns 40
-            --allowedTools "Read,Grep,Glob,TodoWrite,Skill,Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh run list:*),Bash(date:*)"
-            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --allowedTools "Read(./**),Grep,Glob,TodoWrite,Skill,Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh run list:*),Bash(date -u)"
+            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
           # Allow-list: read-only. The report is the final answer; the next step scans and posts it.
-      - name: Show blocked tool calls (names and commands only)
-        if: always() && steps.claude.outputs.execution_file != ''
-        env:
-          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: |
-          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
-            "$EXEC_FILE" || true
-      - uses: ./.github/actions/install-gitleaks
+      - name: Show blocked tool calls and hand the answer to the post job (pinned script)
+        id: answer
         if: always()
-      - name: Post the report (secret-scanned) to the "Daily reports" issue
-        if: always() && steps.claude.outputs.execution_file != ''
         env:
-          GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
         run: |
           set -euo pipefail
-          n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
-          [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
-          bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+          bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"
+  post:
+    # The only job with a write scope; runs no Claude and reads only the answer (data) and main's post script.
+    needs: report
+    if: always() && needs.report.outputs.has_result == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - uses: ./.github/actions/install-gitleaks
+      - name: Post the report (secret-scanned) to the "Daily reports" issue
+        env:
+          ANSWER: ${{ needs.report.outputs.answer }}
+        run: bash scripts/check-review-post.sh daily-reports

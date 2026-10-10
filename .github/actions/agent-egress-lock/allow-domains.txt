@@ -1,0 +1,16 @@
+# Outbound HTTPS allow-list for agent jobs (founder-owned). One host name per line, matched against the TLS server name
+# (SNI) by a local proxy. Exact names only (no wildcards); the lock adds this run's own OIDC host when the job has
+# id-token: write.
+# Keep it to exact hosts: github.com itself stays open (git push, API), so gist.github.com, uploads.github.com and others do not.
+# GitHub: git and API. No release storage (objects./release-assets.githubusercontent.com) and no Azure blob names: both
+# answered for other hosts in the domain-fronting test (docs/runbooks/agent-network-lock.md); the lock installs gitleaks,
+# Claude Code and Bun before it closes, and the runner's log upload worked without them.
+github.com
+api.github.com
+codeload.github.com
+# Claude
+api.anthropic.com
+# Package registries (yarn install, the claude-code-action's own `bun install`, corepack's Yarn download)
+registry.npmjs.org
+registry.yarnpkg.com
+repo.yarnpkg.com
