@@ -3,12 +3,12 @@
 set -uo pipefail
 PY="$(cd "$(dirname "$0")" && pwd)/check-claude-probe.py"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 W=$(mktemp -d "$TMPROOT/cp.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 run() { # run <rc> <name> <mode> <json> <message>
   printf '%s' "$4" > "$W/e.json"
   out=$(python3 -I "$PY" "$3" "$W/e.json" 2>&1); rc=$?
-  if [ "$rc" = "$1" ] && grep -qF -- "$5" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"; else failed=$((failed+1)); echo "FAIL  $2 (rc=$rc)"; echo "$out"; fi; }
+  if [ "$rc" = "$1" ] && grep -qF -- "$5" <<<"$out"; then t PASS "$2"; else t FAIL "$2 (rc=$rc)"; echo "$out"; fi; }
 DENY='{"tool_name":"Skill","tool_input":{"skill":"payload"}}'
 run 0 "skill denied and Claude answered" skill-deny "[{\"type\":\"result\",\"result\":\"EGRESS-LOCK-OK SKILL-DENIED\",\"permission_denials\":[$DENY]}]" "result: EGRESS-LOCK-OK"
 run 1 "no denial recorded" skill-deny '[{"type":"result","result":"EGRESS-LOCK-OK","permission_denials":[]}]' "denials: []"
@@ -29,8 +29,7 @@ run 0 "several denials, one of them the payload skill" skill-deny "[{\"type\":\"
 run 1 "a non-Skill tool with skill=payload in its input is not the deny" skill-deny '[{"type":"result","result":"EGRESS-LOCK-OK","permission_denials":[{"tool_name":"Bash","tool_input":{"skill":"payload"}}]}]' "denials:"
 run 1 "the last result message decides" skill-deny "[{\"type\":\"result\",\"result\":\"EGRESS-LOCK-OK\",\"permission_denials\":[$DENY]},{\"type\":\"result\",\"result\":\"EGRESS-LOCK-OK\",\"permission_denials\":[]}]" "denials: []"
 out=$(python3 -I "$PY" skill-deny "$W/missing.json" 2>&1); rc=$?
-if [ $rc = 2 ] && grep -qF "cannot read the execution file" <<<"$out"; then pass=$((pass+1)); echo "PASS  missing file (an empty \$EXEC_FILE)"; else failed=$((failed+1)); echo "FAIL  missing file (rc=$rc)"; echo "$out"; fi
+if [ $rc = 2 ] && grep -qF "cannot read the execution file" <<<"$out"; then t PASS "missing file (an empty \$EXEC_FILE)"; else t FAIL "missing file (rc=$rc)"; echo "$out"; fi
 out=$(python3 -I "$PY" skill-deny "$W/e.json" extra 2>&1); rc=$?
-if [ $rc = 2 ] && grep -qF "usage:" <<<"$out"; then pass=$((pass+1)); echo "PASS  extra argument"; else failed=$((failed+1)); echo "FAIL  extra argument (rc=$rc)"; fi
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+if [ $rc = 2 ] && grep -qF "usage:" <<<"$out"; then t PASS "extra argument"; else t FAIL "extra argument (rc=$rc)"; fi
+summary

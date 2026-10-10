@@ -3,21 +3,21 @@
 set -uo pipefail
 PY="$(cd "$(dirname "$0")" && pwd)/check-skill-deletions.py"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 run() { # run <ok|fail> <name> <upstream text (printf)> <removed numbers> <message> [extra args]
   local want=$1 name=$2 text=$3 nums=$4 msg=$5; shift 5
   D=$(mktemp -d "$TMPROOT/sd.XXXXXX") || exit 2
   printf "$text" > "$D/up.md"
   out=$(printf '%s\n' $nums | python3 -I "$PY" "$D/up.md" "$@" 2>&1); rc=$?
   got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"
-  else failed=$((failed+1)); echo "FAIL  $name ($got, rc=$rc)"; echo "$out"; fi
+  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"
+  else t FAIL "$name ($got, rc=$rc)"; echo "$out"; fi
   rm -rf "$D"; }
 # Arguments and input
 D0=$(mktemp -d "$TMPROOT/sd.XXXXXX"); out=$(python3 -I "$PY" 2>&1); rc=$?
-if [ $rc = 2 ] && grep -q "usage:" <<<"$out"; then pass=$((pass+1)); echo "PASS  usage error"; else failed=$((failed+1)); echo "FAIL  usage error"; fi
+if [ $rc = 2 ] && grep -q "usage:" <<<"$out"; then t PASS "usage error"; else t FAIL "usage error"; fi
 out=$(python3 -I "$PY" a b 2>&1); rc=$?
-if [ $rc = 2 ] && grep -q "usage:" <<<"$out"; then pass=$((pass+1)); echo "PASS  two files is a usage error"; else failed=$((failed+1)); echo "FAIL  two files"; fi
+if [ $rc = 2 ] && grep -q "usage:" <<<"$out"; then t PASS "two files is a usage error"; else t FAIL "two files"; fi
 rm -rf "$D0"
 run fail "removed line number not a number"  'a\nb\n' 'x' "bad removed line number 'x'"
 run fail "removed line number past the end"  'a\nb\n' '3' "bad removed line number '3'"
@@ -46,6 +46,8 @@ run ok   "numbered list item"                'x\n1. one\n2. two\n' '2' ''
 run fail "list item with a rule word"        'x\n- always set access\n' '2' "table row or list item with a warning or rule word"
 run ok   "plain table row"                   '| a |\n|---|\n| b |\n' '3' ''
 run fail "table row with a warning mark"     '| a |\n|---|\n| ❌ b |\n' '3' "warning or rule word"
+run fail "a loose | line is not a table row"  'x\n| not a table\n' '2' "not part of a whole section, code block, table row or list item"
+run fail "| rows without a separator row"     '| a |\n| b |\n' '2' "not part of a whole section"
 run ok   "list item with its continuation lines" 'x\n- one\n  more of one\n- two\n' '2 3' ''
 run fail "only the continuation line of a list item" 'x\n- one\n  more of one\n- two\n' '3' "part of a list item (lines 2-3; remove it whole)"
 run fail "only the marker line of a list item" 'x\n- one\n  more of one\n- two\n' '2' "part of a list item"
@@ -77,17 +79,16 @@ run fail "whole table with a rule word, not reviewed" 'x\n| a |\n|---|\n| must b
 RV2=$(mktemp -d "$TMPROOT/sd.XXXXXX"); printf 'up.md:2\nup.md:0\n' > "$RV2/rev"
 run ok   "whole table with a rule word, reviewed" 'x\n| a |\n|---|\n| must b |\n' '2 3 4' "REVIEWED up.md:2" --label up.md --reviewed "$RV2/rev"
 run fail "body row with a rule word"        '| a |\n|---|\n| b |\n| never c |\n' '4' "warning or rule word"
-run ok   "pipe lines without a separator are not a table header" 'x\n| a\n| b\n' '2' ''
+run fail "pipe lines without a separator are not a table (and not a unit)" 'x\n| a\n| b\n' '2' "not part of a whole section"
 run ok   "whole file without rule words"    'just text\n' '' '' --whole-file
 run fail "whole file with a rule word, not reviewed" 'text\nmust do\n' '' "add 'up.md:0' to the reviewed list" --whole-file --label up.md
 run ok   "whole file with a rule word, reviewed" 'text\nmust do\n' '' "REVIEWED up.md:0" --whole-file --label up.md --reviewed "$RV2/rev"
 run ok   "empty whole file"                 '' '' '' --whole-file
 out=$(python3 -I "$PY" /nonexistent/up.md </dev/null 2>&1); rc=$?
-if [ $rc = 2 ] && grep -q "cannot read /nonexistent/up.md" <<<"$out"; then pass=$((pass+1)); echo "PASS  missing upstream file"; else failed=$((failed+1)); echo "FAIL  missing upstream file"; echo "$out"; fi
+if [ $rc = 2 ] && grep -q "cannot read /nonexistent/up.md" <<<"$out"; then t PASS "missing upstream file"; else t FAIL "missing upstream file"; echo "$out"; fi
 run fail "lazy continuation line (not indented) is not part of the item" 'x\n- one\nlazy text\n- two\n' '2 3' "not part of a whole section, code block, table row or list item"
 run fail "heading indented 4 spaces is not a heading" '# T\n    ## not a heading\ntext\n' '2' "not part of a whole section"
 run ok   "section that holds a code fence counts as one reviewed unit" '# T\n## Sec\n```\nnever x\n```\n## B\nb\n' '2 3 4 5' "REVIEWED up.md:2" --label up.md --reviewed "$RV2/rev"
 run fail "the fence inside a reviewed section still needs the whole section" '# T\n## Sec\nkeep\n```\nnever x\n```\n## B\n' '4 5 6' "not in the reviewed list (add 'up.md:4'" --label up.md --reviewed "$RV2/rev"
 rm -rf "$RV2"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+summary

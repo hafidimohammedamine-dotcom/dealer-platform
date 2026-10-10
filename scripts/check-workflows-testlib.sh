@@ -6,13 +6,13 @@ PY="$(cd "$(dirname "$0")" && pwd)/check-workflows.py"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMPROOT="${TMPDIR:-/tmp}"
 W=.github/workflows
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 fresh() { T=$(mktemp -d "$TMPROOT/cw.XXXXXX") || exit 2; mkdir -p "$T/.github"; cp -r "$REPO/$W" "$T/.github/"; cp "$REPO/.github/accounts.txt" "$T/.github/"; }
 expect() { # expect <ok|fail> <name> <message> [extra args]
   local want=$1 name=$2 msg=$3; shift 3
   out=$(bash "$SCRIPT" "$T" "$@" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"
-  else failed=$((failed+1)); echo "FAIL  $name ($got)"; echo "$out"; fi; rm -rf "$T"; }
+  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"
+  else t FAIL "$name ($got)"; echo "$out"; fi; rm -rf "$T"; }
 drop() { python3 - "$T/$W/$1" "$2" <<'EOF'
 import sys
 p, item = sys.argv[1], sys.argv[2]
@@ -56,7 +56,7 @@ jobs:
         run: echo "steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude"
 EOF
 }
-t() { fresh; mk; }   # fresh copy of the real workflows plus the small fixture
+fx() { fresh; mk; }   # fresh copy of the real workflows plus the small fixture
 
 before() { python3 - "$T/$W/t.yml" "$1" <<'PYEOF'
 import sys; p, add = sys.argv[1], sys.argv[2]; s = open(p).read()

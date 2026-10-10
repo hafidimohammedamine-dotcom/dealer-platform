@@ -34,4 +34,7 @@ if [ "$kind" = fine-grained ]; then
 else
   [ "$(tr -d ' ' <<<"$scopes")" = repo ] || { echo "ERROR: the classic GH_TOKEN must have exactly the scope 'repo' (has: '${scopes:-none}'); no workflow, admin or other scopes."; exit 1; }
 fi
-echo "Agent token OK: $kind, runs as agent account '$login'"
+# The agents' account must own nothing: a repository of its own (a fork included) would be a place to push code or data out.
+owned=$("$GH" api 'user/repos?type=owner&per_page=100' --jq '[.[].full_name] | join(", ")' 2>/dev/null) || { echo "ERROR: could not list the agent account's own repositories."; exit 1; }
+[ -z "$owned" ] || { echo "ERROR: the agents' account '$login' owns repositories ($owned); it must own none. A founder checks what was pushed there, deletes them and revokes the token if anything of ours left the repository."; exit 1; }
+echo "Agent token OK: $kind, runs as agent account '$login', owns no repositories"

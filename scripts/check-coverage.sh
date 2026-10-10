@@ -2,8 +2,9 @@
 # Runs every guard script test and measures line coverage of the guard scripts (founder-owned). Used by ci.yml.
 # Usage: bash scripts/check-coverage.sh [min-percent]   (default 90; each script must reach it on its own)
 #   - bash scripts: xtrace through a BASH_ENV hook into one trace file, scored by scripts/check-coverage.py;
-#   - Python scripts: coverage.py (pinned with hashes in scripts/check-coverage-requirements.txt) in a private venv, put in
-#     front of PATH as `python3` only for the tests.
+#   - Python scripts: coverage.py (pinned with hashes in scripts/check-python-requirements.txt, installed by
+#     scripts/check-python-deps.sh into a private venv without system site-packages), put in front of PATH as `python3`
+#     only for the tests.
 # A failing test fails this script before any coverage is reported. Rules and messages: docs/runbooks/ci-guards.md.
 set -euo pipefail
 MIN="${1:-90}"
@@ -12,7 +13,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TESTS=(check-founder-files check-skills check-skill-upstream check-skill-deletions check-skills-upstream-all
        check-skills-vs-base check-skills-lib check-workflows check-egress-lock check-review-prepare check-pr-ci-status
        check-review-post check-agent-token check-scrub-probe check-claude-probe check-coverage check-coverage-sh
-       check-workflows-people
+       check-workflows-people check-python-deps check-pushers check-main-push
        gitleaks-config)
 # COV_TESTS / COV_VENV: only for scripts/check-coverage-sh.test.sh (a small tree of its own, one shared venv).
 [ -z "${COV_TESTS:-}" ] || read -r -a TESTS <<<"$COV_TESTS"
@@ -27,12 +28,9 @@ for f in "$HERE"/*.test.sh; do   # every test file must be in TESTS, so none is 
 done
 W=$(mktemp -d "${TMPDIR:-/tmp}/cov.XXXXXX"); trap 'rm -rf "$W"' EXIT
 
-# Python: a private venv (system site-packages for PyYAML) with the pinned coverage.py.
-REAL_PY=$(command -v python3)
+# Python: a private venv with the pinned coverage.py and PyYAML (no system site-packages).
 if [ -n "${COV_VENV:-}" ] && [ -x "$COV_VENV/bin/python" ]; then ln -s "$COV_VENV" "$W/venv"; else
-  "$REAL_PY" -m venv --system-site-packages "$W/venv" >/dev/null
-  "$W/venv/bin/python" -m pip install -q --disable-pip-version-check --require-hashes --no-deps \
-    -r "$HERE/check-coverage-requirements.txt" >/dev/null
+  bash "$HERE/check-python-deps.sh" "$W/venv" >/dev/null
 fi
 # [paths]: tests that run copies of the scripts in temp folders (…/<temp>/scripts/) count for the real ones.
 printf '[run]\ndata_file = %s/py.cov\nparallel = True\n[paths]\nsource =\n    %s/scripts/\n    */scripts/\n' "$W" "$ROOT" > "$W/rc"
@@ -69,7 +67,7 @@ echo "== coverage (minimum $MIN% per script)"
 rc=0
 # Tests that run temp copies: check-egress-lock.test.sh (…/el.XXXXXX/action/lock.sh) and check-coverage-sh.test.sh
 # (…/ccs.XXXXXX/t.XXXXXX/scripts/check-coverage.sh).
-"$REAL_PY" -I "$HERE/check-coverage.py" --alias ".*/el\.[A-Za-z0-9]+/action/lock\.sh=$LOCK" \
+"$W/venv/bin/python" -I "$HERE/check-coverage.py" --alias ".*/el\.[A-Za-z0-9]+/action/lock\.sh=$LOCK" \
   --alias ".*/ccs\.[A-Za-z0-9]+/t\.[A-Za-z0-9]+/scripts/check-coverage\.sh=$HERE/check-coverage.sh" \
   "$W/trace" "$MIN" "${BASH_SCRIPTS[@]}" || rc=1
 "$W/venv/bin/python" -m coverage combine --rcfile="$W/rc" -q

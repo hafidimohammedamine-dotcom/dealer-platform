@@ -4,24 +4,25 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 W=$(mktemp -d "$TMPROOT/ccs.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
-python3 -m venv --system-site-packages "$W/venv" >/dev/null && "$W/venv/bin/python" -m pip install -q --disable-pip-version-check \
-  --require-hashes --no-deps -r "$HERE/check-coverage-requirements.txt" >/dev/null || { echo "ERROR: cannot set up coverage.py"; exit 2; }
+bash "$HERE/check-python-deps.sh" "$W/venv" >/dev/null || { echo "ERROR: cannot set up coverage.py"; exit 2; }
 tree() { # a fresh tree: scripts/check-a.sh (bash), scripts/check-b.py (Python), each with a test that runs both branches
   T=$(mktemp -d "$W/t.XXXXXX"); mkdir -p "$T/scripts" "$T/.github/actions/agent-egress-lock"
-  cp "$HERE/check-coverage.sh" "$HERE/check-coverage.py" "$HERE/check-coverage.test.sh" "$HERE/check-coverage-requirements.txt" "$T/scripts/"
+  # check-python-deps.sh stays out: the inner runner reuses this test's venv (COV_VENV), so it would never run there.
+  cp "$HERE/check-coverage.sh" "$HERE/check-coverage.py" "$HERE/check-coverage.test.sh" "$HERE/check-python-requirements.txt" "$HERE/check-testlib.sh" "$T/scripts/"
   printf '#!/usr/bin/env bash\necho lock\n' > "$T/.github/actions/agent-egress-lock/lock.sh"
   printf '#!/usr/bin/env bash\nif [ "${1:-}" = x ]; then\n  echo x\nelse\n  echo y\nfi\n' > "$T/scripts/check-a.sh"
   printf 'import sys\nif len(sys.argv) > 1:\n    print("x")\nelse:\n    print("y")\n' > "$T/scripts/check-b.py"
-  printf '#!/usr/bin/env bash\nD=$(cd "$(dirname "$0")" && pwd)\nbash "$D/check-a.sh" x; bash "$D/check-a.sh"\nbash "$D/../.github/actions/agent-egress-lock/lock.sh"\necho "1 passed, 0 failed"\n' > "$T/scripts/check-a.test.sh"
+  # check-a's test uses the shared test library (so check-testlib.sh is measured and covered in this tree too)
+  printf '#!/usr/bin/env bash\nD=$(cd "$(dirname "$0")" && pwd)\n. "$D/check-testlib.sh"\ncheck "x" bash "$D/check-a.sh" x; check "y" bash "$D/check-a.sh"\nassert_result ok 0 "r" "" ""; assert_result fail 0 "r2" "" "" >/dev/null; failed=0\nbash "$D/../.github/actions/agent-egress-lock/lock.sh"\nsummary\n' > "$T/scripts/check-a.test.sh"
   printf '#!/usr/bin/env bash\nD=$(cd "$(dirname "$0")" && pwd)\npython3 -I "$D/check-b.py" x; python3 -I "$D/check-b.py"\necho "1 passed, 0 failed"\n' > "$T/scripts/check-b.test.sh"
 }
 run() { # run <ok|fail> <name> <message> [args...]   (COV_TESTS from the caller's environment)
   local want=$1 name=$2 msg=$3; shift 3
   out=$(env COV_INNER=1 COV_VENV="$W/venv" COV_TESTS="${TESTS:-check-a check-b check-coverage}" bash "$T/scripts/check-coverage.sh" "$@" 2>&1); rc=$?
   got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"; else failed=$((failed+1)); echo "FAIL  $name ($got)"; echo "$out" | tail -n 12; fi; }
+  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"; else t FAIL "$name ($got)"; echo "$out" | tail -n 12; fi; }
 tree; run ok   "full coverage passes" "Coverage OK (every guard script at least 90%)"
 tree; run fail "bad minimum" "bad minimum percent" ninety
 tree; printf 'echo hi\n' > "$T/scripts/check-c.test.sh"; run fail "a test file not in TESTS" "check-c.test.sh is not in TESTS"
@@ -42,8 +43,7 @@ tree; printf "$BT" > "$T/scripts/check-b.test.sh";                              
 tree; printf "$BT"'echo "0 passed, 0 failed"\n' > "$T/scripts/check-b.test.sh";       run fail "a test that ran zero cases" "ERROR: check-b tests failed"
 # lock.sh stays in the measured set, and the coverage.py install stays hash-pinned
 tree; sed -i '/agent-egress-lock\/lock.sh/d' "$T/scripts/check-a.test.sh";            run fail "lock.sh run by no test is below the minimum" "lock.sh  <-- below minimum"
-if grep -q -- '--require-hashes' "$HERE/check-coverage.sh" && ! grep -vE '^(#|[[:space:]]*$|[[:space:]]+--hash=|[a-z0-9_.-]+==[0-9.]+ \\$)' "$HERE/check-coverage-requirements.txt" | grep -q .; then
-  pass=$((pass+1)); echo "PASS  the runner installs with --require-hashes and every requirement carries hashes"
-else failed=$((failed+1)); echo "FAIL  coverage.py install is not hash-pinned"; fi
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+if grep -q -- 'check-python-deps.sh' "$HERE/check-coverage.sh" && grep -q -- '--require-hashes' "$HERE/check-python-deps.sh" && ! grep -q -- '--system-site-packages' "$HERE/check-coverage.sh" "$HERE/check-python-deps.sh"; then
+  t PASS "the runner installs through check-python-deps.sh (hash-pinned, no system site-packages)"
+else t FAIL "coverage.py install is not hash-pinned through check-python-deps.sh"; fi
+summary

@@ -14,10 +14,10 @@ f="$W/\${wf%.yml}.json"; [ -f "\$f" ] || echo '[]' > "\$f"
 jq -r "\$q" "\$f"
 STUB
 chmod +x "$W/gh"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 run() { # run <name> <expected-output> [timeout]
   out=$(GH_BIN="$W/gh" bash "$SCRIPT" 21 "$SHA" "${3:-0}" 0 2>/dev/null); rc=$?
-  if [ $rc = 0 ] && [ "$out" = "$2" ]; then pass=$((pass+1)); echo "PASS  $1"; else failed=$((failed+1)); echo "FAIL  $1: got '$out' (rc $rc), want '$2'"; fi
+  if [ $rc = 0 ] && [ "$out" = "$2" ]; then t PASS "$1"; else t FAIL "$1: got '$out' (rc $rc), want '$2'"; fi
 }
 ci()     { printf '%s' "$1" > "$W/ci.json"; }
 guards() { printf '%s' "$1" > "$W/guards.json"; }
@@ -36,13 +36,13 @@ guards "[{\"headSha\":\"$OTHER\",\"displayTitle\":\"Guards PR #21 @ $SHA\",\"sta
 run "newest run wins (re-run)" "ci=success guards=success"
 ci "[{\"headSha\":\"$OTHER\",\"displayTitle\":\"x\",\"status\":\"completed\",\"conclusion\":\"success\",\"createdAt\":\"2026-10-09T10:00:00Z\"}]"
 run "CI for another commit is ignored" "ci=pending guards=success"
-out=$(GH_BIN="$W/gh" bash "$SCRIPT" "21 x" "$SHA" 0 0 2>&1); [ $? != 0 ] && pass=$((pass+1)) && echo "PASS  bad PR number rejected" || { failed=$((failed+1)); echo "FAIL  bad PR number"; }
-out=$(GH_BIN="$W/gh" bash "$SCRIPT" 21 "abc" 0 0 2>&1); [ $? != 0 ] && pass=$((pass+1)) && echo "PASS  bad sha rejected" || { failed=$((failed+1)); echo "FAIL  bad sha"; }
+out=$(GH_BIN="$W/gh" bash "$SCRIPT" "21 x" "$SHA" 0 0 2>&1); [ $? != 0 ] && t PASS "bad PR number rejected" || t FAIL "bad PR number"
+out=$(GH_BIN="$W/gh" bash "$SCRIPT" 21 "abc" 0 0 2>&1); [ $? != 0 ] && t PASS "bad sha rejected" || t FAIL "bad sha"
 # guards.yml must produce exactly the run title this script looks for (an unquoted '#' in YAML starts a comment).
 REPO="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
 want='Guards PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}'
 got=$(python3 -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["run-name"])' "$REPO/.github/workflows/guards.yml" 2>&1)
-[ "$got" = "$want" ] && { pass=$((pass+1)); echo "PASS  guards.yml run-name matches what this script looks for"; } || { failed=$((failed+1)); echo "FAIL  guards.yml run-name is '$got'"; }
+[ "$got" = "$want" ] && { t PASS "guards.yml run-name matches what this script looks for"; } || { t FAIL "guards.yml run-name is '$got'"; }
 # Polls again (after sleeping) until both runs finish: the guards run finishes on the second poll.
 ci "[{\"headSha\":\"$SHA\",\"displayTitle\":\"x\",\"status\":\"completed\",\"conclusion\":\"success\",\"createdAt\":\"2026-10-09T10:00:00Z\"}]"; rm -f "$W/polls"
 guards "[{\"headSha\":\"$OTHER\",\"displayTitle\":\"Guards PR #21 @ $SHA\",\"status\":\"in_progress\",\"conclusion\":null,\"createdAt\":\"2026-10-09T10:00:00Z\"}]"
@@ -54,7 +54,6 @@ exec "$W/gh" "\$@"
 STUB
 chmod +x "$W/gh-later"
 out=$(GH_BIN="$W/gh-later" bash "$SCRIPT" 21 "$SHA" 60 0 2>/dev/null); rc=$?
-if [ $rc = 0 ] && [ "$out" = "ci=success guards=success" ] && [ "$(cat "$W/polls")" = 2 ]; then pass=$((pass+1)); echo "PASS  polls again until both finish"
-else failed=$((failed+1)); echo "FAIL  polls again: got '$out' (rc $rc, polls $(cat "$W/polls" 2>/dev/null))"; fi
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+if [ $rc = 0 ] && [ "$out" = "ci=success guards=success" ] && [ "$(cat "$W/polls")" = 2 ]; then t PASS "polls again until both finish"
+else t FAIL "polls again: got '$out' (rc $rc, polls $(cat "$W/polls" 2>/dev/null))"; fi
+summary

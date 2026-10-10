@@ -52,17 +52,10 @@ def _construct_mapping(loader, node, deep=False):
 UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)
 
 
-def third_party(manifests):
-    """Skill names to deny: always_denied_skills plus every third-party skill in the manifests (same rules as
-    manifest_lines in scripts/check-skills-lib.sh: blank and # lines skipped, name then kind)."""
-    names = set(P["always_denied_skills"])
-    for m in manifests:
-        with open(m, encoding="utf-8") as fh:
-            for line in fh:
-                parts = line.split()
-                if len(parts) >= 2 and not parts[0].startswith("#") and parts[1] == "third-party":
-                    names.add(parts[0])
-    return names
+def third_party(csv):
+    """Skill names to deny: always_denied_skills plus the third-party skill names check-workflows.sh read from the
+    manifests with scripts/check-skills-lib.sh (CW_THIRD_PARTY, comma-separated)."""
+    return set(P["always_denied_skills"]) | {n for n in csv.split(",") if n}
 
 
 def check_other(where, obj):
@@ -170,36 +163,16 @@ def check_file(path, required, accounts):
     return count
 
 
-def parse_args(argv):
-    """Returns (root, manifests, accounts file or None, problem)."""
-    root, manifests, accounts, rest = None, [], None, list(argv)
-    while rest:
-        a = rest.pop(0)
-        if a in ("--manifest", "--accounts"):
-            if not rest:
-                return None, None, None, f"{a} needs a file"
-            v = rest.pop(0)
-            if a == "--manifest":
-                manifests.append(v)
-            else:
-                accounts = v
-        elif root is None and not a.startswith("--"):
-            root = a
-        else:
-            return None, None, None, f"bad argument {a!r}"
-    return root, manifests, accounts, None
-
-
 def main(argv):
-    root, manifests, accounts_file, problem = parse_args(argv)
-    if problem:
-        print(f"ERROR: {problem}")
+    """argv: [repo-root]; the manifests and accounts come pre-parsed from scripts/check-workflows.sh (environment)."""
+    bad = [a for a in argv if a.startswith("--")] or argv[1:]
+    if bad:
+        print(f"ERROR: bad argument {bad[0]!r} (run through scripts/check-workflows.sh)")
         return 1
-    missing = [m for m in manifests if not os.path.isfile(m)]
-    if missing:
-        print(f"ERROR: manifest not found: {', '.join(missing)}")
+    if "CW_ACCOUNT_ROWS" not in os.environ or "CW_THIRD_PARTY" not in os.environ:
+        print("ERROR: run through scripts/check-workflows.sh (it reads the manifests and .github/accounts.txt)")
         return 1
-    root = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     d = os.path.join(root, ".github", "workflows")
     if not os.path.isdir(d):
         print(f"ERROR: no workflows folder {d}")
@@ -208,10 +181,8 @@ def main(argv):
     if not files:
         print(f"ERROR: no workflow files in {d}")
         return 1
-    own = os.path.join(root, ".claude", "skills", "manifest.txt")
-    required = third_party(manifests + ([own] if os.path.isfile(own) else []))
-    # The accounts list: guards passes the base branch's copy (--accounts), so a PR cannot list itself.
-    accounts = LIB.read_accounts(accounts_file or os.path.join(root, ".github", "accounts.txt"))
+    required = third_party(os.environ["CW_THIRD_PARTY"])
+    accounts = LIB.accounts_from_rows(os.environ["CW_ACCOUNT_ROWS"])
     counts = {os.path.basename(f): check_file(f, required, accounts) for f in files}
     check_actions(root)
     if counts.get(MANAGER, 0) != 1:

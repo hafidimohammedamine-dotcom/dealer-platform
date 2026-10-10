@@ -47,7 +47,7 @@ done
 for edit in "        run: bash scripts/check-agent-token.sh /dev/null" "        run: bash scripts/check-agent-token.sh" "$GUARD || true" "        run: true"; do
   fresh; swap agent-manager.yml "$GUARD" "$edit"; expect fail "token check replaced: $edit" "its first step after checkout and the lock must run 'bash scripts/check-agent-token.sh .github/accounts.txt'"
 done
-t; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.agent_gh_token }}|' "$T/$W/t.yml"; expect fail "lower-case secret name still needs the token check" "t.yml job a: holds the agents' token"
+fx; sed -i 's|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"|      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\n      GH_TOKEN: ${{ secrets.agent_gh_token }}|' "$T/$W/t.yml"; expect fail "lower-case secret name still needs the token check" "t.yml job a: holds the agents' token"
 fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - run: git push origin HEAD:refs/heads/x\n' > "$T/$W/p.yml"
 expect fail "a job without a claude step that holds the token needs the check too" "p.yml job push: holds the agents' token"
 fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n      - run: git push origin HEAD:refs/heads/x\n' > "$T/$W/p.yml"
@@ -68,8 +68,7 @@ cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$W2/base/"; rm -rf "$W2/b
 step=$(guards_step "$REPO/.github/workflows/guards.yml" | sed "s#/tmp/pr-wf#$W2/pr-wf#g; s#/tmp/pr-skills#$W2/pr-skills#g")
 out=$(cd "$W2/base" && bash -c "$step" 2>&1); rc=$?
 if [ $rc = 0 ] && grep -qF "Workflow denies OK" <<<"$out" && [ -d "$W2/pr-wf/.github/actions/agent-egress-lock" ]; then
-  pass=$((pass+1)); echo "PASS  the guards.yml step passes on the real workflows and unpacks the PR's local actions"
-else failed=$((failed+1)); echo "FAIL  the guards.yml step (rc=$rc)"; echo "$out" | tail -n 4; fi
+  t PASS "the guards.yml step passes on the real workflows and unpacks the PR's local actions"
+else t FAIL "the guards.yml step (rc=$rc)"; echo "$out" | tail -n 4; fi
 rm -rf "$W2"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+summary

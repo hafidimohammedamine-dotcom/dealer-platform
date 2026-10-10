@@ -66,7 +66,8 @@ Messages and fixes:
   access, overrideAccess, auth, secret, token, credential, password, permission, role, admin, tenant, PII, SSN, encrypt,
   sensitive, forbidden, prohibited, cannot, unless, validate, sanitize, escape, inject, limit, ...). A table's header or separator
   row alone, part of a list item (a parent without its nested items, or a nested item alone), partial prose, part of a code block
-  (including indented code) or a heading without its body fails. Blank lines can go anywhere. To drop a whole file's text,
+  (including indented code), a `|` line that is not a row of a real table (one whose second row is a separator) or a heading
+  without its body fails. Blank lines can go anywhere. To drop a whole file's text,
   delete the file rather than emptying it.
 - `a section, code block or table with a warning or rule word (...) that is not in the reviewed list (add '<file>:<line>' ...)`
   - a whole section, code block or table removed from upstream contains a warning word. A founder reads it and, if removing it

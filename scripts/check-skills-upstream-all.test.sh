@@ -3,7 +3,7 @@
 set -uo pipefail
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-skills-upstream-all.sh"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 fresh() {
   W=$(mktemp -d "$TMPROOT/sua.XXXXXX") || exit 2
   U="$W/hub/acme/tools"; mkdir -p "$U/skills/demo"
@@ -17,7 +17,7 @@ fresh() {
   printf -- '--- upstream/SKILL.md\n+++ ours/SKILL.md\n@@ -1,4 +1,2 @@\n # Demo\n keep\n-## Install\n-npx bad\n' > "$R/.claude/skills-patches/demo.diff"
 }
 expect() { out=$(UPSTREAM_BASE="file://$W/hub/" bash "$SCRIPT" "$R" "$W/work" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"; else failed=$((failed+1)); echo "FAIL  $2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
+  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"; else t FAIL "$2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
 fresh;                                                    expect ok   "pinned upstream, deletions only" "Upstream check OK for 1 third-party skill(s)"
 fresh; echo 'npx evil' >> "$S/demo/SKILL.md";             expect fail "added line found against the real upstream" "lines added or changed in SKILL.md"
 fresh; sed -i "s/$SHA/$(printf '%040d' 0)/" "$S/SKILLS-LOCK.md"; expect fail "commit that does not exist upstream" "could not fetch acme/tools"
@@ -43,9 +43,8 @@ fresh; mkdir -p "$S/demo2"; cp "$S/demo/"* "$S/demo2/"; echo 'npx evil' >> "$S/d
 printf 'demo2 third-party requires=ovr\n' >> "$S/manifest.txt"; printf '| demo2 | acme/tools `skills/demo`, tag v1 | %s |\n' "$SHA" >> "$S/SKILLS-LOCK.md"
 out=$(UPSTREAM_BASE="file://$W/hub/" bash "$SCRIPT" "$R" "$W/work" 2>&1); rc=$?
 if [ $rc != 0 ] && grep -q "OK: .claude/skills/demo = upstream" <<<"$out" && grep -q "lines added or changed in SKILL.md" <<<"$out" && ! grep -q "Upstream check OK" <<<"$out"; then
-  pass=$((pass+1)); echo "PASS  one of two skills fails -> overall fail, both checked"; else failed=$((failed+1)); echo "FAIL  two skills"; echo "$out"; fi; rm -rf "$W"
+  t PASS "one of two skills fails -> overall fail, both checked"; else t FAIL "two skills"; echo "$out"; fi; rm -rf "$W"
 fresh; mkdir -p "$S/demo2"; cp "$S/demo/"* "$S/demo2/"; cp "$R/.claude/skills-patches/demo.diff" "$R/.claude/skills-patches/demo2.diff"
 printf 'demo2 third-party requires=ovr\n' >> "$S/manifest.txt"; printf '| demo2 | acme/tools `skills/demo`, tag v1 | %s |\n' "$SHA" >> "$S/SKILLS-LOCK.md"
                                                           expect ok   "two passing skills are counted" "Upstream check OK for 2 third-party skill(s)"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+summary

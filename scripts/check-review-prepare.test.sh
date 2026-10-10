@@ -3,9 +3,9 @@
 set -uo pipefail
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-review-prepare.sh"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
-ok()  { pass=$((pass+1)); echo "PASS  $1"; }
-bad() { failed=$((failed+1)); echo "FAIL  $1"; [ -n "${2:-}" ] && echo "$2"; }
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
+ok()  { t PASS "$1"; }
+bad() { t FAIL "$1"; [ -n "${2:-}" ] && echo "$2"; }
 W=$(mktemp -d "$TMPROOT/rp.XXXXXX") || exit 2
 trap 'rm -rf "$W"' EXIT
 git init -q --bare "$W/remote.git"
@@ -59,5 +59,4 @@ hdr=$(printf 'x-access-token:%s' tok-test-not-real | base64 -w0)
 [ $rc = 0 ] && grep -qF -- "-c http.extraheader=AUTHORIZATION: basic $hdr fetch" "$W/git.log" && ok "GIT_TOKEN is passed as a one-time auth header" || bad "GIT_TOKEN header" "$out"
 ! grep -q 'tok-test-not-real' <<<"$out" && ok "the token is never printed" || bad "token printed" "$out"
 [ "$(git -C "$W/base" config --get-regexp 'http\..*extraheader' || true)" = "" ] && ok "the token is not stored in git config" || bad "token stored"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+summary

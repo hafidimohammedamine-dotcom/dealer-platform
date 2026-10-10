@@ -1,0 +1,9 @@
+# Python packages for the guard scripts (founder-owned), installed only with --require-hashes by scripts/check-python-deps.sh:
+# coverage.py for scripts/check-coverage.sh and PyYAML for scripts/check-workflows.py. Wheels for the Python on
+# ubuntu-latest (3.12) and 3.13, linux x86_64. Bumping: take the sha256 from https://pypi.org/pypi/<name>/<version>/json.
+coverage==7.6.1 \
+    --hash=sha256:c44fee9975f04b33331cb8eb272827111efc8930cfd582e0320613263ca849ca \
+    --hash=sha256:78b260de9790fd81e69401c2dc8b17da47c8038176a79092a89cb2b7d945d060
+pyyaml==6.0.2 \
+    --hash=sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476 \
+    --hash=sha256:70b189594dbe54f75ab3a1acec5f1e3faa7e8cf2f1e08d9b561cb41b845f69d5

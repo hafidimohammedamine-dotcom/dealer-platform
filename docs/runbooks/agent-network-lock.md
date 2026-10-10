@@ -111,12 +111,27 @@ checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the j
 - `the agents' GH_TOKEN belongs to '<login>' (ID <id>), which is not an agent account in .github/accounts.txt` - use the
   agents' account's token, or add that account as `agent` in a founder PR.
 - `could not read the token's GitHub login` - the token is missing or invalid.
+- `the agents' account '<login>' owns repositories (...); it must own none` - the agents' account must own no repository
+  (no fork either): one would be a place to push our code or data out with the token's own rights. A founder reads what was
+  pushed there, deletes those repositories and rotates `AGENT_GH_TOKEN` if anything of ours left this repository.
+  `could not list the agent account's own repositories` - the token could not call GitHub; re-run once.
 - `accounts file not found: <file>`, `bad line <n> in <file> ...`, `no founder listed in <file>` - fix `.github/accounts.txt`.
+
+**What the agents' own token can do, and what catches it.** A classic `repo` token on a collaborator account can push to any
+branch of this repository, `main` included, and the free plan cannot block that with a ruleset. So `main` is guarded after
+the fact: `main-guard.yml` runs on every push to `main` (`scripts/check-main-push.sh`); when the pusher's user ID is not a
+`founder` row of `.github/accounts.txt` it reverts the pushed commits with new commits (never a force push), disables the
+manager workflow and opens an `area:security` + `blocked` issue for the founders (`docs/runbooks/ci-guards.md`). The agents'
+token cannot change that workflow (no `workflow` scope), and pushes made with the workflow's own token start no workflow.
+A push of founder-only files onto a founder's branch is caught by the pusher ledger in `guards` (every commit of a PR that
+changes founder-only files must have been pushed by a founder). Pushing our code to another repository is caught by the
+owns-no-repositories check above at the next job start, every hour with the manager (its failed run then shows in the
+daily report; detection, not prevention: a founder decision, see below). The manager also denies `gh repo` (create, fork, delete).
 
 The instant fix round after a failed review (`review.yml`) starts only for a PR from this repository whose author has the
 agents' account ID (250452267) and whose branch starts with `agent/`.
 
-The command deny lists are a second layer. They block `npm`, `npx`, `yarn npm publish/login`, `gh api`, `gh gist`, `gh
+The command deny lists are a second layer. They block `npm`, `npx`, `yarn npm publish/login`, `gh api`, `gh gist`, `gh repo`, `gh
 auth`, `gh secret`, `curl` and `wget` in the manager. They match command prefixes, so they are not a boundary on their own.
 
 ## Measured limits
@@ -134,7 +149,28 @@ allowed name on every run:
   way, since `api.github.com` is allowed.
 - The Actions service names (`*.actions.githubusercontent.com`, including the per-run OIDC host) answered a bare `OK` or 400
   for any Host: a generic health answer, not another site. The self-test therefore accepts a 2xx whose body is exactly `OK`
-  and fails on any other 2xx. Of these names only the per-run OIDC host is allowed, and only in jobs with `id-token: write`.
+  and fails on any other 2xx.
+
+**The runner's own services (2026-10-10).** With only the exact allow-list, a job finished its steps and then hung until its
+timeout (shown as cancelled): the runner reports the finished job over a new connection. Measured on the runner (`.runner`,
+`ss` on the Listener and Worker, DNS): the Listener talks to `broker.actions.githubusercontent.com`, the Worker streams
+results to `results-receiver.actions.githubusercontent.com` and reports to the run service `run-actions-<n>-azure-<region>.
+actions.githubusercontent.com` (the same name a job with `id-token: write` sees in `ACTIONS_ID_TOKEN_REQUEST_URL`; a job
+without it cannot read the name). The lock allows the two exact names plus that one name pattern (the proxy's only regex),
+and the self-test probes them with every foreign Host value: they answered `OK` (200) or 400 only. With them allowed, a
+locked job completed 35 seconds after its last step (run 38017297112).
+
+**Fronting probes with same-CDN hosts (2026-10-10, run 38015841277).** Every allowed name was asked for `example.com`,
+`www.cloudflare.com` (Cloudflare, which fronts api.anthropic.com and the registries), `pypi.org` (Fastly),
+`storage.googleapis.com`, `gist.github.com`, `objects.githubusercontent.com` and `claude.ai` in the Host header. Results:
+github.com 301 to itself (302 to gist.github.com for that Host, the documented exception); api.github.com and
+codeload.github.com 400; api.anthropic.com and the three registries 403 for every Host, `claude.ai` included. No name served
+another site. The self-test now repeats five of these Host values on every allowed name and runner service on every run.
+
+**AppArmor policy sources (2026-10-10).** The lock unloads every loaded profile whose source grants `userns`, searching
+`/etc/apparmor.d` and snapd's `/var/lib/snapd/apparmor/profiles` recursively; on GitHub's image the snapd folder is empty
+and the grants (1password, Discord, chrome, podman, rootlesskit, lxc-*, sbuild-*, ...) all sit in `/etc/apparmor.d`. The
+self-test fails if any of those profiles is still loaded.
 
 **Removed after the test:**
 - `objects.githubusercontent.com` and `release-assets.githubusercontent.com` served another site's page (200).
@@ -163,8 +199,12 @@ them powerless instead:
 ## Evidence for the Skill deny and the pins
 - Versions: Claude Code 2.1.295 and Bun 1.3.14. Tag v1.0.247 of claude-code-action is commit 2dca132f; its
   `src/entrypoints/run.ts` pins Claude Code 2.1.295 and its `action.yml` installs Bun 1.3.14.
-- Gathered by the author of this change on 2026-10-09. Accepted by founder Mohammed as recorded (see "Founder decisions");
-  re-checked at the next pin bump.
+- Verified on 2026-10-10 against the vendors' sources, in founder Mohammed's session: Claude Code 2.1.295 linux-x64 checksum
+  from `https://downloads.claude.ai/claude-code-releases/2.1.295/manifest.json`; Bun 1.3.14 `bun-linux-x64.zip` from the
+  release's `SHASUMS256.txt`; coverage.py 7.6.1 cp312/cp313 manylinux x86_64 wheel digests and PyYAML 6.0.2 cp312/cp313
+  digests from `https://pypi.org/pypi/<name>/<version>/json`; tag `v1.0.247` of claude-code-action = commit
+  `2dca132ff0e0c4094ce6048b422c6915a071210b` (`git ls-remote`), whose `action.yml` sets `bun-version: 1.3.14` and whose
+  `src/entrypoints/run.ts` sets `claudeCodeVersion = "2.1.295"`. Re-checked at every pin bump (see "Bumping the pins").
 - **CI:** run https://github.com/hafidimohammedamine-dotcom/dealer-platform/actions/runs/37986311153 printed
   `permission_denials: [{"tool_name": "Skill", ... "skill": "payload"}]` with the real claude-code-action under the lock. It
   was an earlier version of the egress test that still ran the probe on the PR branch; the probe now runs only from `main`.
@@ -192,10 +232,19 @@ request. Owner: Mohammed. Review by 2026-11-08, or earlier if any of them change
    mirror and a GitHub proxy that accepts only this job's own token; that is a later issue, not this PR. Until then the
    limits are the agents' repo-only token (classic with only `repo`, or fine-grained), the manager's command denies and the
    reviews.
-2. **Pins and measurements checked by the author, not re-checked by a founder.** The Claude Code and Bun sha256 pins, the
-   coverage.py hashes, the claude-code-action tag-to-commit match, and the domain-fronting measurements above are accepted as
-   recorded here. A founder re-checks them at the next pin bump.
-3. **Agent workflows run under the lock for the first time after merge.** Before merge they are checked statically
-   (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml`. The Claude jobs
-   (`egress-lock-claude.yml`, manager, review, reports) first run under the lock after merge; a failure there is fixed in a
-   follow-up founder PR.
+2. **Pins and measurements.** The pins were verified against the vendors' sources on 2026-10-10 (see "Evidence"); the
+   measurements above were taken on GitHub's runners on 2026-10-09 and 2026-10-10 and are accepted as recorded. A founder
+   re-checks them at the next pin bump.
+3. **The Claude jobs run under the lock for the first time after merge.** Before merge they are checked statically
+   (`scripts/check-workflows.sh`), and the lock itself runs on a real runner in `egress-lock-test.yml` (four jobs: `lock`,
+   `oidc`, `break-on-purpose`, and after #33 `lock-container`). The jobs that need a Claude token (`egress-lock-claude.yml`:
+   the `Skill(payload)` deny probe and the subprocess-isolation scrub probe; the manager, review, reports) never run next to
+   PR code, so they first run under the lock after merge. **Accepted on 2026-10-10:** right after merging, a founder starts
+   `egress-lock-claude.yml` by hand (Actions -> Run workflow) and reads its result; a failure there is a revert trigger (the
+   founder reverts the merge in the web UI and the fix comes as a new founder PR).
+4. **What the agents' token can still do (2026-10-10).** The free plan cannot block pushes to `main` or repository
+   creation by the agents' account. Accepted with these controls: `main-guard.yml` reverts any non-founder push to `main`,
+   stops the manager and opens a blocked security issue; the pusher ledger in `guards` keeps non-founder commits out of
+   founder-only changes; the owns-no-repositories check stops every agent job (hourly with the manager; the daily report lists the
+   failed runs) if the agents' account ever owns a repository; the manager denies `gh repo`. These detect and undo rather than prevent; prevention
+   (rulesets, a fine-grained token) needs a paid plan or an organization-owned repository and is a later founder issue.

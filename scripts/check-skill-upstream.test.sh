@@ -3,7 +3,7 @@
 set -uo pipefail
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-skill-upstream.sh"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 fresh() {
   W=$(mktemp -d "$TMPROOT/su.XXXXXX") || exit 2
   U="$W/up"; O="$W/repo/.claude/skills/demo"
@@ -20,8 +20,8 @@ rec() { # (re)write the record .claude/skills-patches/demo.diff the way a founde
 }
 expect() { # expect <ok|fail> <name> <message>
   out=$(bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?; got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"
-  else failed=$((failed+1)); echo "FAIL  $2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
+  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"
+  else t FAIL "$2 ($got)"; echo "$out"; fi; rm -rf "$W"; }
 fresh;                                                   expect ok   "deleted lines and a deleted file" "deletions only (1 upstream file(s) removed)"
 fresh; cp "$U/SKILL.md" "$O/SKILL.md"; cp "$U/ref/PLUG.md" "$O/ref/"; : > "$R"; expect ok "identical to upstream (no deletions)" "(0 upstream file(s) removed)"
 fresh; echo "npx evil" >> "$O/SKILL.md";                 expect fail "added line" "lines added or changed in SKILL.md"
@@ -58,9 +58,9 @@ fresh; sed -i '1s/^/diff -ru -x OTHER upstream ours\n/' "$R"; sed -i 's/^\(---\|
                                                          expect ok   "record with timestamps and another diff command line" "demo.diff matches"
 # Default repo root (no third argument) is the script's own repo
 fresh; mkdir -p "$W/repo/scripts"; cp "$SCRIPT" "$(dirname "$SCRIPT")/check-skill-deletions.py" "$(dirname "$SCRIPT")/check-skills-lib.sh" "$W/repo/scripts/"; out=$(bash "$W/repo/scripts/check-skill-upstream.sh" "$U" demo 2>&1)
-if [ $? = 0 ] && grep -q "deletions only" <<<"$out"; then pass=$((pass+1)); echo "PASS  default repo root"; else failed=$((failed+1)); echo "FAIL  default repo root"; echo "$out"; fi; rm -rf "$W"
-W=$(mktemp -d "$TMPROOT/su.XXXXXX"); out=$(bash "$SCRIPT" 2>&1); [ $? != 0 ] && { pass=$((pass+1)); echo "PASS  missing arguments"; } || { failed=$((failed+1)); echo "FAIL  missing arguments"; }; rm -rf "$W"
-fresh; out=$(bash "$SCRIPT" "$U" "../x" "$W/repo" 2>&1); [ $? != 0 ] && grep -q "bad skill name" <<<"$out" && { pass=$((pass+1)); echo "PASS  bad name rejected"; } || { failed=$((failed+1)); echo "FAIL  bad name"; }; rm -rf "$W"
+if [ $? = 0 ] && grep -q "deletions only" <<<"$out"; then t PASS "default repo root"; else t FAIL "default repo root"; echo "$out"; fi; rm -rf "$W"
+W=$(mktemp -d "$TMPROOT/su.XXXXXX"); out=$(bash "$SCRIPT" 2>&1); [ $? != 0 ] && { t PASS "missing arguments"; } || { t FAIL "missing arguments"; }; rm -rf "$W"
+fresh; out=$(bash "$SCRIPT" "$U" "../x" "$W/repo" 2>&1); [ $? != 0 ] && grep -q "bad skill name" <<<"$out" && { t PASS "bad name rejected"; } || { t FAIL "bad name"; }; rm -rf "$W"
 # Upstream's own NOTICE.md / UPSTREAM-LICENSE are upstream files like any other
 fresh; echo up-notice > "$U/NOTICE.md"; echo up-notice > "$O/NOTICE.md"; rec; expect ok "upstream NOTICE.md kept as is" "deletions only"
 fresh; echo up-notice > "$U/NOTICE.md"; echo ours > "$O/NOTICE.md"; rec; expect fail "upstream NOTICE.md modified" "lines added or changed in NOTICE.md"
@@ -103,6 +103,5 @@ fresh; printf 'code\n' > "$U/ref/s.sh"; rec; expect ok "whole non-Markdown file 
 # A failing diff in the record step fails closed (diff shim fails only for diff -ru)
 fresh; mkdir "$W/bin"; printf '#!/bin/sh\n[ "$1" = -ru ] && exit 2\nexec /usr/bin/diff "$@"\n' > "$W/bin/diff"; chmod +x "$W/bin/diff"
 out=$(PATH="$W/bin:$PATH" bash "$SCRIPT" "$U" demo "$W/repo" 2>&1); rc=$?
-if [ $rc != 0 ] && grep -q "diff of upstream and ours failed (exit 2)" <<<"$out"; then pass=$((pass+1)); echo "PASS  record diff error fails"; else failed=$((failed+1)); echo "FAIL  record diff error"; echo "$out"; fi; rm -rf "$W"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+if [ $rc != 0 ] && grep -q "diff of upstream and ours failed (exit 2)" <<<"$out"; then t PASS "record diff error fails"; else t FAIL "record diff error"; echo "$out"; fi; rm -rf "$W"
+summary

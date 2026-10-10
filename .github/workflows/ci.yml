@@ -22,6 +22,8 @@ jobs:
       - name: Secret scan of all history (pushes to main)
         if: github.event_name == 'push'
         run: /tmp/gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose
+      - name: Pinned Python packages for the guard scripts (hash-checked)
+        run: bash scripts/check-python-deps.sh >> "$GITHUB_PATH"
       - name: Guard script tests and coverage (every guard script at least 90%)
         env:
           GITLEAKS: /tmp/gitleaks

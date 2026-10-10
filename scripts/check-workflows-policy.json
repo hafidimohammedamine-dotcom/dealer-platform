@@ -103,7 +103,7 @@
   "Bash(gh secret:*)",
   "Bash(gh auth:*)",
   "Bash(gh api:*)",
-  "Bash(gh gist:*)",
+  "Bash(gh gist:*)", "Bash(gh repo:*)",
   "Bash(yarn npm publish:*)",
   "Bash(yarn npm login:*)",
   "Read(//proc/**)",

@@ -212,7 +212,7 @@ def main():
         elif k in table_of and k <= table_of[k][0] + 1:
             bad.append((k, f"the header or separator row of a table (lines {table_of[k][0] + 1}-{table_of[k][1] + 1}; "
                            "remove the whole table)"))
-        elif TABLE_ROW.match(lines[k]):
+        elif k in table_of:   # a body row of a real table; a loose '|' line is not a unit and falls through
             w = WARN_RE.search(lines[k])
             if w:
                 bad.append((k, f"a table row or list item with a warning or rule word ({w.group(0)!r})"))

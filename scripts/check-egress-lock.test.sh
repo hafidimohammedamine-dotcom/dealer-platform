@@ -6,7 +6,7 @@ COVENV=(); [ -n "${COV_TRACE:-}" ] && COVENV=(COV_TRACE="$COV_TRACE" BASH_ENV="$
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 LOCK_DIR="$REPO/.github/actions/agent-egress-lock"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 GOOD_VER=2.1.295
 BUN_VER=1.3.14
 stub() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$S/$1"; chmod +x "$S/$1"; }
@@ -39,6 +39,7 @@ case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$
   stub timeout 'exit "${STUB_TCP_RC:-1}"'
   cat > "$S/curl" <<'EOF'
 #!/usr/bin/env bash
+[ -z "${STUB_CURL_LOG:-}" ] || echo "$*" >> "$STUB_CURL_LOG"
 out=""; url=""; prev=""
 for a in "$@"; do [ "$prev" = -o ] && out=$a; case "$a" in http*) url=$a;; esac; prev=$a; done
 case "$url" in
@@ -46,9 +47,9 @@ case "$url" in
   https://github.com/oven-sh/bun/releases/download/*) cp "$STUB_BUN_ZIP" "$out"; exit 0;;
   https://api.github.com/zen) exit "${STUB_ALLOWED_RC:-0}";;
 esac
-# Domain-fronting probe: STUB_FRONT="<host>=<code>[=<redirect url>] ..." answers for those hosts, STUB_UNREACHABLE="<host>
-# ..." do not answer at all; every other allowed name answers 400 for a foreign Host header.
-case " $* " in *"Host: example.com"*)
+# Domain-fronting probe: STUB_FRONT="<host>=<code>[=<redirect url>] ..." answers for those hosts (whatever the Host header),
+# STUB_UNREACHABLE="<host> ..." do not answer at all; every other allowed name answers 400 for a foreign Host header.
+case " $* " in *"Host: "*)   # the self-test probes every allowed name with several foreign Host values
   for h in ${STUB_UNREACHABLE:-}; do [ "$url" = "https://$h/" ] && { echo "000 "; exit 7; }; done
   for f in ${STUB_FRONT:-}; do IFS== read -r h c l <<<"$f"; [ "$url" = "https://$h/" ] && { printf '%s' "${STUB_FRONT_BODY:-}" > "$out"; echo "$c ${l:-}"; exit 0; }; done
   echo "400 "; exit 0;; esac
@@ -62,21 +63,18 @@ invoke() { # invoke [VAR=value ...]: runs the copied lock.sh with a clean enviro
         CLAUDE_CODE_VERSION="$GOOD_VER" CLAUDE_CODE_SHA256="$SHA" STUB_BINARY="$T/fake-claude" TMPDIR="$T" \
         BUN_VERSION="$BUN_VER" BUN_SHA256="$BUN_SHA" STUB_BUN_ZIP="$T/fake-bun.zip" \
         AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" AGENT_LOCK_TEST_RUN_DIRS="$T/run" \
-        AGENT_LOCK_TEST_USERNS="$T/userns" AGENT_LOCK_TEST_RESOLV="$T/resolv.conf" STUB_SUDO_LOG="$T/sudo.log" \
+        AGENT_LOCK_TEST_USERNS="$T/userns" AGENT_LOCK_TEST_RESOLV="$T/resolv.conf" STUB_SUDO_LOG="$T/sudo.log" STUB_CURL_LOG="$T/curl.log" \
         AGENT_LOCK_TEST_APPARMOR_DIR="$T/apparmor.d" AGENT_LOCK_TEST_APPARMOR_LOADED="$T/aa-loaded" AGENT_LOCK_TEST_SETUID_DIR="$T/setuid" "$@" \
         bash "$T/action/lock.sh" 2>&1); rc=$?; }
 run() { # run <ok|fail> <name> <message> [VAR=value ...]
   local want=$1 name=$2 msg=$3; shift 3
   invoke "$@"
   got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then pass=$((pass+1)); echo "PASS  $name"
-  else failed=$((failed+1)); echo "FAIL  $name ($got)"; echo "$out" | tail -n 8; fi
+  if [ "$got" = "$want" ] && grep -qF -- "$msg" <<<"$out"; then t PASS "$name"
+  else t FAIL "$name ($got)"; echo "$out" | tail -n 8; fi
   [ "${KEEP:-}" = 1 ] || rm -rf "$T"; }
 conf_of() { # conf_of <sudo log> <destination>: the temp file the lock installed at <destination> (last install wins)
   awk -v d="$2" '$1=="install" && $NF==d {print $(NF-1)}' "$1" | tail -n1; }
-check() { # check <name> <condition...>: passes when the command succeeds
-  local name=$1; shift
-  if "$@"; then pass=$((pass+1)); echo "PASS  $name"; else failed=$((failed+1)); echo "FAIL  $name"; fi; }
 
 fresh; run ok   "all stubs healthy: lock on" "Agent egress lock on:"
 fresh; KEEP=1 run ok "lock on (kept for checks)" "Agent egress lock on:"
@@ -87,7 +85,8 @@ bun-path=$2/home/.local/bin/bun" ]' _ "$T/out" "$T"
 L="$T/sudo.log"
 DC=$(conf_of "$L" /etc/agent-dnsmasq.conf); NC=$(conf_of "$L" /etc/nginx/agent-egress.conf)
 check "dnsmasq: listens on 127.0.0.1 only, no outside resolv" bash -c 'grep -qx listen-address=127.0.0.1 "$1" && grep -qx bind-interfaces "$1" && grep -qx no-resolv "$1" && grep -qx filter-AAAA "$1"' _ "$DC"
-check "dnsmasq: one server line per allowed name, upstream from resolv.conf" bash -c 'grep -qx "server=/api.anthropic.com/10.1.2.3" "$1" && grep -qx "server=/github.com/10.1.2.3" "$1" && [ "$(grep -c "^server=" "$1")" = "$(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l)" ]' _ "$DC" "$LOCK_DIR/allow-domains.txt"
+check "dnsmasq: one server line per allowed name and runner service plus the run-service suffix, upstream from resolv.conf" bash -c 'grep -qx "server=/api.anthropic.com/10.1.2.3" "$1" && grep -qx "server=/github.com/10.1.2.3" "$1" && grep -qx "server=/broker.actions.githubusercontent.com/10.1.2.3" "$1" && grep -qx "server=/results-receiver.actions.githubusercontent.com/10.1.2.3" "$1" && grep -qx "server=/actions.githubusercontent.com/10.1.2.3" "$1" && [ "$(grep -c "^server=" "$1")" = "$(( $(sed -e "s/#.*//" -e "/^[[:space:]]*$/d" "$2" | wc -l) + 3 ))" ]' _ "$DC" "$LOCK_DIR/allow-domains.txt"
+check "nginx: the run service only as its name pattern, never a bare suffix" bash -c 'grep -qF "    ~^run-actions-[0-9]+-azure-[a-z0-9]+\\.actions\\.githubusercontent\\.com\$ \$ssl_preread_server_name:443;" "$1" && ! grep -qE "^    \.?actions\.githubusercontent\.com " "$1" && grep -q "    broker.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$1"' _ "$NC"
 check "dnsmasq: no wildcard or catch-all server" bash -c '! grep -E "^server=(/|[0-9])" "$1" | grep -qvE "^server=/[a-z0-9.-]+/" ' _ "$DC"
 check "nginx: SNI map with hostnames, unknown names go nowhere" bash -c 'grep -q "hostnames;" "$1" && grep -q "default 127.0.0.1:1;" "$1" && grep -q "ssl_preread on;" "$1" && grep -q "listen 127.0.0.1:8443;" "$1" && grep -q "user www-data;" "$1"' _ "$NC"
 check "nginx: map hash buckets big enough for long generated names" grep -q "  map_hash_bucket_size 128;" "$NC"
@@ -159,12 +158,14 @@ fresh; run fail "bubblewrap cannot start"   "self-test: bubblewrap cannot start"
 fresh; run fail "children of bubblewrap can create user namespaces" "self-test: a program started by bubblewrap can create user namespaces" STUB_CHILD_USERNS_RC=0
 fresh; rm -f "$T/userns"; run ok "no AppArmor switch: the child check is skipped" "Agent egress lock on:" STUB_CHILD_USERNS_RC=0
 fresh; echo 0 > "$T/userns"; run fail "user namespaces left unrestricted" "self-test: unprivileged user namespaces are not restricted"
-fresh; run fail "fronting: content for another host" "self-test: domain fronting through registry.npmjs.org answers for another host (HTTP 200" STUB_FRONT="registry.npmjs.org=200"
-fresh; run fail "fronting: redirect to another host" "self-test: domain fronting through github.com answers for another host (HTTP 302 https://example.com/" STUB_FRONT="github.com=302=https://example.com/x"
+fresh; run fail "fronting: content for another host" "self-test: domain fronting through registry.npmjs.org answers for another host (Host: example.com, HTTP 200" STUB_FRONT="registry.npmjs.org=200"
+fresh; run fail "fronting: redirect to another host" "self-test: domain fronting through github.com answers for another host (Host: example.com, HTTP 302 https://example.com/" STUB_FRONT="github.com=302=https://example.com/x"
+fresh; KEEP=1 run fail "fronting: every foreign Host value is tried on every name" "(Host: claude.ai, HTTP 200" STUB_FRONT="broker.actions.githubusercontent.com=200"
+check "fronting probes: 5 Host values for each of the 7 names and 2 runner services" bash -c '[ "$(grep -c "Host: www.cloudflare.com" "$1")" = 9 ] && [ "$(grep -c "Host: pypi.org" "$1")" = 9 ] && [ "$(grep -c "Host: storage.googleapis.com" "$1")" = 9 ] && grep -q "Host: claude.ai.*https://api.anthropic.com/" "$1"' _ "$T/curl.log"; rm -rf "$T"
 fresh; run ok   "fronting: redirect to the same host is fine" "Agent egress lock on:" STUB_FRONT="github.com=301=https://github.com/ api.github.com=400 api.anthropic.com=403"
 # The OIDC host of a job with id-token: write is added exactly, and probed like every other name
 OIDC='https://run-actions-2-azure-eastus.actions.githubusercontent.com/abc/idtoken/def?api-version=2.0'
-fresh; KEEP=1 run ok "OIDC host added exactly" "Agent egress lock on: 8 allowed names" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC"
+fresh; KEEP=1 run ok "OIDC host added exactly" "Agent egress lock on: 7 allowed names + 3 runner services" "ACTIONS_ID_TOKEN_REQUEST_URL=$OIDC"
 check "dnsmasq and nginx know only the exact OIDC host" bash -c 'grep -qx "server=/run-actions-2-azure-eastus.actions.githubusercontent.com/10.1.2.3" "$1" && grep -q "    run-actions-2-azure-eastus.actions.githubusercontent.com \$ssl_preread_server_name:443;" "$2" && ! grep -q "^    \.actions" "$2"' _ "$(conf_of "$T/sudo.log" /etc/agent-dnsmasq.conf)" "$(conf_of "$T/sudo.log" /etc/nginx/agent-egress.conf)"; rm -rf "$T"
 fresh; run fail "OIDC host on another domain" "unexpected OIDC host: 'evil.example.com'" "ACTIONS_ID_TOKEN_REQUEST_URL=https://evil.example.com/x"
 fresh; run fail "OIDC URL that is not https" "unexpected OIDC host" "ACTIONS_ID_TOKEN_REQUEST_URL=http://run-actions-2.actions.githubusercontent.com/x"
@@ -218,6 +219,5 @@ check "the real allow-domains.txt is exactly the 7 reviewed host names" bash -c 
 # A bare "OK" health answer is not fronting; any other 2xx body is
 fresh; run ok   "fronting: a bare OK health answer is fine" "Agent egress lock on:" STUB_FRONT="api.github.com=200" STUB_FRONT_BODY=" OK
 "
-fresh; run fail "fronting: another 2xx body fails" "self-test: domain fronting through api.github.com answers for another host (HTTP 200" STUB_FRONT="api.github.com=200" STUB_FRONT_BODY="<h1>Example Domain</h1>"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+fresh; run fail "fronting: another 2xx body fails" "self-test: domain fronting through api.github.com answers for another host (Host: example.com, HTTP 200" STUB_FRONT="api.github.com=200" STUB_FRONT_BODY="<h1>Example Domain</h1>"
+summary

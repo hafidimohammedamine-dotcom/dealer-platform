@@ -45,8 +45,6 @@ jobs:
         run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"
       - name: Wait for CI and guards on the PR head (max 30 min)
         id: status
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: echo "result=$(bash scripts/check-pr-ci-status.sh "$PR_NUMBER" "$HEAD_SHA" 1800 30)" >> "$GITHUB_OUTPUT"
       - id: pin
         name: Pin the files the post step runs (checked again before it runs them)
@@ -79,7 +77,6 @@ jobs:
       - name: Post the result (secret-scanned) and set labels
         if: always() && steps.claude.outputs.execution_file != ''
         env:
-          GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
           PINS: ${{ steps.pin.outputs.pins }}
         run: |
@@ -96,7 +93,6 @@ jobs:
           github.event.pull_request.user.id == 250452267 &&
           startsWith(github.event.pull_request.head.ref, 'agent/')
         env:
-          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail

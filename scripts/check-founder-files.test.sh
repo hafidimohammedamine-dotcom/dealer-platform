@@ -3,7 +3,7 @@
 set -uo pipefail
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-founder-files.sh"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 setup() {
   R=$(mktemp -d "$TMPROOT/cff.XXXXXX") || exit 2; cd "$R"
   git init -q -b main . && git config user.email t@t && git config user.name t
@@ -16,8 +16,8 @@ commit() { git add -A && git commit -qm change >/dev/null; }
 expect() { # expect <ok|fail> <author> <name> [message-substring]
   out=$(bash "$SCRIPT" main HEAD "$2" "$R.founders" 2>&1); rc=$?
   got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && { [ -z "${4:-}" ] || grep -qF -- "$4" <<<"$out"; }; then pass=$((pass+1)); echo "PASS  $3"
-  else failed=$((failed+1)); echo "FAIL  $3 (expected $1, got $got)"; echo "$out"; fi
+  if [ "$got" = "$1" ] && { [ -z "${4:-}" ] || grep -qF -- "$4" <<<"$out"; }; then t PASS "$3"
+  else t FAIL "$3 (expected $1, got $got)"; echo "$out"; fi
   cd /; rm -rf "$R" "$R.founders"
 }
 A=333   # the agents' account ID
@@ -65,15 +65,31 @@ setup; echo b > CLAUDE.md; commit; printf '111 founder-one founder extra\n' > "$
 setup; echo b > CLAUDE.md; commit; printf '# only comments\n333 agents-bot agent\n' > "$R.founders"; expect fail 333 "no founder listed" "no founder listed"
 setup; echo b > CLAUDE.md; commit; printf '111 founder-one founder' > "$R.founders"; expect ok 111 "last line without a newline still counts" "are founders"
 setup; out=$(bash "$SCRIPT" no-such-ref HEAD $A "$R.founders" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
-if [ $rc != 0 ] && grep -qF "could not diff" <<<"$out"; then pass=$((pass+1)); echo "PASS  bad base ref fails closed"; else failed=$((failed+1)); echo "FAIL  bad base ref fails closed"; echo "$out"; fi
+if [ $rc != 0 ] && grep -qF "could not diff" <<<"$out"; then t PASS "bad base ref fails closed"; else t FAIL "bad base ref fails closed"; echo "$out"; fi
 setup; out=$(bash "$SCRIPT" main HEAD $A /nonexistent 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
-if [ $rc != 0 ] && grep -qF "accounts file not found" <<<"$out"; then pass=$((pass+1)); echo "PASS  missing accounts file fails closed"; else failed=$((failed+1)); echo "FAIL  missing accounts file"; echo "$out"; fi
+if [ $rc != 0 ] && grep -qF "accounts file not found" <<<"$out"; then t PASS "missing accounts file fails closed"; else t FAIL "missing accounts file"; echo "$out"; fi
+# The pusher ledger (5th argument): founder-only changes need every commit pushed by a founder
+expectp() { # expectp <ok|fail> <author> <name> <pushers text> [message-substring]
+  printf '%b' "$4" > "$R.pushers"
+  out=$(bash "$SCRIPT" main HEAD "$2" "$R.founders" "$R.pushers" 2>&1); rc=$?
+  got=$([ $rc = 0 ] && echo ok || echo fail)
+  if [ "$got" = "$1" ] && { [ -z "${5:-}" ] || grep -qF -- "$5" <<<"$out"; }; then t PASS "$3"
+  else t FAIL "$3 (expected $1, got $got)"; echo "$out"; fi
+  cd /; rm -rf "$R" "$R.founders" "$R.pushers"
+}
+setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp ok   111 "founder change, every commit pushed by a founder" "$H 111 founder\n" "every commit was pushed by a founder"
+setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp fail 111 "founder change, one commit pushed by the agent" "$H 333 agent\n" "Commits not pushed by a founder"
+setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp fail 111 "founder change, a commit without a record" "$H - unknown\n" "$H - unknown"
+setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp fail 111 "founder change, an unknown pusher id" "$H 999 unknown\n" "$H 999 unknown"
+setup; echo b > src/a.ts; commit; H=$(git rev-parse HEAD);  expectp ok   111 "code change pushed by the agent onto a founder's PR is fine" "$H 333 agent\n" "No founder-only files changed"
+setup; echo b > CLAUDE.md; commit; H=$(git rev-parse HEAD); expectp fail 333 "agent author with a founder's push still fails" "$H 111 founder\n" "Not all of '333' are founders"
+setup; echo b > CLAUDE.md; commit; out=$(bash "$SCRIPT" main HEAD 111 "$R.founders" "$R.nofile" 2>&1); rc=$?; cd /; rm -rf "$R" "$R.founders"
+if [ $rc != 0 ] && grep -qF "pushers file not found" <<<"$out"; then t PASS "missing pushers file fails closed"; else t FAIL "missing pushers file"; echo "$out"; fi
 # The real accounts file is well formed
 out=$(bash -c '. "$1"; accounts_rows "$2"' _ "$(dirname "$SCRIPT")/check-accounts-lib.sh" "$(cd "$(dirname "$SCRIPT")/.." && pwd)/.github/accounts.txt" 2>&1); rc=$?
-if [ $rc = 0 ] && grep -qE '^[0-9]+ [A-Za-z0-9-]+ founder$' <<<"$out"; then pass=$((pass+1)); echo "PASS  the real .github/accounts.txt is well formed"; else failed=$((failed+1)); echo "FAIL  real accounts file"; echo "$out"; fi
+if [ $rc = 0 ] && grep -qE '^[0-9]+ [A-Za-z0-9-]+ founder$' <<<"$out"; then t PASS "the real .github/accounts.txt is well formed"; else t FAIL "real accounts file"; echo "$out"; fi
 # CODEOWNERS lists every root founder-only file the script guards by exact path
 REPO_ROOT="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
-if grep -qE '^/packages/data/override-allowlist\.txt[[:space:]]+@' "$REPO_ROOT/.github/CODEOWNERS"; then pass=$((pass+1)); echo "PASS  CODEOWNERS has the allow-list entry"
-else failed=$((failed+1)); echo "FAIL  CODEOWNERS is missing /packages/data/override-allowlist.txt"; fi
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+if grep -qE '^/packages/data/override-allowlist\.txt[[:space:]]+@' "$REPO_ROOT/.github/CODEOWNERS"; then t PASS "CODEOWNERS has the allow-list entry"
+else t FAIL "CODEOWNERS is missing /packages/data/override-allowlist.txt"; fi
+summary

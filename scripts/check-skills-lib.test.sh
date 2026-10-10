@@ -5,10 +5,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-skills-lib.sh
 . "$HERE/check-skills-lib.sh"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 W=$(mktemp -d "$TMPROOT/sl.XXXXXX") || exit 2
 trap 'rm -rf "$W"' EXIT
-check() { local name=$1; shift; if "$@"; then pass=$((pass+1)); echo "PASS  $name"; else failed=$((failed+1)); echo "FAIL  $name"; fi; }
 eq() { [ "$1" = "$2" ] || { echo "  got:      $(printf '%q' "$1")"; echo "  expected: $(printf '%q' "$2")"; return 1; }; }
 SHA=0123456789abcdef0123456789abcdef01234567
 
@@ -18,22 +17,11 @@ check "manifest_lines skips blank and # lines, splits name/kind/rest" eq "$(mani
   "$(printf 'alpha\tthird-party\trequires=beta requires=gamma\nbeta\town\t\ngamma\tthird-party\tx=1\nlone\t\t')"
 check "manifest_entries: first requires= wins, empty when none" eq "$(manifest_entries "$W/m.txt")" \
   "$(printf 'alpha third-party beta\nbeta own \ngamma third-party \nlone  ')"
-check "the Python parser (check-workflows.py third_party) reads the same third-party names" eq \
-  "$(python3 -I - "$HERE/check-workflows.py" "$W/m.txt" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("cw", sys.argv[1]); cw = importlib.util.module_from_spec(spec)
-sys.modules["cw"] = cw; spec.loader.exec_module(cw); cw.P["always_denied_skills"] = []
-print(" ".join(sorted(cw.third_party([sys.argv[2]]))))
-PY
-)" "$(manifest_entries "$W/m.txt" | awk '$2=="third-party"{print $1}' | sort | xargs)"
-check "the real manifest parses the same way in both (third-party names)" eq \
-  "$(python3 -I - "$HERE/check-workflows.py" "$HERE/../.claude/skills/manifest.txt" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("cw", sys.argv[1]); cw = importlib.util.module_from_spec(spec)
-sys.modules["cw"] = cw; spec.loader.exec_module(cw); cw.P["always_denied_skills"] = []
-print(" ".join(sorted(cw.third_party([sys.argv[2]]))))
-PY
-)" "$(manifest_entries "$HERE/../.claude/skills/manifest.txt" | awk '$2=="third-party"{print $1}' | sort | xargs)"
+# The workflow checker gets the third-party names from this library (its bash wrapper), never from a parser of its own.
+check "check-workflows.sh requires denies for the manifest's third-party skills (read with manifest_entries)" bash -c \
+  'out=$(bash "$1" "$2" --manifest "$3" 2>&1); grep -q "does not deny Skill(alpha)" <<<"$out" && grep -q "does not deny Skill(gamma)" <<<"$out" && ! grep -q "Skill(beta)" <<<"$out"' \
+  _ "$HERE/check-workflows.sh" "$HERE/.." "$W/m.txt"
+check "check-workflows.py has no manifest parser of its own (names arrive in CW_THIRD_PARTY)" bash -c 'grep -q "def third_party(csv)" "$1" && ! grep -q "open(m" "$1"' _ "$HERE/check-workflows.py"
 
 # valid_skill_name
 for n in a payload my-skill-2; do check "valid name $n" valid_skill_name "$n"; done
@@ -63,5 +51,4 @@ check "lock_row_error 1" eq "$(lock_row_error 1 demo)" "third-party skill 'demo'
 check "lock_row_error 2" eq "$(lock_row_error 2 demo)" "third-party skill 'demo' has no row in SKILLS-LOCK.md"
 check "lock_row_error 3" eq "$(lock_row_error 3 demo)" "skill 'demo' has more than one row in SKILLS-LOCK.md"
 check "lock_row_error 4" eq "$(lock_row_error 4 demo)" "SKILLS-LOCK.md row for 'demo' must read '| demo | owner/repo \`path\`, ... | <40-hex commit, lower case> | ...'"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+summary

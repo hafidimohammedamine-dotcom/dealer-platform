@@ -38,8 +38,8 @@
     `check-workflows-claude.py` the jobs with a claude step (checkout, lock, binaries, env, permissions, PR data, git moves,
     post-step pin checks, tag mode only on issues), both through `check-workflows-lib.py`: Claude runs only through the pinned
     claude-code-action after the lock; `claude_args` has only known flags and one `--disallowedTools` that denies
-    `Skill(<name>)` for `payload` and every third-party skill in the base or PR manifest; the manager keeps its 29 denies
-    (`Skill(payload)`, 23 command denies including `gh api`, `gh gist` and `yarn npm publish/login`, and 5 path denies); `secrets` only as `secrets.<NAME>`, and Claude credentials only in
+    `Skill(<name>)` for `payload` and every third-party skill in the base or PR manifest; the manager keeps its 30 denies
+    (`Skill(payload)`, 24 command denies including `gh api`, `gh gist`, `gh repo` and `yarn npm publish/login`, and 5 path denies); `secrets` only as `secrets.<NAME>`, and Claude credentials only in
     a claude step's `claude_code_oauth_token`; no unlisted local action, reusable workflow, Docker action, container or service.
 - `scripts/check-skills-lib.sh` holds the shared helpers (`manifest_lines`, `manifest_entries`, `valid_skill_name`,
   `lock_row_one`, `lock_row_error`, lock-row parsing) used by every skill guard, including `check-skills.sh`; its own test also
@@ -72,5 +72,16 @@
   real runner even with the profiles unloaded; the self-test now checks the helpers and `podman unshare id -u`).
 - `scripts/check-claude-probe.py` decides the Claude probes (was inline Python); `scripts/check-coverage-sh.test.sh` tests
   the coverage runner, and Python coverage is compared with two decimals.
-- Founder decisions on the remaining open routes, unverified pins and post-merge first runs are recorded in
-  `docs/runbooks/agent-network-lock.md` ("Founder decisions").
+- Founder decisions on the remaining open routes, the measurements, post-merge first runs and the agents' token are recorded
+  in `docs/runbooks/agent-network-lock.md` ("Founder decisions"); the pins were verified against the vendors' sources.
+- **Round 8:** `main-guard.yml` (`scripts/check-main-push.sh`) reverts any non-founder push to `main`, disables the manager and
+  opens a blocked security issue; the **pusher ledger** (`scripts/check-pushers.sh`: `guards/pusher` commit statuses signed
+  with the `GUARDS_LEDGER_KEY` secret) records who pushed every commit, and founder-only changes now need every commit pushed
+  by a founder; the agents' account must own no repository (`scripts/check-agent-token.sh`); the manager denies `gh repo`.
+  The lock allows the runner's own services (`broker`, `results-receiver` and the `run-actions-<n>-azure-<region>` run
+  service, measured: a locked job hung until its timeout without them) and probes every allowed name with five foreign
+  Host values (Cloudflare, Fastly, Google, GitHub); AppArmor grants are searched in `/etc/apparmor.d` and snapd's folder
+  recursively. Python packages for the guard scripts are hash-pinned (`scripts/check-python-requirements.txt`,
+  `scripts/check-python-deps.sh`: PyYAML too). `scripts/check-workflows.sh` reads the manifests and `.github/accounts.txt`
+  with the shared bash helpers and passes the results to Python (one parser per format). `scripts/check-testlib.sh` holds the
+  test bookkeeping every `scripts/*.test.sh` shares. A loose `|` line in a vendored skill is no longer a deletable unit.

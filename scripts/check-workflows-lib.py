@@ -1,4 +1,4 @@
-"""Shared state and helpers for scripts/check-workflows.py and scripts/check-workflows-claude.py (founder-owned): the
+"""Shared state and helpers for scripts/check-workflows.py, check-workflows-claude.py and check-workflows-people.py (founder-owned): the
 policy lists, the accounts list, the error list, and the secrets and claude-step tests. Rules and messages:
 docs/runbooks/workflow-checker.md."""
 import json
@@ -42,29 +42,12 @@ def secrets_problems(text, allow_claude=False):
     return out
 
 
-ACCOUNT_LINE = re.compile(r"^(\d+)\s+([A-Za-z0-9-]+)\s+(founder|agent)$")
-
-
-def read_accounts(path):
-    """Reads .github/accounts.txt ("<id> <login> founder|agent" per line, same rules as scripts/check-accounts-lib.sh).
-    Returns {id: (login, role)}; reports a missing file, a bad line or no founder as errors (an empty result)."""
-    try:
-        with open(path, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
-    except OSError:
-        err(f"accounts file not found: {path}")
-        return {}
+def accounts_from_rows(rows):
+    """The validated rows of .github/accounts.txt ("<id> <login> <role>" per line) that scripts/check-workflows.sh read with
+    scripts/check-accounts-lib.sh, the one parser of that file. Returns {id: (login, role)}."""
     out = {}
-    for n, raw in enumerate(lines, 1):
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        m = ACCOUNT_LINE.match(line)
-        if not m:
-            err(f"bad line {n} in {path} (want '<id> <login> founder|agent'): {line}")
-            return {}
-        out[m.group(1)] = (m.group(2), m.group(3))
-    if not any(role == "founder" for _, role in out.values()):
-        err(f"no founder listed in {path}")
-        return {}
+    for line in rows.splitlines():
+        parts = line.split()
+        if len(parts) == 3:
+            out[parts[0]] = (parts[1], parts[2])
     return out

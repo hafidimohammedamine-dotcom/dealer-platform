@@ -33,7 +33,8 @@ With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_T
 |---|---|
 | `CLAUDE_TOKEN_BUILD` | **Founder 1** (Max plan) runs `claude setup-token` on their computer, pastes the token. Runs the manager, weekly audit, @claude |
 | `CLAUDE_TOKEN_REVIEW` | **Founder 2** (Max plan) runs `claude setup-token`, pastes the token. Runs reviews and the daily report |
-| `AGENT_GH_TOKEN` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
+| `GUARDS_LEDGER_KEY` | Any random string of 32+ characters (`openssl rand -hex 32`). Signs the guards' record of who pushed each commit; the agents can never read it |
+| `AGENT_GH_TOKEN` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). That account must own no repository of its own. Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
 
 On one plan, use the same token for both. With two plans, splitting the tokens spreads the work over both.
 

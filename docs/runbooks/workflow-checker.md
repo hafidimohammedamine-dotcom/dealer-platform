@@ -4,10 +4,13 @@ Runs in the `guards` step "Agent workflows keep their denies (base script, PR's 
 PR's workflows and local actions as data, with the base branch's `.github/accounts.txt`), and in CI inside the step "Guard
 script tests and coverage (every guard script at least 90%)" (the PR's own copy). Overview: `docs/runbooks/ci-guards.md`.
 
-`scripts/check-workflows.sh` runs `scripts/check-workflows.py` (general rules) with `scripts/check-workflows-claude.py` (rules for
-jobs with a claude step) and `scripts/check-workflows-people.py` (who may start what, and the agents' token check); all use
-`scripts/check-workflows-lib.py` (the policy lists from `scripts/check-workflows-policy.json`, `.github/accounts.txt`, the error
-list and the secrets checks). It parses every workflow and every composite action in `.github/actions/` as YAML (duplicate
+`scripts/check-workflows.sh` reads the skill manifests (`manifest_entries` from `scripts/check-skills-lib.sh`) and
+`.github/accounts.txt` (`accounts_rows` from `scripts/check-accounts-lib.sh`), the same helpers every other guard uses, and
+hands the third-party names and the validated account rows to `scripts/check-workflows.py` (general rules) with
+`scripts/check-workflows-claude.py` (rules for jobs with a claude step) and `scripts/check-workflows-people.py` (who may start
+what, and the agents' token check); all use `scripts/check-workflows-lib.py` (the policy lists from
+`scripts/check-workflows-policy.json`, the error list and the secrets checks). Python needs PyYAML, installed hash-pinned by
+`scripts/check-python-deps.sh` (guards and CI add its venv to `PATH` first). It parses every workflow and every composite action in `.github/actions/` as YAML (duplicate
 keys rejected), fails closed, and prints `Workflow denies OK (Skill denies: ...)` when everything holds. Because `guards` runs
 the `main` copy, a PR cannot switch it off. Every message, with its fix:
 
@@ -15,7 +18,8 @@ Files and arguments
 - `python3 PyYAML is required` - GitHub's Ubuntu runners include it; locally `python3 -m pip install pyyaml==6.0.2`.
 - `cannot read check-workflows-policy.json (...)` - restore the founder-owned policy file next to the script.
 - `bad argument '<x>'`, `--manifest needs a file`, `--accounts needs a file`, `manifest not found: <file>` - guards passes both
-  manifests and the base branch's accounts file; an explicit manifest must exist.
+  manifests and the base branch's accounts file; an explicit manifest must exist. `run through scripts/check-workflows.sh` -
+  `check-workflows.py` was started directly; the wrapper supplies the parsed manifests and accounts.
 - `accounts file not found: <file>`, `bad line <n> in <file> (want '<id> <login> founder|agent')`, `no founder listed in
   <file>` - fix `.github/accounts.txt` (see `docs/runbooks/ci-guards.md`, "Who fixes these").
 - `no workflows folder <dir>`, `no workflow files in <dir>` - wrong root folder.

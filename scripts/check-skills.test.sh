@@ -3,7 +3,7 @@
 set -uo pipefail
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-skills.sh"
 TMPROOT="${TMPDIR:-/tmp}"
-pass=0; failed=0
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
 fresh() {
   T=$(mktemp -d "$TMPROOT/cs.XXXXXX") || { echo "mktemp failed"; exit 2; }
   S="$T/.claude/skills"; A="$T/.claude/agents"; mkdir -p "$S/alpha/reference" "$S/beta" "$A"
@@ -20,8 +20,8 @@ fresh() {
 expect() { # expect <ok|fail> <name> <message-substring>
   out=$(bash "$SCRIPT" "$T" 2>&1); rc=$?
   got=$([ $rc = 0 ] && echo ok || echo fail)
-  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then pass=$((pass+1)); echo "PASS  $2"
-  else failed=$((failed+1)); echo "FAIL  $2 (expected $1 with '$3', got $got)"; echo "$out"; fi
+  if [ "$got" = "$1" ] && grep -qF -- "$3" <<<"$out"; then t PASS "$2"
+  else t FAIL "$2 (expected $1 with '$3', got $got)"; echo "$out"; fi
   rm -rf "$T"
 }
 fresh;                                                       expect ok   "clean fixture passes" "Skills OK (5 files)"
@@ -108,6 +108,5 @@ fresh; printf '# comment\n\nalpha third-party requires=beta\n   \nbeta ours\n' >
 fresh; rm -rf "$S/beta"; bash "$SCRIPT" --write "$T" >/dev/null 2>&1; expect fail "requires= a listed skill whose folder is missing" "manifest lists 'beta' but the folder is missing"
 # The PR's own agents are read from the root argument, whatever the current directory (guards runs from the base checkout)
 fresh; printf -- '---\nname: builder\nskills: alpha, beta, gama\n---\n' > "$A/builder.md"; out=$(cd / && bash "$SCRIPT" "$T" 2>&1); rc=$?
-if [ $rc != 0 ] && grep -q "skill 'gama' is not in the manifest" <<<"$out"; then pass=$((pass+1)); echo "PASS  agents checked from another directory"; else failed=$((failed+1)); echo "FAIL  agents from another directory"; echo "$out"; fi; rm -rf "$T"
-echo "$pass passed, $failed failed"
-[ "$failed" = 0 ]
+if [ $rc != 0 ] && grep -q "skill 'gama' is not in the manifest" <<<"$out"; then t PASS "agents checked from another directory"; else t FAIL "agents from another directory"; echo "$out"; fi; rm -rf "$T"
+summary
