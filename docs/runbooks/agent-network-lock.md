@@ -33,6 +33,12 @@ Founder-owned action. Every job with a Claude step runs it after checking out `m
 6. Self-tests and fails the job on any problem. Only after the self-test passes does it write the `claude-path` and `bun-path`
    outputs, so a Claude step can never start on a runner the lock did not finish.
 
+**Container mode** (`AGENT_LOCK_CONTAINER=1`, set by the agent runner image; every job with a Claude step runs there, see
+`docs/runbooks/agent-runner.md`): steps 1, 2 (without the AppArmor and sysctl part), 3, 5 and 6 run unchanged inside the
+throwaway container; `/etc/resolv.conf` is rewritten in place and the upstream DNS server is the one the lane passes with
+`--dns`. The self-test skips the host user-namespace checks and instead requires the job to run as a non-root user with
+`CapEff` 0. The lock prints `Agent egress lock on (container mode): ...`.
+
 Allowed names are exact hosts, listed in `allow-domains.txt`: `github.com`, `api.github.com`, `codeload.github.com`,
 `api.anthropic.com` and the npm/Yarn registries, plus the runner's own services, which every job needs to report its result
 (measured 2026-10-10, see "Measured limits"): `broker.actions.githubusercontent.com`,
@@ -88,8 +94,11 @@ only to the exact names and that pattern.
   (subprocess isolation would fail)`, `unprivileged user namespaces are not restricted`, `a program started by bubblewrap
   can create user namespaces`, `AppArmor profiles that allow user namespaces are still loaded: <names>`, `a program outside
   bubblewrap can become root in a user namespace`, `<path> is still setuid/setgid (maps root into a user namespace)`,
-  `podman can still become root in a user namespace`, and `domain fronting through <name> answers for another host
-  (Host: <host>, HTTP <code> <location>)`. `could not remove setuid from <path>` is a lock error before the self-test (chmod failed).
+  `podman can still become root in a user namespace`, `the job runs as root in the container`, `the job's processes hold
+  capabilities (CapEff is not 0)` (container mode only), and `domain fronting through <name> answers for another host
+  (Host: <host>, HTTP <code> <location>)`. `could not remove setuid from <path>` is a lock error before the self-test (chmod failed);
+  `AGENT_LOCK_CONTAINER must be unset or 1` and `no upstream DNS server in /etc/resolv.conf` are container-mode lock errors
+  (`docs/runbooks/agent-runner.md`).
   `self-test: deliberate break` appears only in the break-on-purpose test run.
 - A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR. First
   run the domain-fronting check for it (see "Measured limits").

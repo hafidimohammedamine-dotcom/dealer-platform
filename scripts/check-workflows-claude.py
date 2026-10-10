@@ -159,7 +159,7 @@ def check_job_settings(fname, jw, job):
             if str(env.get(k, "")) != v:
                 core.err(f'{jw}: needs env {k}: "{v}" (a PR\'s .yarnrc.yml must not turn lifecycle scripts back on next to the agents\' token)')
     if job.get("runs-on") != P["runs_on"]:
-        core.err(f"{jw}: runs-on must be {P['runs_on']}")
+        core.err(f"{jw}: runs-on must be {P['runs_on']} (jobs with a claude step run on the agents' runners)")
     if "defaults" in job:
         core.err(f"{jw}: 'defaults' not allowed in a job with a claude step")
 

@@ -17,7 +17,7 @@ permissions:
 jobs:
   probe:
     if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, agents]   # the agents' runners on the founders' PCs (.github/agent-runner)
     timeout-minutes: 20
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -59,7 +59,7 @@ jobs:
       - name: Claude answered under the lock, and Skill(payload) was denied
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -69,7 +69,7 @@ jobs:
     # Claude Code's subprocess isolation under the lock: a Bash tool started by Claude must not see the Claude token, either
     # in its environment or in any process environment it can read (scripts/check-scrub-probe.sh prints counts only).
     if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, agents]   # the agents' runners on the founders' PCs (.github/agent-runner)
     timeout-minutes: 20
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
@@ -82,7 +82,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -109,7 +109,7 @@ jobs:
       - name: The tools saw no Claude token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -121,7 +121,7 @@ jobs:
     # (/proc/self/environ, /dev/fd/../environ, /dev/stdin), the runner's files or /etc. The checker needs every one of these
     # denied and no token-shaped string in any tool result.
     if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, agents]   # the agents' runners on the founders' PCs (.github/agent-runner)
     timeout-minutes: 20
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -161,7 +161,7 @@ jobs:
       - name: Every read outside the checkout was denied, and no tool result holds a token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -188,7 +188,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

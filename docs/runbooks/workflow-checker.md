@@ -66,6 +66,10 @@ Any workflow or composite action
   (`WebFetch`, `WebSearch`, the `Read(//...)` paths: `/proc`, `/sys`, `/dev`, `/etc`, the runner's `_temp`, dot-folders
   and `runners` install folder, and `Read(./.git/**)`), not only the manager; `missing deny <x>` - the manager's own
   `manager_denies` (27 command denies) come on top.
+- `runs-on must be ubuntu-latest or ['self-hosted', 'agents']` - a job runs either on GitHub's Ubuntu runner (the short checks,
+  inside the free minutes) or on the agents' runners with exactly that label list. `a self-hosted job must use runs-on:
+  ['self-hosted', 'agents']` - a bare `self-hosted`, the `agents` label alone or an extra label would let a job land on another
+  machine. `runs-on must be a plain string or list of labels` - no expressions (`${{ vars.X }}`) and no missing `runs-on`.
 - `secrets used other than as secrets.<NAME> outside a claude step's claude_code_oauth_token` - no `secrets['x']`,
   `secrets[format(...)]`, `toJSON(secrets)`, `join(secrets)` or the whole object anywhere.
 - `Claude/Anthropic credential secrets.<NAME> ...` / `Claude/Anthropic credential variable ...` - a secret named
@@ -128,8 +132,10 @@ Jobs with a claude step
 - `env '<x>' not allowed in a job with a claude step (allowed: ...)` - job env names are limited to `job_env` in the policy.
   `needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"` - every claude job turns on Claude Code's subprocess isolation, so tools it
   runs never see the Claude token (the lock installs bubblewrap for it).
-- `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed` /
-  `'shell' not allowed in a job with a claude step`.
+- `runs-on must be ['self-hosted', 'agents'] (jobs with a claude step run on the agents' runners)` - every job with a claude
+  step runs on the agents' self-hosted runners (`.github/agent-runner`, `docs/runbooks/agent-runner.md`), never on GitHub's
+  machines. `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed` / `'shell' not allowed in a
+  job with a claude step`.
 - `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with
   no `permissions` of its own in a workflow without a workflow-level `permissions` block would run with the repository's
   default job token, which can hold every write scope (`statuses: write` among them: enough to post a `guards/main-guard`

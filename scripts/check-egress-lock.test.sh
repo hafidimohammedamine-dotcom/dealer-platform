@@ -31,10 +31,11 @@ case "$*" in *"${STUB_SUDO_FAIL:-@none@}"*) exit 1;; "cat "*) shift; exec cat "$
   mkdir -p "$T/apparmor.d"; : > "$T/aa-loaded"
   stub bwrap 'case " $* " in *" unshare -U "*) exit "${STUB_CHILD_USERNS_RC:-1}";; esac; exit "${STUB_BWRAP_RC:-0}"'
   echo 1 > "$T/userns"; printf 'nameserver 127.0.0.53\nnameserver 10.1.2.3\n' > "$T/resolv.conf"
+  printf 'Name:\tbash\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t%s\n' "${STUB_CAPEFF:-0000000000000000}" > "$T/status"
   stub docker 'exit "${STUB_DOCKER_RC:-1}"'
   stub systemctl 'echo "systemctl $*" >> "$STUB_CALLS_LOG"; exit "${STUB_SYSTEMCTL_RC:-1}"'; stub pkexec 'exit "${STUB_PKEXEC_RC:-1}"'
   stub systemd-run 'echo "systemd-run $*" >> "$STUB_CALLS_LOG"; case " $* " in *" -p User=root true "*) exit "${STUB_SYSTEMD_RUN_RC:-1}";; esac; exit 1'
-  stub id 'case "$*" in "-Gn") echo "runner adm docker bad;group";; "-u dnsmasq") echo 999;; "-u www-data") echo 33;; *) [ "${STUB_NO_WWW:-}" = 1 ] && [ "$1" = www-data ] && exit 1
+  stub id 'case "$*" in "-Gn") echo "runner adm docker bad;group";; "-u") echo "${STUB_UID:-1001}";; "-u dnsmasq") echo 999;; "-u www-data") echo 33;; *) [ "${STUB_NO_WWW:-}" = 1 ] && [ "$1" = www-data ] && exit 1
   [ "${STUB_NO_DNSMASQ:-}" = 1 ] && [ "$1" = dnsmasq ] && exit 1; exit 0;; esac'
   stub ls '[ "${STUB_NO_MODULE:-}" = 1 ] && exit 2; echo /usr/lib/nginx/modules/ngx_stream_module.so'
   stub getent 'case "$1 $2" in "ahostsv4 registry.npmjs.org") [ "${STUB_NO_NPM_DNS:-}" = 1 ] && exit 2; echo "${STUB_NPM_IP:-192.0.2.1} STREAM registry.npmjs.org";; "hosts example.com") exit "${STUB_DNS_LEAK_RC:-2}";; *) exit 2;; esac'
@@ -66,7 +67,8 @@ invoke() { # invoke [VAR=value ...]: runs the copied lock.sh with a clean enviro
         BUN_VERSION="$BUN_VER" BUN_SHA256="$BUN_SHA" STUB_BUN_ZIP="$T/fake-bun.zip" \
         AGENT_LOCK_TEST_DOCKER_SOCK="$T/no-docker.sock" AGENT_LOCK_TEST_RUN_DIRS="$T/run" \
         AGENT_LOCK_TEST_USERNS="$T/userns" AGENT_LOCK_TEST_RESOLV="$T/resolv.conf" STUB_SUDO_LOG="$T/sudo.log" STUB_CALLS_LOG="$T/calls.log" STUB_CURL_LOG="$T/curl.log" \
-        AGENT_LOCK_TEST_APPARMOR_DIR="$T/apparmor.d" AGENT_LOCK_TEST_APPARMOR_LOADED="$T/aa-loaded" AGENT_LOCK_TEST_SETUID_DIR="$T/setuid" "$@" \
+        AGENT_LOCK_TEST_APPARMOR_DIR="$T/apparmor.d" AGENT_LOCK_TEST_APPARMOR_LOADED="$T/aa-loaded" AGENT_LOCK_TEST_SETUID_DIR="$T/setuid" \
+        AGENT_LOCK_TEST_STATUS="$T/status" "$@" \
         bash "$T/action/lock.sh" 2>&1); rc=$?; }
 run() { # run <ok|fail> <name> <message> [VAR=value ...]
   local want=$1 name=$2 msg=$3; shift 3
@@ -215,6 +217,17 @@ check "both helpers lost setuid and setgid" bash -c '[ ! -u "$1/newuidmap" ] && 
 fresh; run fail "setuid removal fails" "could not remove setuid from $T/setuid/newuidmap" STUB_SUDO_FAIL="chmod u-s,g-s"
 fresh; run fail "helper still setuid after the lock" "self-test: $T/setuid/newuidmap is still setuid/setgid" STUB_CHMOD_NOOP=1
 fresh; rm -f "$T/setuid/newuidmap" "$T/setuid/newgidmap"; run ok "no setuid helpers installed" "Agent egress lock on:"
+
+# Container mode (AGENT_LOCK_CONTAINER=1): no AppArmor or sysctl, resolv.conf rewritten in place, the job must hold no capability.
+fresh; KEEP=1 run ok "container mode locks" "Agent egress lock on (container mode):" AGENT_LOCK_CONTAINER=1
+check "container mode: no sysctl, AppArmor or resolv.conf removal" bash -c '! grep -qE "sysctl|apparmor_parser|rm -f /etc/resolv.conf" "$1"' _ "$T/sudo.log"
+check "container mode: resolv.conf still written" grep -qx "tee /etc/resolv.conf" "$T/sudo.log"; rm -rf "$T"
+fresh; run ok "container mode ignores host userns checks" "Agent egress lock on (container mode):" AGENT_LOCK_CONTAINER=1 STUB_UNSHARE_RC=0 STUB_CHILD_USERNS_RC=0
+fresh; run fail "container mode: job runs as root" "self-test: the job runs as root in the container" AGENT_LOCK_CONTAINER=1 STUB_UID=0
+STUB_CAPEFF=000001ffffffffff fresh; run fail "container mode: job holds capabilities" "self-test: the job's processes hold capabilities (CapEff is not 0)" AGENT_LOCK_CONTAINER=1
+fresh; printf 'nameserver 127.0.0.11\n' > "$T/resolv.conf"; run fail "container mode: no upstream DNS" "no upstream DNS server in /etc/resolv.conf" AGENT_LOCK_CONTAINER=1
+fresh; run fail "AGENT_LOCK_CONTAINER must be 1" "AGENT_LOCK_CONTAINER must be unset or 1" AGENT_LOCK_CONTAINER=yes
+fresh; run fail "container mode still checks setuid helpers" "is still setuid/setgid" AGENT_LOCK_CONTAINER=1 STUB_CHMOD_NOOP=1
 fresh; rm -f "$T/userns"; run ok "no AppArmor switch: userns checks skipped" "Agent egress lock on:" STUB_UNSHARE_RC=0
 # Reachability: every allowed name must answer through the lock
 fresh; run fail "an allowed name that does not answer" "self-test: allowed name codeload.github.com not reachable through the lock" STUB_UNREACHABLE=codeload.github.com

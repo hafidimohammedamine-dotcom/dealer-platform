@@ -9,7 +9,7 @@ jobs:
   report:
     # The schedule, or a founder's manual run (the agents' token could otherwise start it: each run spends Claude turns).
     if: (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, agents]   # the agents' runners on the founders' PCs (.github/agent-runner)
     timeout-minutes: 30
     # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
     permissions:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -62,7 +62,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -87,7 +87,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

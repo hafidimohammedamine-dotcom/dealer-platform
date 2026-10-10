@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "39a8e208140883a0b270fd4aa5de7aa8fabdb9d3e2b60300fe5d50e12af8ed49"
+          PINS_SHA256: "d436118855dac6177e1e92d0db9b057915401b04b2274ef03439042293fc5d76"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -74,6 +74,16 @@ jobs:
           bash scripts/check-pr-archive.sh refs/remotes/pr/head /tmp/pr-wf
           bash scripts/check-workflows.sh /tmp/pr-wf --accounts .github/accounts.txt \
             --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
+      - name: Agent runner image and host script stay pinned and unprivileged (base script, PR's files as data)
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pr-runner && mkdir -p /tmp/pr-runner
+          if git cat-file -e refs/remotes/pr/head:.github/agent-runner 2>/dev/null; then
+            git archive refs/remotes/pr/head .github/agent-runner | tar -x -C /tmp/pr-runner
+            bash scripts/check-agent-runner.sh /tmp/pr-runner/.github/agent-runner
+          else
+            echo "the PR removes .github/agent-runner"; exit 1
+          fi
       - uses: ./.github/actions/install-gitleaks
       - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)
         run: |

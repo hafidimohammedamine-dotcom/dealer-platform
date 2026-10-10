@@ -28,6 +28,9 @@ a commit a founder accepts by running the workflow by hand, carry the `guards/ma
 Manager shift (agent-manager.yml, hourly): job shift (token check, event check, Claude with the agents' token) → job after
 (fresh runner, always): token and guard-workflow check again, the account's events in the last 24 hours all in this repository.
 ```
+Where jobs run: CI, Guards and the hosted lock tests on GitHub's runners (free monthly minutes); every job with a Claude step
+on the agents' self-hosted runners, one throwaway rootless-Docker container per job on the founders' PCs
+(`.github/agent-runner`, `docs/runbooks/agent-runner.md`).
 Agents (manager and builders) open and push PRs with the agents' own GitHub account (`mohammedaminehafidi-ctrl`, the `agent`
 line of `.github/accounts.txt`); founders use their own accounts. People are identified by numeric user ID, never by login.
 Before Claude starts, every job holding the agents' token checks that it belongs to that account and is limited (classic with
@@ -94,6 +97,8 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   the one lookup (`account_field`). `scripts/check-github-lib.sh`: the GitHub helpers the token-holding guards share
   (`gh_context`, `token_account`, `main_guard_passed`). `scripts/check-git-lib.sh`: the no-filter, no-hook git settings for
   checkouts of other people's files. `scripts/check-testlib.sh`: the bookkeeping every `scripts/*.test.sh` shares.
+- `scripts/check-agent-runner.sh` (guards and CI): the runner image stays pinned (base digest, runner sha256) and unprivileged
+  (non-root, `--cap-drop ALL`, Docker's seccomp profile regenerated from the vendored default), tokens only on stdin.
 - `scripts/check-claude-probe.py` (`egress-lock-claude.yml`, from `main`): decides the Skill-deny, scrub and read-deny
   probes from the claude-code-action's execution file.
 - `guards` runs the `main` copies of all of these on the PR's files as data, so a PR cannot weaken them. CI runs every guard
@@ -102,6 +107,7 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 ### Agent network lock
 Agent jobs (manager, review, daily report, weekly audit, founder mentions) check out `main` and then run
 `.github/actions/agent-egress-lock`: pinned, checksum-verified gitleaks, Claude Code and Bun; outbound HTTPS only to allow-listed host names
-through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. Claude Code's subprocess
+through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. On the agents' runners
+it runs in container mode (same lock inside the throwaway container; the container boundary replaces AppArmor). Claude Code's subprocess
 isolation keeps the Claude token out of the tools agents run. Together with the agents' repo-only token without `workflow`
 scope, this narrows what an injected instruction could do; it is not a complete data boundary. Details and limits: `docs/runbooks/agent-network-lock.md`.

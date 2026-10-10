@@ -154,7 +154,8 @@
  "pr_data_runs": [
   "bash scripts/check-review-prepare.sh \"$PR_NUMBER\" /tmp/pr \"origin/$BASE_REF\" origin \"$HEAD_SHA\""
  ],
- "runs_on": "ubuntu-latest",
+ "runs_on": ["self-hosted", "agents"],
+ "hosted_runs_on": "ubuntu-latest",
  "permission_scopes": [
   "actions",
   "contents",

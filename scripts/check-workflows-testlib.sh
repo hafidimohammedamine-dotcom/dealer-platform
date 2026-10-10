@@ -44,7 +44,7 @@ on: workflow_dispatch
 jobs:
   a:
     if: github.run_attempt == '1'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, agents]
     permissions:
       contents: read
     env:
