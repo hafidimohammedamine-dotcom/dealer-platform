@@ -56,6 +56,25 @@ jobs:
             --max-turns 4
             --allowedTools "Skill,TodoWrite"
             --disallowedTools "Skill(payload),Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
+      - name: Why Claude failed (diagnostic; result text and errors only, token never printed)
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          python3 -I - "$EXEC_FILE" <<'PY'
+          import json, re, sys
+          msgs = json.load(open(sys.argv[1]))
+          for m in msgs:
+              if m.get("type") == "result":
+                  for k in ("result", "errors", "subtype", "is_error"):
+                      v = m.get(k)
+                      if v is not None:
+                          print(k, "=", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", json.dumps(v)[:2000]))
+              if m.get("type") == "assistant":
+                  for c in m.get("message", {}).get("content", []):
+                      if c.get("type") == "text":
+                          print("assistant:", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", c["text"][:2000]))
+          PY
       - name: Claude answered under the lock, and Skill(payload) was denied
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
