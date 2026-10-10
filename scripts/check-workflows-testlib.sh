@@ -20,7 +20,7 @@ PIN_STEP="      - name: The repository files this job runs are the reviewed ones
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify"
 # plain <file>: a minimal non-claude workflow (one job, checkout + pin step + one run step) for argument/format cases
-plain() { printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: echo\n' "$PIN_STEP" > "$T/$W/$1"; }
+plain() { printf 'name: y\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: echo\n' "$PIN_STEP" > "$T/$W/$1"; }
 expect() { # expect <ok|fail> <name> <message> [extra args]
   local want=$1 name=$2 msg=$3; shift 3
   out=$(bash "$SCRIPT" "$T" "$@" 2>&1); rc=$?
@@ -45,6 +45,8 @@ jobs:
   a:
     if: github.run_attempt == '1'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
     steps:

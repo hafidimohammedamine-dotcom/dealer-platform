@@ -57,5 +57,28 @@ check "main_guard_status asks the combined status for context guards/main-guard,
 check "mark_main_guard_passed posts a success status with the context and the description" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log4" mark_main_guard_passed "$3" "revert by main-guard run 7" ); grep -qF "gh api -X POST repos/owner/repo/statuses/$3 -f state=success -f context=guards/main-guard -f description=revert by main-guard run 7" "$1/log4"' _ "$D" "$HERE" "$S40"
 check "mark_main_guard_passed: a failed post returns 1" bash -c '! ( GH="$1/bin/gh"; REPO=owner/repo; STUB_MARK_RC=1; export STUB_MARK_RC; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; mark_main_guard_passed "$3" x )' _ "$D" "$HERE" "$S40"
 check "main_guard_runs counts push runs only (the schedule and workflow_dispatch runs of the same head are left out)" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log5" main_guard_runs "$3" >/dev/null ); grep -qF "select(.event == \"push\")" "$1/log5"' _ "$D" "$HERE" "$S40"
+# The two jq filters run for real (STUB_JSON_RUNS/STUB_JSON_STATUS make the stub apply the --jq filter to that file with jq): a schedule run and a
+# by-hand run of the same head are left out; only a success status in the guards/main-guard context created by
+# github-actions[bot] counts, never one the agents' account posted, a pending one, or another context.
+cat > "$D/bin/gh-extra" <<'EXTRA'
+case "$2" in *'/runs?'*) f="${STUB_JSON_RUNS:-}";; */status) f="${STUB_JSON_STATUS:-}";; *) f="";; esac
+[ -z "$f" ] || [ "$3" != --jq ] || { jq -r "$4" "$f"; exit $?; }
+EXTRA
+cat > "$D/runs.json" <<'JSON'
+{"workflow_runs":[{"event":"schedule","status":"in_progress","conclusion":null},{"event":"workflow_dispatch","status":"completed","conclusion":"success"},{"event":"push","status":"completed","conclusion":"failure"},{"event":"push","status":"completed","conclusion":"success"}]}
+JSON
+check "main_guard_runs with real jq: push runs only, in order" test "$(mgr "$S40" STUB_JSON_RUNS="$D/runs.json")" = "completed/failure completed/success"
+printf '{"workflow_runs":[{"event":"schedule","status":"in_progress","conclusion":null}]}\n' > "$D/runs2.json"
+check "main_guard_runs with real jq: only the schedule run of this head -> none (the hourly run never finds itself)" test "$(mgr "$S40" STUB_JSON_RUNS="$D/runs2.json")" = ""
+mgs() { ( GH="$D/bin/gh"; REPO=owner/repo; export "${@:2}"; main_guard_status "$1" ) 2>&1; }
+cat > "$D/st0.json" <<'JSON'
+{"statuses":[{"context":"guards/main-guard","state":"success","creator":{"id":333}},{"context":"guards/main-guard","state":"pending","creator":{"id":41898282}},{"context":"guards/pusher","state":"success","creator":{"id":41898282}},{"context":"guards/main-guard","state":"failure","creator":{"id":41898282}}]}
+JSON
+check "main_guard_status with real jq: the agents' status, a pending one, a failed one and another context count 0" test "$(mgs "$S40" STUB_JSON_STATUS="$D/st0.json")" = 0
+jq '.statuses += [{"context":"guards/main-guard","state":"success","creator":{"id":41898282}}]' "$D/st0.json" > "$D/st1.json"
+check "main_guard_status with real jq: one success status by github-actions[bot] counts 1" test "$(mgs "$S40" STUB_JSON_STATUS="$D/st1.json")" = 1
+check "main_guard_passed with real jq: the agents' forged status does not pass" test "$(mgp2 "$S40" STUB_REL=behind STUB_JSON_RUNS="$D/runs2.json" STUB_JSON_STATUS="$D/st0.json")" = "missing $S40 (runs: none)"
+check "main_guard_passed with real jq: the bot's status passes" test "$(mgp2 "$S40" STUB_JSON_RUNS="$D/runs2.json" STUB_JSON_STATUS="$D/st1.json")" = "ok $S40 carries the guards/main-guard status (the main guard's revert, or accepted by a founder)"
+rm -f "$D/bin/gh-extra"
 check "no MAIN_GUARD_FLOOR_OVERRIDE: the floor is the constant" bash -c '! grep -q "FLOOR_OVERRIDE" "$1/check-github-lib.sh"' _ "$HERE"
 summary

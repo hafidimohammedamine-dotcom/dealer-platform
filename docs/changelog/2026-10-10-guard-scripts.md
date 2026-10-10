@@ -189,6 +189,11 @@
   test overrides of `check-main-push.sh` ignored inside Actions; the lock's systemd self-test tries a transient root unit and
   an unmasked service (the masked `docker.socket` proved nothing); every Claude step sets `classify_inline_comments: "false"`
   (required by the checker) so no post-session step of the action holds a GitHub token.
+- **Round 19:** only a complete revert is marked `guards/main-guard` (a partial one leaves the head unmarked, script and
+  fallback); a by-hand acceptance must run from `main`; the checker refuses a job with no `permissions` on it or its
+  workflow (the default token could hold `statuses: write`); the two jq filters are tested with real jq (a schedule run
+  of the same head, the agents' own status, a pending one and another context all count for nothing); the main-push
+  tests carry a token sentinel and `assert_no_token`.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

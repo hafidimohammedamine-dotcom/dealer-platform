@@ -193,8 +193,12 @@ fx; before '      - run: echo hi\n        working-directory: /tmp'; expect fail 
 fx; before '      - run: echo hi\n        shell: python'; expect fail "custom shell in a claude job" "'shell' not allowed"
 fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: /tmp/pr|' "$T/$W/t.yml"; expect fail "job defaults in a claude job" "'defaults' not allowed"
 fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: self-hosted|' "$T/$W/t.yml"; expect fail "self-hosted runner" "runs-on must be ubuntu-latest"
-fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    permissions: write-all|' "$T/$W/t.yml"; expect fail "write-all permissions" "permissions must be a mapping"
-fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    permissions:\n      packages: write|' "$T/$W/t.yml"; expect fail "unknown permission scope" "permission packages: write not allowed"
+fx; sed -i 's|    permissions:\n      contents: read|    permissions: write-all|; /^    permissions:$/{N;s|.*|    permissions: write-all|}' "$T/$W/t.yml"; expect fail "write-all permissions" "permissions must be a mapping"
+fx; sed -i '/^    permissions:$/{N;s|.*|    permissions:\n      packages: write|}' "$T/$W/t.yml"; expect fail "unknown permission scope" "permission packages: write not allowed"
+# No permissions anywhere means the repository's default job token, which can hold every write scope (statuses: write
+# among them, enough to forge a guards/main-guard status as github-actions[bot] from any job the agents' code runs in).
+fx; sed -i '/^    permissions:$/{N;d}' "$T/$W/t.yml"; expect fail "no permissions on the job or the workflow" "t.yml job a: no permissions (set them on the job or the workflow; the repository's default token is not allowed)"
+fx; sed -i '/^    permissions:$/{N;d}; s|^jobs:|permissions:\n  contents: read\njobs:|' "$T/$W/t.yml"; expect ok "workflow-level permissions cover a job without its own" "Workflow denies OK"
 for cmd in 'cd "/tmp/pr" \&\& make' 'pushd /tmp/pr' 'make -C /tmp/pr' 'yarn --cwd=/tmp/pr install' 'bash -c "$(cat /tmp/pr/x)"' 'source /tmp/pr/env.sh' 'gh pr checkout ${{ github.event.pull_request.head.ref }}'; do
   fx; before "      - run: $cmd"; expect fail "PR data in a run step: $cmd" "only the reviewed prepare step may touch /tmp/pr"
 done

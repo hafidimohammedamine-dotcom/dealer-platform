@@ -40,7 +40,7 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b29d8f157222770b21285cbd11463addd79fd91498726432ca781bb217ac812e"
+          PINS_SHA256: "94046a4782f4a56fb701aa02a7fa8bfc95465c4b67bdeeaeb4bce0bf168861a9"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -83,8 +83,13 @@ jobs:
               # shellcheck disable=SC2086
               git revert --no-edit $m "$c" >/dev/null 2>&1 && n=$((n+1)) || { git revert --abort 2>/dev/null || true; break; }
             done
-            [ "$n" = 0 ] || { git push origin HEAD:refs/heads/main && done="reverted $n pushed commit(s) with new commits" \
-              && { gh api -X POST "repos/$GH_REPO/statuses/$(git rev-parse HEAD)" -f state=success -f context=guards/main-guard -f "description=revert by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the revert commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"; }; }
+            total=$(wc -w <<<"$commits")
+            if [ "$n" != 0 ] && git push origin HEAD:refs/heads/main; then
+              done="reverted $n of $total pushed commit(s) with new commits"
+              # Only a complete revert is marked checked: a partial one leaves pushed commits on main, so the chain check must keep flagging its head
+              if [ "$n" != "$total" ]; then done="$done; the head stays unmarked (partly undone) until a founder accepts it"
+              else gh api -X POST "repos/$GH_REPO/statuses/$(git rev-parse HEAD)" -f state=success -f context=guards/main-guard -f "description=revert by main-guard run ${GITHUB_RUN_ID:-local}" >/dev/null || done="$done (the revert commit could not be marked guards/main-guard: a founder accepts it by running this workflow with its sha)"; fi
+            fi
           fi
           for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml; do
             for st in in_progress queued; do for id in $(gh run list --workflow "$w" --status "$st" --json databaseId --jq '.[].databaseId' 2>/dev/null); do gh run cancel "$id" || true; done; done

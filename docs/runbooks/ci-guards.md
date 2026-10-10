@@ -209,11 +209,16 @@ pushes (a push made with a workflow's token starts no workflow) is marked right 
 `accept_sha` = the 40-hex sha (`Accepted: commit <sha> now carries the guards/main-guard status (founder ID <id>)`). The
 script posts the status only when the account that started the run is a `founder` row (`only a founder may accept a
 commit; user ID <id> is not one` - the agents' token can start the workflow, but is refused) and only for a commit on
-`main` (`is not on main (this checkout)`). The chain check accepts the status only when its creator is github-actions[bot]
+`main` (`is not on main (this checkout)`) and only from a run started on the `main` branch (`run this workflow from the
+main branch`: a by-hand run uses the chosen branch's workflow file). The chain check accepts the status only when its creator is github-actions[bot]
 (user ID 41898282): a status the agents' token posts carries the agents' account as creator, and the workflow checker lets
 `statuses: write` into `main-guard.yml` and `pusher-ledger.yml` only, whose scripts are pinned. `could not be marked with
 the guards/main-guard status` - the revert went up but the status post failed; the next run flags the revert commit as
-unchecked, and a founder accepts it by hand. A re-run of a main-guard job, or a run whose push `main` has already moved past,
+unchecked, and a founder accepts it by hand. Only a **complete** revert is marked: when one pushed commit would not revert
+(`did not apply cleanly ... the head is left unmarked (the pushed commits are only partly undone)`; the fallback says
+`reverted <n> of <total> ...; the head stays unmarked`), the reverts made so far are pushed but the head carries no
+status, so the next push or hourly run stops the agents again until a founder has finished the revert by hand and
+accepted the head. A re-run of a main-guard job, or a run whose push `main` has already moved past,
 reverts nothing (`main is no longer at <sha> (a later push, or a re-run of this job); nothing reverted`): reverting the same
 commits again would put them back. Then `scripts/check-main-push.sh` compares the
 pusher's user ID with the `founder` rows: a founder's push (every merge) prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder

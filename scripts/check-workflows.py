@@ -205,6 +205,10 @@ def check_file(path, required, accounts):
     PEOPLE.check_id_token_jobs(name, doc)
     triggers = triggers_of(doc)
     LIB.check_permissions(name, name, doc.get("permissions"), triggers)
+    if doc.get("permissions") is None:   # no permissions anywhere = the repository's default token (can hold every write scope)
+        for jn, job in doc["jobs"].items():
+            if isinstance(job, dict) and job.get("permissions") is None:
+                err(f"{name} job {jn}: no permissions (set them on the job or the workflow; the repository's default token is not allowed)")
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")

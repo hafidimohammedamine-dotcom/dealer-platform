@@ -130,6 +130,10 @@ Jobs with a claude step
   runs never see the Claude token (the lock installs bubblewrap for it).
 - `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed` /
   `'shell' not allowed in a job with a claude step`.
+- `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with
+  no `permissions` of its own in a workflow without a workflow-level `permissions` block would run with the repository's
+  default job token, which can hold every write scope (`statuses: write` among them: enough to post a `guards/main-guard`
+  status as github-actions[bot] from any job that runs code the agents can change).
 - `permissions must be a mapping of scopes (no read-all/write-all)`; `permission <scope>: <value> not allowed (...)` - for
   every job and the workflow level: only the scopes in `permission_scopes` (`actions`, `contents`, `issues`,
   `pull-requests`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in

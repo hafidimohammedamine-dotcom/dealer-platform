@@ -58,6 +58,7 @@ if [ "$PUSHER" = accept ]; then
   [[ "$ACTOR" =~ ^[0-9]+$ ]] || { echo "ERROR: the actor id must be numeric: '$ACTOR'"; exit 2; }
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: the commit to accept must be a 40-hex sha: '$SHA'"; exit 2; }
   [ "$(account_field "$rows" "$ACTOR" 3)" = founder ] || { echo "::error::only a founder may accept a commit; user ID $ACTOR is not one. Nothing was marked."; exit 1; }
+  [ -z "${GITHUB_ACTIONS:-}" ] || [ "${GITHUB_REF:-}" = refs/heads/main ] || { echo "::error::run this workflow from the main branch (this run used '${GITHUB_REF:-}'); nothing was marked."; exit 1; }
   git merge-base --is-ancestor "$SHA" HEAD 2>/dev/null || { echo "::error::commit $SHA is not on main (this checkout); nothing was marked."; exit 1; }
   mark_main_guard_passed "$SHA" "accepted by founder $ACTOR (main-guard run ${GITHUB_RUN_ID:-local})" || { echo "ERROR: could not post the $MAIN_GUARD_STATUS status on $SHA."; exit 1; }
   echo "Accepted: commit $SHA now carries the $MAIN_GUARD_STATUS status (founder ID $ACTOR). Re-enable the workflows when the review is done."
@@ -115,10 +116,13 @@ else
       if git revert --no-edit "${m[@]}" "$c" >/dev/null 2>&1; then reverted=$((reverted+1)); else git revert --abort 2>/dev/null || true; left="revert of $c did not apply cleanly; the founders revert the rest by hand"; break; fi
     done
     if [ "$reverted" -gt 0 ]; then
-      if git push origin HEAD:refs/heads/main >/dev/null 2>&1; then   # that push starts no run: mark its head checked
-        mark_main_guard_passed "$(git rev-parse HEAD)" "revert by main-guard run ${GITHUB_RUN_ID:-local}" \
-          || left="the revert commit $(git rev-parse HEAD) could not be marked with the $MAIN_GUARD_STATUS status; the next run will flag it, so a founder accepts it (Actions -> Main guard -> Run workflow)${left:+; $left}"
-      else left="the revert could not be pushed (${left:-check the job log})"; reverted=0; fi
+      if ! git push origin HEAD:refs/heads/main >/dev/null 2>&1; then left="the revert could not be pushed (${left:-check the job log})"; reverted=0
+      elif [ -n "$left" ]; then left+="; the head is left unmarked (the pushed commits are only partly undone), so the next run stops the agents until a founder accepts it"
+      # A complete revert starts no run of its own (pushed with a workflow's token): mark its head checked. A partial one
+      # stays unmarked: the chain check must keep flagging a head that still carries some of the pushed commits.
+      elif ! mark_main_guard_passed "$(git rev-parse HEAD)" "revert by main-guard run ${GITHUB_RUN_ID:-local}"; then
+        left="the revert commit $(git rev-parse HEAD) could not be marked with the $MAIN_GUARD_STATUS status; the next run will flag it, so a founder accepts it (Actions -> Main guard -> Run workflow)"
+      fi
     fi
   fi
   what="reverted $reverted pushed commit(s) with new commits on main"
