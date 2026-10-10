@@ -254,6 +254,8 @@ fresh; sed -i 's/^      pull-requests: read$/      pull-requests: read\n      id
 fresh; grep -q 'id-token: write' "$T/$W/egress-lock-claude.yml" && expect ok "id-token stays allowed in the probe workflow's oidc job" "Workflow denies OK"
 fresh; sed -i 's/^      pull-requests: read$/      pull-requests: read\n      statuses: write/' "$T/$W/claude.yml"; expect fail "statuses: write in claude.yml (only main-guard.yml and pusher-ledger.yml post commit statuses as the bot)" "permission statuses: write not allowed"
 fresh; sed -i 's/^      issues: read$/      issues: read\n      statuses: read/' "$T/$W/agent-manager.yml"; expect fail "statuses in agent-manager.yml" "permission statuses: read not allowed"
+fresh; grep -q '^      statuses: read' "$T/$W/guards.yml" && expect ok "statuses: read stays allowed in guards.yml (it reads the pusher ledger)" "Workflow denies OK"
+fresh; sed -i 's/^      statuses: read          # reads the pusher ledger.*$/      statuses: write/' "$T/$W/guards.yml"; expect fail "statuses: write in guards.yml (its job token is read-only)" "permission statuses: write is not allowed in guards.yml"
 # Tag mode (a claude step without a prompt) is still checked where it could appear: on issue_comment only, never on PRs
 tagmode() { python3 - "$T/$W/claude.yml" "$1" "$2" <<'PYEOF'
 import re, sys; p, old, new = sys.argv[1:4]; s = open(p).read()
