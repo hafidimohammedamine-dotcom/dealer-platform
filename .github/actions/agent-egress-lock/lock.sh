@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+# Agent egress lock (founder-owned). See action.yml. Runs on GitHub-hosted Ubuntu runners as the `runner` user with sudo.
+# Order matters: everything that needs sudo or the open internet happens first; sudo is removed last.
+#
+# Design: every outbound TCP connection on port 443 from any user except the proxy is redirected to a local nginx "stream"
+# proxy that reads the TLS server name (SNI) and connects only to allow-listed host names - so an allowed IP cannot be
+# reused for another name. Port 80, raw IPs without a name, other DNS servers and IPv6 are rejected. DNS answers only for
+# allow-listed names (dnsmasq). Docker is stopped and sudo removed so no later step can undo this.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+die() { echo "::error::agent egress lock: $*"; exit 1; }
+[ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || die "Linux x64 runners only"
+[ -n "${GITHUB_OUTPUT:-}" ] && [ -n "${GITHUB_ENV:-}" ] || die "must run inside GitHub Actions"
+[[ "${CLAUDE_CODE_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "bad CLAUDE_CODE_VERSION"
+[[ "${CLAUDE_CODE_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad CLAUDE_CODE_SHA256"
+[[ "${BUN_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "bad BUN_VERSION"
+[[ "${BUN_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || die "bad BUN_SHA256"
+
+# Allowed names (founder-owned list; no extras from workflows) plus the runner's own services.
+read_allow_list() {
+  mapfile -t NAMES < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$HERE/allow-domains.txt" | sed '/^$/d')
+  [ "${#NAMES[@]}" -gt 0 ] || die "empty allow-list"
+  for d in "${NAMES[@]}"; do   # exact host names only, no wildcards
+    [[ "$d" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "not a plain host name: '$d'"
+  done
+  # The runner's own services (measured 2026-10-10, docs/runbooks/agent-network-lock.md): the listener talks to the broker, the
+  # worker streams results to results-receiver and reports the finished job to the run service, whose generated name
+  # (run-actions-<n>-azure-<region>) a job without `id-token: write` cannot read. Without these the job hangs after its last
+  # step until its timeout. They answer only a bare "OK" or 400 for a foreign Host header (no fronting), so the run service is
+  # allowed as that one name pattern; the OIDC host of a job with `id-token: write` (the probe workflow's oidc job) is the same service.
+  RUNNER_NAMES=(broker.actions.githubusercontent.com results-receiver.actions.githubusercontent.com)
+  RUNNER_PATTERN='run-actions-[0-9]+-azure-[a-z0-9]+\.actions\.githubusercontent\.com'
+  if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+    [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" =~ ^https://($RUNNER_PATTERN)/ ]] \
+      || die "unexpected OIDC host: '$(sed -E 's#^[a-z]+://([^/]*).*#\1#' <<<"$ACTIONS_ID_TOKEN_REQUEST_URL")'"
+    RUNNER_NAMES+=("${BASH_REMATCH[1]}")
+  fi
+}
+
+# 1. Install the pinned Claude Code binary and Bun, each checked against its pinned sha256.
+install_binaries() {
+  BIN="$HOME/.local/bin/claude"
+  mkdir -p "$HOME/.local/bin"
+  DL=$(mktemp)
+  curl -fsSL --retry 3 -o "$DL" "https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION/linux-x64/claude" \
+    || die "could not download Claude Code $CLAUDE_CODE_VERSION from downloads.claude.ai"
+  echo "$CLAUDE_CODE_SHA256  $DL" | sha256sum --check --quiet || die "Claude Code download does not match its pinned sha256"
+  install -m 0755 "$DL" "$BIN" && rm -f "$DL"
+  "$BIN" --version | grep -q "^$CLAUDE_CODE_VERSION " || die "Claude Code $CLAUDE_CODE_VERSION not installed"
+  { echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"; echo "DISABLE_AUTOUPDATER=1"; } >> "$GITHUB_ENV"
+  # Bun for the claude-code-action (its own setup-bun would download from GitHub's release storage, which the lock blocks),
+  # pinned to the version the action expects and checked against the release's SHASUMS256.txt.
+  BUN="$HOME/.local/bin/bun"
+  DL=$(mktemp); UZ=$(mktemp -d)
+  curl -fsSL --retry 3 -o "$DL" "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" \
+    || die "could not download Bun $BUN_VERSION from github.com"
+  echo "$BUN_SHA256  $DL" | sha256sum --check --quiet || die "Bun download does not match its pinned sha256"
+  { unzip -q -o "$DL" -d "$UZ" && install -m 0755 "$UZ/bun-linux-x64/bun" "$BUN" && rm -rf "$DL" "$UZ"; } || die "the Bun archive did not unpack (corrupt zip or missing bun-linux-x64/bun)"
+  [ "$("$BUN" --version)" = "$BUN_VERSION" ] || die "Bun $BUN_VERSION not installed"
+}
+
+# 2a. Packages for the DNS server, the proxy and bubblewrap.
+install_packages() {
+  PKGS=(dnsmasq-base nginx libnginx-mod-stream bubblewrap socat)
+  apt_install() { sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${PKGS[@]}" >/dev/null 2>&1; }
+  apt_install || { sudo apt-get update -qq >/dev/null && apt_install; } || die "could not install ${PKGS[*]}"
+}
+
+# 2b. User namespaces: only bubblewrap may create them (AppArmor); other granting profiles are unloaded.
+restrict_user_namespaces() {
+  # Claude Code's subprocess isolation (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) runs tools in bubblewrap, which needs user
+  # namespaces. Ubuntu 24.04 restricts those through AppArmor; keep the restriction on for everything else and let only
+  # /usr/bin/bwrap create them; what bwrap starts gets no capabilities and no user namespaces (agent-bwrap.apparmor).
+  USERNS="${AGENT_LOCK_TEST_USERNS:-/proc/sys/kernel/apparmor_restrict_unprivileged_userns}"   # tests use a temp file
+  if [ -f "$USERNS" ]; then
+    sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=1
+    sudo install -m 0644 "$HERE/agent-bwrap.apparmor" /etc/apparmor.d/agent-bwrap
+    sudo apparmor_parser -r /etc/apparmor.d/agent-bwrap || die "could not load the AppArmor profile for bubblewrap"
+    # Other profiles on the image grant user namespaces too (browsers, podman, lxc, ...); unload them so only bwrap keeps it.
+    # unprivileged_userns stays: it is the profile the kernel uses to restrict user namespaces of unconfined programs.
+    # Policy sources: the system folder and snapd's (empty on GitHub's image, measured 2026-10-10), searched recursively.
+    AA_DIRS="${AGENT_LOCK_TEST_APPARMOR_DIR:-/etc/apparmor.d /var/lib/snapd/apparmor/profiles}"
+    AA_LOADED="${AGENT_LOCK_TEST_APPARMOR_LOADED:-/sys/kernel/security/apparmor/profiles}"
+    # shellcheck disable=SC2086
+    mapfile -t UNS < <(grep -rlE '^[[:space:]]*(audit[[:space:]]+)?(allow[[:space:]]+)?userns' $AA_DIRS 2>/dev/null | grep -vE '/(agent-bwrap|unprivileged_userns)$' || true)
+    for f in "${UNS[@]}"; do sudo apparmor_parser -R "$f" >/dev/null 2>&1 || true; done
+    # Checked now, while sudo still works (the list of loaded profiles is root-only); reported by the self-test.
+    UNS_NAMES=$( { [ "${#UNS[@]}" = 0 ] || awk '$1 == "profile" {print $2}' "${UNS[@]}"; } | sort -u)
+    UNS_LEFT=$(sudo cat "$AA_LOADED" 2>/dev/null | awk '{print $1}' | grep -xF -f <(printf '%s\n' "$UNS_NAMES" | sed '/^$/d') || true)
+  fi
+}
+
+# 2c. Local DNS (dnsmasq) that answers the sink address for allowed names and forwards nothing.
+start_dns() {
+  SINK_IP=192.0.2.1   # TEST-NET-1: never routable; only the firewall's redirect to the proxy gives it meaning
+  UPSTREAM=$(awk '$1=="nameserver" && $2 !~ /^127\./ && $2 ~ /^[0-9.]+$/ {print $2; exit}' "${AGENT_LOCK_TEST_RESOLV:-/run/systemd/resolve/resolv.conf}" 2>/dev/null || true)
+  [ -n "$UPSTREAM" ] || UPSTREAM=168.63.129.16
+  id dnsmasq >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin dnsmasq
+  id www-data >/dev/null 2>&1 || die "no www-data user for nginx"
+  PROXY_UID=$(id -u www-data)
+
+  CONF=$(mktemp)
+  {
+    # dnsmasq forwards nothing: every allowed name (and anything under it) answers a fixed unroutable address, which the
+    # firewall redirects to the proxy; the proxy resolves the exact name itself. So no query from the job ever reaches an
+    # outside resolver (no DNS tunnelling through a subdomain), and a subdomain that is not an allowed name dies at the proxy.
+    echo "listen-address=127.0.0.1"; echo "bind-interfaces"; echo "port=53"; echo "no-resolv"; echo "no-poll"; echo "no-hosts"
+    echo "user=dnsmasq"; echo "cache-size=1000"; echo "filter-AAAA"
+    for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "address=/$d/$SINK_IP"; done
+    echo "address=/actions.githubusercontent.com/$SINK_IP"   # the run service's generated name (the proxy allows RUNNER_PATTERN only)
+  } > "$CONF"
+  sudo install -m 0644 "$CONF" /etc/agent-dnsmasq.conf
+  sudo systemctl stop systemd-resolved.service 2>/dev/null || true
+  sudo dnsmasq --conf-file=/etc/agent-dnsmasq.conf --pid-file=/run/agent-dnsmasq.pid
+  sudo rm -f /etc/resolv.conf
+  printf 'nameserver 127.0.0.1\noptions edns0\n' | sudo tee /etc/resolv.conf >/dev/null
+}
+
+# 2d. SNI proxy (nginx stream): exact allowed names and the run-service pattern only, resolved by the proxy itself.
+start_proxy() {
+  MOD=$(ls /usr/lib/nginx/modules/ngx_stream_module.so 2>/dev/null || true)
+  [ -n "$MOD" ] || die "nginx stream module missing"
+  NG=$(mktemp)
+  {
+    echo "load_module $MOD;"
+    echo "user www-data; worker_processes 2; pid /run/agent-nginx.pid; error_log /var/log/agent-nginx.log info;"
+    echo "events { worker_connections 1024; }"
+    echo "stream {"
+    echo "  map_hash_bucket_size 128;   # room for long generated names such as this run's OIDC host"
+    echo "  resolver $UPSTREAM ipv6=off valid=60s; resolver_timeout 10s;"   # the proxy resolves exact names itself
+    echo "  map \$ssl_preread_server_name \$agent_upstream {"
+    echo "    hostnames;"
+    for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do echo "    $d \$ssl_preread_server_name:443;"; done
+    echo "    ~^${RUNNER_PATTERN}\$ \$ssl_preread_server_name:443;"
+    echo "    default 127.0.0.1:1;"
+    echo "  }"
+    echo "  server { listen 127.0.0.1:8443; ssl_preread on; proxy_connect_timeout 15s; proxy_pass \$agent_upstream; }"
+    echo "}"
+  } > "$NG"
+  sudo install -m 0644 "$NG" /etc/nginx/agent-egress.conf
+  sudo install -m 0644 /dev/null /var/log/agent-nginx.log
+  sudo systemctl stop nginx.service 2>/dev/null || true
+  sudo nginx -t -c /etc/nginx/agent-egress.conf >/dev/null 2>&1 || { sudo nginx -t -c /etc/nginx/agent-egress.conf || true; die "nginx config invalid"; }
+  sudo nginx -c /etc/nginx/agent-egress.conf
+}
+
+# 3. Firewall.
+apply_firewall() {
+  # NAT: every new TCP/443 connection, except the proxy's own, goes to the SNI proxy.
+  sudo iptables -t nat -F OUTPUT
+  sudo iptables -t nat -A OUTPUT -p tcp --dport 443 ! -d 127.0.0.0/8 -m owner ! --uid-owner "$PROXY_UID" -j REDIRECT --to-ports 8443
+  # Filter: loopback, replies, DNS only from the proxy to the upstream (dnsmasq forwards nothing), 443 only from the proxy,
+  # Azure host services for root.
+  sudo iptables -F OUTPUT
+  sudo iptables -A OUTPUT -o lo -j ACCEPT
+  sudo iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT   # connections redirected to the local proxy keep their outer interface
+  sudo iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  for p in udp tcp; do sudo iptables -A OUTPUT -p "$p" --dport 53 -d "$UPSTREAM" -m owner --uid-owner "$PROXY_UID" -j ACCEPT; done
+  sudo iptables -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$PROXY_UID" -j ACCEPT
+  sudo iptables -A OUTPUT -d 168.63.129.16 -m owner --uid-owner 0 -j ACCEPT
+  sudo iptables -A OUTPUT -d 169.254.169.254 -m owner --uid-owner 0 -j ACCEPT
+  sudo iptables -A OUTPUT -j REJECT
+  sudo iptables -P OUTPUT DROP
+  sudo ip6tables -F OUTPUT
+  sudo ip6tables -A OUTPUT -o lo -j ACCEPT
+  sudo ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  sudo ip6tables -A OUTPUT -j REJECT
+  sudo ip6tables -P OUTPUT DROP
+}
+
+# 4. Nothing later in the job may undo this: stop Docker, remove sudo.
+drop_privileges() {
+  sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
+  sudo systemctl mask docker.socket docker.service containerd.service 2>/dev/null || true   # no restart by socket activation or polkit
+  sudo rm -f /var/run/docker.sock /run/containerd/containerd.sock
+  sudo gpasswd -d "$USER" sudo >/dev/null 2>&1 || true
+  sudo gpasswd -d "$USER" docker >/dev/null 2>&1 || true
+  # The setuid helpers newuidmap/newgidmap map whole uid ranges into a user namespace, which makes an unconfined program
+  # (podman, or anything calling them) root with every capability inside one, around the AppArmor restriction below.
+  # bubblewrap does not use them (it writes its own single mapping). Measured 2026-10-10: `podman unshare id` was root.
+  SETUID_DIR="${AGENT_LOCK_TEST_SETUID_DIR:-/usr/bin}"
+  for f in newuidmap newgidmap; do
+    if [ -e "$SETUID_DIR/$f" ]; then sudo chmod u-s,g-s "$SETUID_DIR/$f" || die "could not remove setuid from $SETUID_DIR/$f"; fi
+  done
+  # Who sudo could match: this user, ALL, and every group the job's processes still carry (they keep their start-up groups).
+  WHO="$USER|ALL"; for g in $(id -Gn); do [[ "$g" =~ ^[A-Za-z0-9_.-]+$ ]] && WHO+="|%$g"; done
+  sudo sed -i -E "/^[[:space:]]*($WHO)[[:space:]]/d" /etc/sudoers
+  # Last sudo call: delete every sudoers.d file that grants any of them anything.
+  sudo sh -c 'grep -lE "^[[:space:]]*($1)[[:space:]]" /etc/sudoers.d/* 2>/dev/null | xargs -r rm -f' sh "$WHO"
+  sudo -k || true
+}
+
+# --- 5. Prove it (each failure names the check; see docs/runbooks/agent-network-lock.md) ----------------------------
+fail=0; failed=""; bad() { echo "::error::agent egress lock self-test: $*"; fail=1; failed+="$*"$'\n'; }
+blocked() { ! curl -sS -o /dev/null --max-time 8 "$@" 2>/dev/null; }
+
+# 5a. No way back to root or Docker.
+selftest_privileges() {
+  if sudo -n true 2>/dev/null; then bad "sudo still works"; fi
+  if sudo -n -l >/dev/null 2>&1; then bad "sudo still lists rules for this user (a command-limited rule is left)"; fi
+  DOCKER_SOCK="${AGENT_LOCK_TEST_DOCKER_SOCK:-/var/run/docker.sock}"   # tests point these AGENT_LOCK_* hooks at temp paths
+  if [ -S "$DOCKER_SOCK" ] || docker info >/dev/null 2>&1; then bad "Docker still reachable"; fi
+  # Nor through systemd or polkit: a transient unit as root, or starting an unmasked system service (docker.socket is masked).
+  if command -v systemd-run >/dev/null && systemd-run --no-ask-password --wait --quiet -p User=root true >/dev/null 2>&1; then bad "systemd lets this user run a transient unit as root"; fi
+  if systemctl --no-ask-password start systemd-tmpfiles-clean.service >/dev/null 2>&1; then bad "systemd lets this user start a system service"; fi
+  if command -v pkexec >/dev/null && pkexec --disable-internal-agent true >/dev/null 2>&1; then bad "polkit (pkexec) lets this user run commands as root"; fi
+  # The job's processes keep the groups they started with (docker, adm, ...): no socket those groups can write may remain.
+  RUN_DIRS="${AGENT_LOCK_TEST_RUN_DIRS:-/run /var/run}"
+  GROUP_SOCKS=""
+  for g in ${AGENT_LOCK_TEST_ADMIN_GROUPS:-docker lxd containerd}; do
+    grep -q "^$g:" /etc/group || continue
+    # shellcheck disable=SC2086
+    GROUP_SOCKS+=$(find $RUN_DIRS -maxdepth 3 -type s -group "$g" -writable 2>/dev/null | head -3 || true)
+  done
+  [ -z "$GROUP_SOCKS" ] || bad "group-writable admin socket still there: $GROUP_SOCKS"
+}
+
+# 5b. Only allowed names, only through the proxy; DNS forwards nothing; user namespaces as designed.
+selftest_network() {
+  curl -fsS -o /dev/null --max-time 20 https://api.github.com/zen || bad "allowed host api.github.com not reachable"
+  blocked https://example.com || bad "blocked host example.com reachable"
+  blocked https://gist.github.com || bad "gist.github.com reachable"
+  blocked https://uploads.github.com || bad "uploads.github.com reachable"
+  NPM_IP=$(getent ahostsv4 registry.npmjs.org 2>/dev/null | awk 'NR==1{print $1}' || true)
+  [ -n "$NPM_IP" ] || bad "DNS for an allowed name does not resolve"
+  blocked --resolve "example.com:443:$NPM_IP" https://example.com || bad "allowed IP reachable under another name (SNI)"
+  blocked -k "https://$NPM_IP" || bad "raw IP without a name reachable"
+  blocked http://registry.npmjs.org || bad "plain HTTP (port 80) reachable"
+  if getent hosts example.com >/dev/null; then bad "DNS for a blocked name resolves"; fi
+  [ "$NPM_IP" = "$SINK_IP" ] || bad "DNS for an allowed name does not answer the sink address (dnsmasq forwards queries)"
+  if grep -qE '^(server|rev-server)=' "$CONF"; then bad "dnsmasq forwards DNS queries (server= lines)"; fi
+  blocked https://x.github.com || bad "a subdomain of an allowed name (x.github.com) is reachable"
+  blocked https://x.registry.npmjs.org || bad "a subdomain of an allowed name (x.registry.npmjs.org) is reachable"
+  if timeout 8 bash -c 'exec 3<>/dev/tcp/8.8.8.8/53' 2>/dev/null; then bad "outside DNS server reachable"; fi
+  blocked -6 'https://[2606:4700:4700::1111]' || bad "IPv6 reachable"
+  bwrap --unshare-pid --ro-bind / / true 2>/dev/null || bad "bubblewrap cannot start (subprocess isolation would fail)"
+  if [ -f "$USERNS" ]; then   # runners where AppArmor restricts user namespaces (set up in step 2)
+    [ "$(cat "$USERNS")" = 1 ] || bad "unprivileged user namespaces are not restricted"
+    [ -z "${UNS_LEFT:-}" ] || bad "AppArmor profiles that allow user namespaces are still loaded: $(echo $UNS_LEFT)"
+    # Ubuntu's restriction lets an unconfined program create a user namespace without any capability in it (profile
+    # unprivileged_userns), so it cannot become root there; only bwrap (agent-bwrap) may.
+    if unshare -Ur true 2>/dev/null; then bad "a program outside bubblewrap can become root in a user namespace"; fi
+    for f in newuidmap newgidmap; do
+      if [ -u "$SETUID_DIR/$f" ] || [ -g "$SETUID_DIR/$f" ]; then bad "$SETUID_DIR/$f is still setuid/setgid (maps root into a user namespace)"; fi
+    done
+    if command -v podman >/dev/null && [ "$(podman unshare id -u 2>/dev/null)" = 0 ]; then bad "podman can still become root in a user namespace"; fi
+    if bwrap --unshare-user --ro-bind / / unshare -U true 2>/dev/null; then
+      bad "a program started by bubblewrap can create user namespaces"
+    fi
+  fi
+}
+
+# 5c. Every allowed name answers, and none serves another site for a foreign Host header.
+selftest_fronting() {
+  # Every allowed name answers through the lock (a typo in the list shows up here, not in an agent run), and none of them,
+  # asked for another site in the HTTP Host header, serves content (2xx, except a bare "OK" health answer that does not
+  # depend on the Host) or sends us to another host (3xx). The Host values cover the CDNs behind the allowed names (Cloudflare
+  # for api.anthropic.com and the registries, GitHub's own edge, Fastly, Google); measurements in agent-network-lock.md.
+  FB=$(mktemp)
+  for d in "${NAMES[@]}" "${RUNNER_NAMES[@]}"; do
+    for h in example.com www.cloudflare.com claude.ai pypi.org storage.googleapis.com; do
+      read -r code loc < <(curl -sS -o "$FB" --max-time 10 --retry 2 -w '%{http_code} %{redirect_url}\n' -H "Host: $h" "https://$d/" 2>/dev/null || echo "000")
+      lh=$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"${loc:-}")
+      if [ "${code:-000}" = 000 ]; then
+        bad "allowed name $d not reachable through the lock"; break
+      elif { [[ "$code" == 2* ]] && [ "$(head -c 64 "$FB" | tr -d '[:space:]')" != OK ]; } || { [[ "$code" == 3* ]] && [ "$lh" != "$d" ]; }; then
+        bad "domain fronting through $d answers for another host (Host: $h, HTTP ${code} ${loc:-})"
+      fi
+    done
+  done
+  rm -f "$FB"
+}
+
+# 6. Fail on any problem; only then publish the binaries' paths for the Claude step.
+finish() {
+  [ "${AGENT_LOCK_SELFTEST_BREAK:-}" != "1" ] || bad "deliberate break (AGENT_LOCK_SELFTEST_BREAK=1)"
+  if [ "$fail" != 0 ]; then
+    # failed-checks: the break-on-purpose test reads it to prove the deliberate break was the only failure (one line per check)
+    { echo "failed-checks<<EOF_FAILED"; printf '%s' "$failed"; echo "EOF_FAILED"; } >> "$GITHUB_OUTPUT"
+    echo "--- proxy log (last 20 lines) ---"; tail -n 20 /var/log/agent-nginx.log 2>/dev/null || true
+    curl -sv -o /dev/null --max-time 15 https://api.github.com/zen 2>&1 | tail -n 15 || true
+    die "self-test failed; see errors above"
+  fi
+  { echo "claude-path=$BIN"; echo "bun-path=$BUN"; } >> "$GITHUB_OUTPUT"   # only now: a Claude step can find them only after the self-test passed
+  echo "::notice::Known open routes: the job's own GitHub token can comment on or open issues in ANY repository it can see (no attacker credentials needed; checked after each shift by scripts/check-agent-events.sh), and with an attacker's own credentials: github.com / api.github.com (pushes, issues, gists), registry.npmjs.org (publish), api.anthropic.com. See docs/runbooks/agent-network-lock.md."
+  echo "Agent egress lock on: ${#NAMES[@]} allowed names + ${#RUNNER_NAMES[@]} runner services, SNI proxy, sudo and Docker removed."
+}
+
+read_allow_list
+install_binaries
+install_packages
+restrict_user_namespaces
+start_dns
+start_proxy
+apply_firewall
+drop_privileges
+selftest_privileges
+selftest_network
+selftest_fronting
+finish

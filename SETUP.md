@@ -22,7 +22,7 @@ Flow: Issue -> manager -> builder -> pull request -> review team -> fixes (up to
 
 Pace (max): manager every hour, up to 4 builder jobs per shift, review on every pull request.
 On Max, Fable can use up to half of the weekly limit and uses it faster than Opus.
-With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_TOKEN_REVIEW`.
+With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD_V2` and `CLAUDE_TOKEN_REVIEW_V2`.
 
 ## 1. Repo
 1. Create a **private** GitHub repo (e.g. `itri/dealer-platform`).
@@ -31,11 +31,15 @@ With one plan, put the **same** token in both `CLAUDE_TOKEN_BUILD` and `CLAUDE_T
 ## 2. Accounts and secrets (Settings -> Secrets and variables -> Actions)
 | Secret | How to get it |
 |---|---|
-| `CLAUDE_TOKEN_BUILD` | **Founder 1** (Max plan) runs `claude setup-token` on their computer, pastes the token. Runs the manager, weekly audit, @claude |
-| `CLAUDE_TOKEN_REVIEW` | **Founder 2** (Max plan) runs `claude setup-token`, pastes the token. Runs reviews and the daily report |
-| `AGENT_GH_TOKEN` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
+| `CLAUDE_TOKEN_BUILD_V2` | **Founder 1** (Max plan) runs `claude setup-token` on their computer, pastes the token. Runs the manager, weekly audit, @claude |
+| `CLAUDE_TOKEN_REVIEW_V2` | **Founder 2** (Max plan) runs `claude setup-token`, pastes the token. Runs reviews and the daily report |
+| `GUARDS_LEDGER_KEY` | Any random string of 32+ characters (`openssl rand -hex 32`). Signs the guards' record of who pushed each commit; the agents can never read it |
+| `AGENT_GH_TOKEN_V2` | Create a free GitHub account for the agents (e.g. `itri-agents`), add it to the repo with **Write** access, and from that account make a **classic token** with only the `repo` scope (fine-grained tokens can't reach a repo owned by another personal account). That account must own no repository of its own. Never use a founder's token here: the `guards` check trusts who opened and pushed each PR |
 
 On one plan, use the same token for both. With two plans, splitting the tokens spreads the work over both.
+The `_V2` names are deliberate: a GitHub re-run of an old workflow run uses that run's old workflow file with today's
+secrets, so old secret names must hold nothing. If you ever rotate for that reason again, bump the suffix in the workflows
+and the policy (`agent_token_secret`), create the new secrets and delete the old ones.
 
 3. Install the Claude GitHub App on the repo: https://github.com/apps/claude
 
@@ -59,6 +63,12 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 1. Write `packages/contracts` (the first issue, labeled `agent:founder`). Most agents wait for it. Ask Claude to help you draft it.
 2. Go to **Actions -> Agent - Manager shift -> Run workflow**. From then on it runs every hour by itself.
 
+When you (a founder) change a pinned file - anything under `.github/actions/`, a `scripts/check-*` script (tests excepted),
+`.gitleaks.toml`, `.github/accounts.txt`, `.yarnrc.yml`, `CLAUDE.md`, a `CLAUDE.local.md`, a `.mcp.json` or anything under a
+`.claude/` folder (the full rule is `pins_required` in `scripts/check-workflows-policy.json`) - run `bash scripts/check-pins.sh update`
+in the same PR: every workflow checks those files against `.github/pins.txt` before it runs them, fails if the tree holds
+one that is not listed, and the agents cannot change that check.
+
 ## 6. Your daily routine (about 30 minutes)
 1. Read the morning **Daily report**. Founders' actions are listed first.
 2. Merge PRs labeled `ready-to-merge`: open it, read the summary, click through the app on staging, approve, merge.
@@ -66,7 +76,7 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 3. Answer anything `blocked` or `agent:founder`.
 4. Add new issues with the **Agent task** template. Small and specific = faster and cheaper.
 
-## Costs and limits (steady pace)
+## Costs and limits (max pace)
 - **Claude:** two Max plans ($400/month). If agents hit the limit they stop and the next shift continues.
   Seeing many stopped shifts? Turn on extra usage with a monthly cap, or slow the manager to every 4-6 hours (`cron` in `agent-manager.yml`).
 - **GitHub Actions minutes:** private repos get a free monthly allowance; non-stop agents will go past it.
@@ -75,7 +85,7 @@ Open the **Daily reports** issue, pin it, and click **Subscribe**. You get every
 
 ## First-week checks
 - After the first manager shift, read its log. If a tool was refused, add it to `--allowedTools` in the workflow.
-- If the review didn't start on an agent's PR, check `AGENT_GH_TOKEN` is set (pushes with the default token don't start workflows).
+- If the review didn't start on an agent's PR, check `AGENT_GH_TOKEN_V2` is set (pushes with the default token don't start workflows).
 - Check one PR end to end: issue -> PR -> review comment -> fix round -> `ready-to-merge`.
 
 ## Payload rules (keep dealers apart)

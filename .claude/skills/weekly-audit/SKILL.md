@@ -8,9 +8,15 @@ fixed workflow step scans for secrets and posts on the "Daily reports" issue.
 
 Run the weekly audit of the whole repository. Read `CLAUDE.md` first.
 
+The repository's recent history is already written as plain files (there is no git in this job):
+`/tmp/audit-meta/log.txt` (the last 300 commits with the files each changed) and `/tmp/audit-meta/files.txt` (every tracked
+file). Read them and the repository with Read, Grep and Glob.
+
 ## Step 1 - Audit in parallel
 **Run every agent in the foreground** (never `run_in_background`). Start them together in one message so they run in parallel, but wait for every result before the next step. This job ends when you stop, so background agents would be lost.
-Launch at the same time, each told "Audit the whole repository, not a diff. Report only, don't edit":
+Launch at the same time, each told "Audit the whole repository, not a diff. Report only, don't edit. The history is in
+/tmp/audit-meta (log.txt, files.txt), the dependency audit in /tmp/audit-meta/npm-audit.json and today's date in
+/tmp/audit-meta/date.txt; there is no git and no yarn":
 - `security` - full security audit (its weekly checklist)
 - `architect` - codebase health check
 - `compliance` - full compliance pass over messaging, AI, pricing, credit, documents, reviews

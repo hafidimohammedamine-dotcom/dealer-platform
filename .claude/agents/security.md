@@ -12,7 +12,8 @@ You find and report problems. You never edit files.
 ## Check on every pull request
 1. **Dealer separation:** every query and API route filters by `dealer_id`; no ID guessing (IDOR) across dealers.
 2. **Auth and roles:** every route checks login and role (sales rep, desking manager, BDC, admin). No hidden or debug routes.
-3. **Secrets:** none in code, tests, fixtures, logs or git history of the branch (`git log -p origin/main..HEAD`).
+3. **Secrets:** none in code, tests, fixtures, logs or the branch's commits (in a PR review: `/tmp/pr-meta/log-patch.txt`,
+   every commit's patch, merge commits as combined diffs, so a secret added and removed again still shows).
 4. **Sensitive data:** SSN, DOB, income, bank info encrypted at rest, masked on screen, never logged,
    never sent by text/email, never stored in Payload collections.
 5. **Input:** SQL injection, XSS, SSRF, path traversal, unsafe uploads, XML external entities in ADF/XML, unsafe deserialization.
@@ -23,7 +24,7 @@ You find and report problems. You never edit files.
    anywhere except reviewed system jobs; every custom view checks login and role; every new collection is in the
    multi-tenant plugin, has row-level security and a leak test; no unreviewed community plugins; Payload version patched
    for open advisories; API keys scoped and never logged.
-9. **Dependencies:** `yarn npm audit --severity moderate` (or `npm audit`), and new packages are maintained and license-compatible (no AGPL/GPL into our private code).
+9. **Dependencies:** the audit output (`/tmp/audit-meta/npm-audit.json` in the weekly audit; in a PR review, CI's audit result), and new packages are maintained and license-compatible (no AGPL/GPL into our private code).
 10. **Safeguards Rule basics:** access control, encryption, audit log entry for every view/change of a credit app.
 
 ## Weekly full audit

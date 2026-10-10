@@ -6,55 +6,138 @@ on:
   workflow_dispatch:
 
 jobs:
-  audit:
+  deps:
+    # The dependency audit runs yarn, which runs repository code (.yarnrc.yml, .yarn/plugins, lifecycle scripts): it gets
+    # its own job with no secret at all, and hands its output to the audit job as an artifact (data).
+    if: (github.event_name == 'schedule' || github.actor_id == '238822878')
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 20
     permissions:
       contents: read
-      issues: write   # used only by the fixed post step
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: Dependency audit as a file (no secret in this job)
+        run: |
+          mkdir -p /tmp/deps
+          if [ -f package.json ]; then
+            corepack enable && (yarn npm audit --all --recursive --json > /tmp/deps/npm-audit.json 2> /tmp/deps/npm-audit.err || true)
+          else
+            echo "no package.json yet: no dependency audit" > /tmp/deps/npm-audit.json
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-audit
+          path: /tmp/deps/npm-audit.json
+          retention-days: 7
+  audit:
+    # The schedule, or a founder's manual run (the agents' token could otherwise start it: each run spends Claude turns).
+    needs: deps
+    if: always() && (github.event_name == 'schedule' || github.actor_id == '238822878') && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Claude reads with a read-only token; the `post` job below (no Claude) holds the write scope and posts the answer.
+    permissions:
+      contents: read
+      issues: read
       pull-requests: read
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
-      GH_TOKEN: ${{ github.token }}   # job token: comment/issues in this repo only
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"   # tool subprocesses do not see the Claude token (needs the lock's bubblewrap)
+      GH_TOKEN: ${{ github.token }}   # read-only job token
+    outputs:
+      answer: ${{ steps.answer.outputs.answer }}
+      has_result: ${{ steps.answer.outputs.has_result }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: main   # always the default branch
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - name: The default branch's head passed the main guard (no unchecked push runs next to a Claude token)
+        run: bash scripts/check-main-head.sh
+      - id: lock
+        # Founder-owned: pre-installs Claude Code, then allows outbound network only to an allow-list and removes sudo/Docker.
+        uses: ./.github/actions/agent-egress-lock
+      - name: The dependency audit from the deps job (data; nothing of it runs here)
+        if: needs.deps.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          node-version: 20
-      - run: corepack enable
+          name: npm-audit
+          path: /tmp/audit-meta
+      - name: Write the repo history and the date as plain files for the auditors (pinned script; they read these instead of running git)
+        run: bash scripts/check-audit-prepare.sh /tmp/audit-meta
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD }}
+          # the action's post-session step "Post buffered inline comments" (it holds the GitHub token after Claude ran) is off
+          classify_inline_comments: "false"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
           prompt: "/weekly-audit"
           claude_args: |
             --model opus
             --max-turns 150
-            --allowedTools "Agent,Task,Read,Grep,Glob,TodoWrite,Skill,Bash(git log:*),Bash(git ls-files:*),Bash(git show:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(yarn npm audit:*),Bash(yarn npm info:*),Bash(yarn why:*)"
-            --disallowedTools "WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**)"
+            --add-dir /tmp/audit-meta
+            --allowedTools "Agent,Task,Read(./**),Read(//tmp/audit-meta/**),Grep,Glob,TodoWrite,Skill,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh pr list:*),Bash(gh run list:*)"
+            --disallowedTools "Skill(payload),WebFetch,WebSearch,Write,Edit,NotebookEdit,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
           # Allow-list: read-only. The audit is the final answer; the next step scans and posts it. The manager opens issues from it.
-      - name: Show blocked tool calls (names and commands only)
-        if: always() && steps.claude.outputs.execution_file != ''
-        env:
-          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: |
-          jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-                 | "BLOCKED " + .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' \
-            "$EXEC_FILE" || true
-      - uses: ./.github/actions/install-gitleaks
+      - name: Show blocked tool calls and hand the answer to the post job (pinned script)
+        id: answer
         if: always()
-      - name: Post the report (secret-scanned) to the "Daily reports" issue
-        if: always() && steps.claude.outputs.execution_file != ''
         env:
-          GH_TOKEN: ${{ github.token }}
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
         run: |
           set -euo pipefail
-          n=$(gh issue list --state open --search '"Daily reports" in:title' --json number,title --jq '[.[] | select(.title == "Daily reports")][0].number // empty')
-          [ -n "$n" ] || n=$(gh issue create --title "Daily reports" --body "Daily founder reports and weekly audits." | sed 's#.*/##')
-          bash scripts/check-review-post.sh issue "$n" "$EXEC_FILE"
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+          bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"
+  post:
+    # The only job with a write scope; runs no Claude and reads only the answer (data) and main's post script.
+    needs: audit
+    if: always() && needs.audit.outputs.has_result == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
+      - uses: ./.github/actions/install-gitleaks
+      - name: Post the report (secret-scanned) to the "Daily reports" issue
+        env:
+          ANSWER: ${{ needs.audit.outputs.answer }}
+        run: bash scripts/check-review-post.sh daily-reports

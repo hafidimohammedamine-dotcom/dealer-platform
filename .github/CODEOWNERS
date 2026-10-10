@@ -3,7 +3,7 @@
 # (needs a paid GitHub plan for a private repo). Until then the real guards are the CI checks
 # (guards.yml: scripts/check-founder-files.sh, scripts/check-skills.sh) and founders reading every PR.
 # Keep this list in sync with the founders-only rows in CLAUDE.md and the pattern in scripts/check-founder-files.sh.
-# Add the second founder here (and to founders.txt) once they have a GitHub account.
+# Add the second founder here (and as a `founder` line in accounts.txt) once they have a GitHub account.
 CLAUDE.md                        @hafidimohammedamine-dotcom
 CLAUDE.local.md                  @hafidimohammedamine-dotcom
 .mcp.json                        @hafidimohammedamine-dotcom
@@ -14,3 +14,7 @@ CLAUDE.local.md                  @hafidimohammedamine-dotcom
 /.gitleaks.toml                  @hafidimohammedamine-dotcom
 /.gitleaksignore                 @hafidimohammedamine-dotcom
 /packages/contracts/             @hafidimohammedamine-dotcom
+/packages/data/override-allowlist.txt @hafidimohammedamine-dotcom
+.yarnrc.yml                      @hafidimohammedamine-dotcom
+.yarn/                           @hafidimohammedamine-dotcom
+.gitattributes                   @hafidimohammedamine-dotcom

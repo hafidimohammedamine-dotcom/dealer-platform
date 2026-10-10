@@ -9,10 +9,11 @@ on:
 
 concurrency:
   group: guards-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: true   # the pusher ledger is written by pusher-ledger.yml (no concurrency group), not here
 
 jobs:
   guards:
+    if: github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -20,8 +21,10 @@ jobs:
     env:
       BASE_REF: ${{ github.base_ref }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       # Both come from the event, not from anything the PR controls: who opened the PR, and who triggered this run.
-      LOGINS: ${{ github.event.pull_request.user.login }},${{ github.event.sender.login }}
+      # Numeric IDs, not logins (a login can be renamed and re-registered).
+      USER_IDS: ${{ github.event.pull_request.user.id }},${{ github.event.sender.id }}
     steps:
       - name: Check out the base branch (rules, scripts, config)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -29,21 +32,48 @@ jobs:
           ref: ${{ github.base_ref }}
           fetch-depth: 0
           persist-credentials: false
+      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
+        env:
+          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+        run: |
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
+          bash scripts/check-pins.sh verify
       - name: Fetch the PR as data into /tmp/pr
         env:
           GIT_TOKEN: ${{ github.token }}
-        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr
-      - name: Founder-only files (PR author and pusher must be founders)
-        run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$LOGINS" .github/founders.txt
+        run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "" origin "$HEAD_SHA"
+      - name: Pinned Python packages for the guard scripts (hash-checked)
+        run: bash scripts/check-python-deps.sh >> "$GITHUB_PATH"
+      - name: Who pushed each commit (from the ledger written by pusher-ledger.yml)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUARDS_LEDGER_KEY: ${{ secrets.GUARDS_LEDGER_KEY }}
+        run: |
+          set -euo pipefail
+          # The prepare step proved the fetched head is the event's; this run judges that head.
+          bash scripts/check-pushers.sh verify "origin/$BASE_REF" "$HEAD_SHA" .github/accounts.txt | tee /tmp/pushers.txt
+      - name: Founder-only files (PR author and every pusher must be founders)
+        run: bash scripts/check-founder-files.sh "origin/$BASE_REF" refs/remotes/pr/head "$USER_IDS" .github/accounts.txt /tmp/pushers.txt
       - name: Skills match manifest and checksums
         # /tmp/pr has rule files removed, so check the PR's own .claude/ (skills and agents) from git, not from that copy.
         run: |
           set -euo pipefail
-          rm -rf /tmp/pr-skills && mkdir -p /tmp/pr-skills
-          if git cat-file -e refs/remotes/pr/head:.claude 2>/dev/null; then
-            git archive refs/remotes/pr/head .claude | tar -x -C /tmp/pr-skills
-          fi
+          bash scripts/check-pr-archive.sh refs/remotes/pr/head /tmp/pr-skills .claude
           bash scripts/check-skills.sh /tmp/pr-skills
+      - name: Third-party skills compared with the base branch (no quiet switch to 'ours' or to another repo)
+        run: bash scripts/check-skills-vs-base.sh . /tmp/pr-skills
+      - name: Third-party skills equal their pinned upstream with deletions only (fresh fetch of the locked commit)
+        run: bash scripts/check-skills-upstream-all.sh /tmp/pr-skills /tmp/pr-upstream
+      - name: Agent workflows keep their denies and pins (base script, the PR's tree as data)
+        run: |
+          set -euo pipefail
+          # The PR's whole tree unpacked as data (never run; /tmp/pr has the rule files removed, but the pins cover them):
+          # its workflows, local actions, pins.txt and every pinned file. The accounts list comes from the base branch (a PR
+          # cannot add itself). Skill denies are required for every third-party skill named in the base or the PR manifest.
+          bash scripts/check-pr-archive.sh refs/remotes/pr/head /tmp/pr-wf
+          bash scripts/check-workflows.sh /tmp/pr-wf --accounts .github/accounts.txt \
+            --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
       - uses: ./.github/actions/install-gitleaks
       - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)
         run: |

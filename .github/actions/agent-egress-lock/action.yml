@@ -1,0 +1,41 @@
+# Founder-owned. Every agent job runs this right after checkout, before anything else:
+#  1. installs Node 20 (actions/setup-node), gitleaks, and the pinned Claude Code and Bun binaries, the last three checked
+#     against a pinned sha256 (the claude-code-action step then uses Claude Code and Bun),
+#  2. allows outbound HTTPS only to the host names in allow-domains.txt (DNS allow-list + SNI-checking proxy + firewall),
+#  3. removes sudo and Docker for the rest of the job, so nothing later can undo 2,
+#  4. proves it (self-test).
+# Bumping CLAUDE_CODE_VERSION: take the linux-x64 "checksum" from
+# https://downloads.claude.ai/claude-code-releases/<version>/manifest.json, in the same founder PR that bumps the
+# claude-code-action SHA (whose src/entrypoints/run.ts names the version it expects).
+# How it works, its messages and its limits: docs/runbooks/agent-network-lock.md.
+name: Agent egress lock
+description: Install pinned Claude Code, then allow outbound HTTPS only to an allow-list of host names, and drop sudo/Docker.
+outputs:
+  claude-path:
+    description: Absolute path of the pre-installed Claude Code executable.
+    value: ${{ steps.lock.outputs.claude-path }}
+  bun-path:
+    description: Absolute path of the pre-installed Bun executable (the claude-code-action's path_to_bun_executable).
+    value: ${{ steps.lock.outputs.bun-path }}
+  failed-checks:
+    description: When the self-test failed, the failed checks, one per line (the break-on-purpose test reads it); empty otherwise.
+    value: ${{ steps.lock.outputs.failed-checks }}
+runs:
+  using: composite
+  steps:
+    # Installed while GitHub's release storage is still reachable (the lock closes it): Node 20 for the agents' tools and
+    # gitleaks for the post steps that scan Claude's answer.
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: 20
+    - uses: ./.github/actions/install-gitleaks
+    - id: lock
+      shell: bash
+      env:
+        CLAUDE_CODE_VERSION: "2.1.295"
+        CLAUDE_CODE_SHA256: "4503bfe11a6c7fcc1e0b39b5e0d347c04248f750b03b0977b3ad6b531fe6f358"
+        # The version claude-code-action v1.0.247 installs (its action.yml, setup-bun step); sha256 of bun-linux-x64.zip from
+        # https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/SHASUMS256.txt
+        BUN_VERSION: "1.3.14"
+        BUN_SHA256: "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+      run: bash "$GITHUB_ACTION_PATH/lock.sh"
