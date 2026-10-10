@@ -154,7 +154,7 @@ runfb() { # runfb <name> <message> <pusher> <before> <after> [VAR=value ...]   (
   out=$(cd "$W/clone" && env -u GITHUB_ACTIONS -u GITHUB_REPOSITORY PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" ORIGIN="$W/origin" GH_TOKEN="$TOK" GH_REPO=owner/repo GITHUB_RUN_ID=7 PUSHER_ID="$pusher" BEFORE="$before" AFTER="$after" FOUNDER_IDS="111 222" FLOOR=596905e54f7ae8385c90f6d334db5f18a4427e28 "$@" bash -c "$FB" 2>&1); rc=$?
   assert_result fail "$rc" "$name" "$msg" "$out"; assert_no_token "$name" "$out" "$TOK"; }
 fresh; push_commits 1 2; runfb "fallback: normal push by the agent is undone, runs cancelled, workflows disabled, issue opened" "::error::push to main by user ID 333 changed pinned files or broke the checkout" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
-check "fallback: origin main has the base tree back in one undo commit, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 4 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "restored main to the tree of $3 with one undo commit" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files or broke the checkout (user ID 333)" "$2"' _ "$W/clone" "$W/gh.log" "$BASE"
+check "fallback: origin main has the base tree back in one undo commit, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 4 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "restored main to the tree of $3 with one undo commit" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files or broke the checkout (user ID 333)" "$2" && grep -q "event: 333, $3..$4" "$2"' _ "$W/clone" "$W/gh.log" "$BASE" "$HEAD"
 check "fallback: same tree as before the push" same_tree "$W/clone" "$BASE"
 check "fallback: the undo commit was marked guards/main-guard by the job token, once" bash -c 'cd "$1" && grep -qF "gh api -X POST repos/owner/repo/statuses/$(git rev-parse origin/main) -f state=success -f context=guards/main-guard -f description=undo by main-guard run 7" "$2" && [ "$(grep -c "statuses/" "$2")" = 1 ]' _ "$W/clone" "$W/gh.log"
 fresh; push_commits 1; runfb "fallback: the undo cannot be marked: the issue says a founder accepts it" "changed pinned files" 333 "$BASE" "$HEAD" STUB_MARK_RC=1
@@ -195,15 +195,22 @@ check "fallback: unchecked force-push tip: main stays as pushed" bash -c 'cd "$1
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
 runfb "fallback: a force push that cannot be restored is reported" "changed pinned files" 333 "$OLD" "$HEAD" STUB_REF_RC=1
 check "fallback: force restore failure reported" grep -q "main was force-pushed and could not be restored to $OLD; the founders restore it by hand" "$W/gh.log"
-fresh; push_commits 1; runfb "fallback: new-branch push (zero before): nothing to restore" "changed pinned files" 333 "$Z" "$HEAD"
+fresh; push_commits 1; runfb "fallback: new-branch push (zero before): nothing to restore" "created main with pinned files changed" 333 "$Z" "$HEAD"
 check "fallback: zero before: main untouched, no API call on the tree, the issue says there is no previous tip" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "no previous tip to restore; the founders reset main by hand" "$2" && ! grep -q "statuses/\|git/" "$2"' _ "$W/clone" "$W/gh.log"
 fresh; push_commits 1; runfb "fallback: an unknown before (no run, a 404 on every call about it): nothing undone and says so" "changed pinned files" 333 "$(printf 'a%.0s' {1..40})" "$HEAD" STUB_RUNS=
 check "fallback: unknown before: main untouched, never passed, every workflow disabled" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "the previous tip $3 never passed the main guard (runs: none); nothing restored or marked" "$2" && ! grep -q "git/refs" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ]' _ "$W/clone" "$W/gh.log" "$(printf 'a%.0s' {1..40})"
-fresh; push_commits 1; runfb "fallback: a founder's push only reports the missing pin update" "a founder's push ($HEAD) changed pinned files without a pin update" 111 "$BASE" "$HEAD"
-check "fallback: founder push undid nothing, disabled nothing" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
-fresh; push_commits 1; runfb "fallback on a schedule run (the checkout failed): only an error, nothing touched" "the guard could not run on this schedule run" schedule - -
-check "fallback: schedule: no gh call" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
-fresh; push_commits 1; runfb "fallback on a by-hand run: only an error" "the guard could not run on this accept run" accept 111 "$HEAD"
+fresh; push_commits 1; runfb "fallback: a founder's push on a checked tip only reports the missing pin update" "a founder's push ($HEAD) changed pinned files without a pin update" 111 "$BASE" "$HEAD"
+check "fallback: founder push on a checked tip: nothing undone, nothing disabled, no issue (only the tip's checks asked)" bash -c '! grep -q "workflow disable\|issue create\|git/" "$1"' _ "$W/gh.log"
+fresh; push_commits 1; runfb "fallback: a founder's push creating main with pinned files changed: only the message" "created main and changed pinned files" 111 "$Z" "$HEAD"
+check "fallback: founder new-branch push: no gh call" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
+# A founder's push on top of an unchecked tip (a [skip ci] agent push, then a founder merge that also fails the pins): the
+# agents stop and the issue names the unchecked tip, nothing is undone
+fresh; push_commits 1; A1=$HEAD; push_commits 2; runfb "fallback: a founder's push on an unchecked tip stops the agents" "a founder's push $A1..$HEAD sits on a tip that never passed the main guard" 111 "$A1" "$HEAD" STUB_RUNS=
+check "fallback: founder push on an unchecked tip: main untouched, 8 disables, the issue names the tip, nothing marked" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 3 ] && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "gh issue create --title SECURITY: a push to main passed no main-guard run (commit $3)" "$2" && grep -q "the previous tip $3 never passed the main guard (runs: none); the founder.s push $3..$4 on top of it failed the pin check" "$2" && ! grep -q "statuses/\|git/refs" "$2"' _ "$W/clone" "$W/gh.log" "$A1" "$HEAD"
+# The hourly schedule run whose checkout or pin check fails: nothing to undo, but the agents stop and an issue says so
+fresh; push_commits 1; runfb "fallback on a schedule run (main's head failed the pins or its checkout): the agents stop" "main's head failed the pin check (or its checkout) on the scheduled run" schedule - - GITHUB_SHA="$HEAD"
+check "fallback: schedule: 8 disables, the issue names main's head, no undo, no status" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh issue create --title SECURITY: main.s head failed the pin check on the scheduled main-guard run" "$1" && grep -q "main.s head ($2) failed the pin check or its checkout on the scheduled run; nothing undone" "$1" && ! grep -q "statuses/\|git/" "$1"' _ "$W/gh.log" "$HEAD"
+fresh; push_commits 1; runfb "fallback on a by-hand run: only an error (a founder started it and reads the log)" "the guard could not run on this by-hand run" accept 111 "$HEAD"
 check "fallback: accept: no gh call" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
 # The pin-mismatch fallback in main-guard.yml: runs only on a pin failure, calls no repo script, carries the founders' IDs
 # from accounts.txt, and labels the issue area:security + blocked + priority:1.
@@ -223,7 +230,7 @@ for lab in ("area:security", "blocked", "priority:1"):
     assert f"--label {lab}" in fb["run"], lab
 assert not re.search(r"(^|[\s;&|$(])git\s", fb["run"]), "the fallback uses no checkout: GitHub API calls only"
 assert fb["env"]["FLOOR"] == re.search(r"^MAIN_GUARD_FLOOR=([0-9a-f]{40})$", open(f"{root}/scripts/check-github-lib.sh").read(), re.M).group(1)
-assert 'select(.event == "push")' in fb["run"] and ".creator.id == 41898282" in fb["run"] and 'compare/$BEFORE...$FLOOR' in fb["run"], "the fallback's chain check"
+assert 'select(.event == "push")' in fb["run"] and ".creator.id == 41898282" in fb["run"] and 'compare/$1...$FLOOR' in fb["run"] and 'tip_checked "$BEFORE"' in fb["run"], "the fallback's chain check"
 assert '-f "parents[]=$AFTER"' in fb["run"] and '-F force=false' in fb["run"], "the undo commit is a fast-forward on the pushed head"
 wfs = re.search(r"for w in ([^;\n]+); do", fb["run"]).group(1).split()
 src = open(f"{root}/scripts/check-main-push.sh").read()

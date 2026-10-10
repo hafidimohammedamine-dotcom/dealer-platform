@@ -251,7 +251,11 @@ main guard (runs: ...); nothing restored or marked`: a `[skip ci]` push followed
 file must not get the first push's content marked as checked); otherwise it builds the undo commit from the previous
 tip's tree (`git/commits` with `parents[] = <after>`), fast-forwards `main` to it (`git/refs/heads/main`, `force=false`),
 marks it, or after a force push resets `main` to the previous tip. It then cancels and disables the same workflows and
-opens `SECURITY: push to main changed pinned files or broke the checkout`;
+opens `SECURITY: push to main changed pinned files or broke the checkout`. On the hourly run the same step means `main`'s
+head itself fails the pins or its checkout (an agent push with `[skip ci]` that changed a pinned file, or a cancelled
+run): nothing to undo, but the agents are stopped and `SECURITY: main's head failed the pin check on the scheduled
+main-guard run` opened; a founder's push whose pins fail is only a message when its previous tip was checked, and stops
+the agents too when that tip never passed (`SECURITY: a push to main passed no main-guard run (commit <before>)`);
 if the pusher was a founder it only fails with `pinned files changed by a founder's push ... run scripts/check-pins.sh
 update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs, labels and that its workflow list equals
 the script's.

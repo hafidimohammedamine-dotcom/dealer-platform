@@ -203,6 +203,8 @@
   previous tip like the script (push run, bot status or floor) before restoring or marking anything; the script builds its
   undo commit with `commit-tree` (no working tree needed); tests for the laundering attack (a `[skip ci]` push followed by
   one touching a pinned file), the API failures, the schedule and by-hand runs.
+- **Round 22:** the fallback also stops the agents and opens the issue on the hourly run (main's head failing the pins or
+  its checkout) and on a founder push whose previous tip never passed the main guard; tests for both.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
