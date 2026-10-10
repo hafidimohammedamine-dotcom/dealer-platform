@@ -205,6 +205,8 @@
   one touching a pinned file), the API failures, the schedule and by-hand runs.
 - **Round 22:** the fallback also stops the agents and opens the issue on the hourly run (main's head failing the pins or
   its checkout) and on a founder push whose previous tip never passed the main guard; tests for both.
+- **Round 23:** main-guard's checkout has its own 5-minute limit (a step timeout fails the step; a job timeout would cancel
+  the run with the fallback never started) and the fallback also runs on `cancelled()`; job limit 15 minutes.
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

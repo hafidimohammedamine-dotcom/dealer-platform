@@ -31,9 +31,13 @@ permissions:
 jobs:
   guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
+      # The checkout carries its own time limit: a step that runs out of time fails (the run is not cancelled), and the
+      # fallback below still has its own time inside the job's limit (a push built to make the checkout crawl must not end
+      # the run with nothing done). The pin check is three sha256sum calls over founder-only files.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
         with:
           ref: main
           fetch-depth: 0
@@ -58,10 +62,11 @@ jobs:
         run: bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt
       - name: If the guard could not run (pins mismatch, or the checkout failed), undo the push from this file alone
         # Runs when the guard step never got to decide: the pins did not match (a push changed pinned files without a pin
-        # update) or the checkout itself failed (a push built to break it). No repository file and no checkout is used:
+        # update), the checkout itself failed or ran out of time (a push built to break it), or the run was cancelled before
+        # the guard step (cancelled() is true then; a cancel of the whole run also ends this step, so the hourly run is the backstop). No repository file and no checkout is used:
         # everything goes through the GitHub API. The founders' user IDs are written here, outside the pushed files' reach:
         # 238822878 (.github/accounts.txt). The floor commit equals MAIN_GUARD_FLOOR in scripts/check-github-lib.sh.
-        if: failure() && steps.guard.outcome == 'skipped'
+        if: (failure() || cancelled()) && steps.guard.outcome == 'skipped'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

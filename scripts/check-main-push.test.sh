@@ -221,7 +221,10 @@ wf = yaml.safe_load(open(f"{root}/.github/workflows/main-guard.yml"))
 steps = wf["jobs"]["guard"]["steps"]
 pins = [s for s in steps if s.get("id") == "pins"][0]
 fb = [s for s in steps if s.get("name", "").startswith("If the guard could not run")][0]
-assert fb["if"] == "failure() && steps.guard.outcome == 'skipped'", fb["if"]   # pins mismatch or a failed checkout
+assert fb["if"] == "(failure() || cancelled()) && steps.guard.outcome == 'skipped'", fb["if"]   # pins mismatch, a failed or timed-out checkout, a cancel
+checkout = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")][0]
+assert checkout.get("timeout-minutes"), "the checkout times out on its own, inside the job's limit (a step timeout fails the step; a job timeout cancels the run)"
+assert checkout["timeout-minutes"] + 6 <= wf["jobs"]["guard"]["timeout-minutes"], "the fallback keeps at least 6 minutes (its 2-minute wait, the cancels and disables)"
 assert not re.search(r"(^|[\s;&|])(bash|sh|source|\.)\s+\S*(scripts/|\./)", fb["run"], re.M), "the fallback must not run repo files"
 assert pins["run"] == 'echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet\nsha256sum --check --strict --quiet .github/pins.txt\nbash scripts/check-pins.sh verify\n', pins["run"]
 founders = sorted(l.split()[0] for l in open(f"{root}/.github/accounts.txt") if l.split() and not l.startswith("#") and l.split()[2] == "founder")
