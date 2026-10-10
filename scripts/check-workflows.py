@@ -86,7 +86,7 @@ def check_pins_position(fname, jw, steps):
         err(f"{jw}: no actions/checkout step (every job outside pins_exempt checks out and pins the files it runs)")
         return
     nxt = steps[at + 1] if at + 1 < len(steps) else None
-    if not LIB.is_pins_step(nxt):
+    if not LIB.names_pins_step(nxt):
         err(f"{jw}: the step after the checkout must be the pin step '{P['pins_step_name']}'")
         return
     LIB.check_pins_step(fname, f"{jw} step {at + 2}", nxt)

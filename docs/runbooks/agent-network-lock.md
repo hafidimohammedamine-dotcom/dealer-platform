@@ -83,7 +83,7 @@ only to the exact names and that pattern.
   can create user namespaces`, `AppArmor profiles that allow user namespaces are still loaded: <names>`, `a program outside
   bubblewrap can become root in a user namespace`, `<path> is still setuid/setgid (maps root into a user namespace)`,
   `podman can still become root in a user namespace`, and `domain fronting through <name> answers for another host
-  (HTTP <code> <location>)`. `could not remove setuid from <path>` is a lock error before the self-test (chmod failed).
+  (Host: <host>, HTTP <code> <location>)`. `could not remove setuid from <path>` is a lock error before the self-test (chmod failed).
   `self-test: deliberate break` appears only in the break-on-purpose test run.
 - A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR. First
   run the domain-fronting check for it (see "Measured limits").
@@ -260,5 +260,8 @@ request. Owner: Mohammed. Review by 2026-11-08, or earlier if any of them change
    creation by the agents' account. Accepted with these controls: `main-guard.yml` reverts any non-founder push to `main`,
    stops the manager and opens a blocked security issue; the pusher ledger in `guards` keeps non-founder commits out of
    founder-only changes; the owns-no-repositories check stops every agent job (hourly with the manager; the daily report lists the
-   failed runs) if the agents' account ever owns a repository; the manager denies `gh repo`. These detect and undo rather than prevent; prevention
+   failed runs) if the agents' account ever owns a repository; the manager denies `gh repo`. Measured 2026-10-10 on this repository with a token that lacks the workflow permission: GitHub refuses any ref update
+   that changes `.github/workflows/`, even a rewind of `main` to an older commit with no new commits (`refusing to allow a
+   GitHub App to create or update workflow ... without workflows permission`; a classic token without the `workflow` scope,
+   like the agents', gets the same refusal), so the agents' token cannot roll `main` back past a workflow change either. These detect and undo rather than prevent; prevention
    (rulesets, a fine-grained token) needs a paid plan or an organization-owned repository and is a later founder issue.

@@ -59,4 +59,8 @@ hdr=$(printf 'x-access-token:%s' tok-test-not-real | base64 -w0)
 [ $rc = 0 ] && grep -qF -- "-c http.extraheader=AUTHORIZATION: basic $hdr fetch" "$W/git.log" && ok "GIT_TOKEN is passed as a one-time auth header" || bad "GIT_TOKEN header" "$out"
 ! grep -q 'tok-test-not-real' <<<"$out" && ok "the token is never printed" || bad "token printed" "$out"
 [ "$(git -C "$W/base" config --get-regexp 'http\..*extraheader' || true)" = "" ] && ok "the token is not stored in git config" || bad "token stored"
+# A PR with a symlink (docs/x.md -> /proc/self/environ would leak the job's environment to a reader) is refused
+cd "$W/base" && git checkout -q pr && mkdir -p docs && ln -s /proc/self/environ docs/x.md && git add -A && git commit -qm link && git push -q origin "HEAD:refs/pull/9/head" 2>/dev/null && git checkout -q main && git fetch -q origin
+out=$(bash "$SCRIPT" 9 "$W/pr9" 2>&1); rc=$?
+[ $rc != 0 ] && grep -q "symlinks or special files in the PR" <<<"$out" && grep -q "docs/x.md" <<<"$out" && ok "a PR with a symlink is refused" || bad "symlink refused" "$out"
 summary

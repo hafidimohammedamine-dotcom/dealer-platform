@@ -87,12 +87,13 @@ def check_pins_file(root):
         return
     PINS_HASH = _sha256(path)
     listed = {}
-    for n, line in enumerate(open(path, encoding="utf-8"), 1):
-        m = re.match(r"^([0-9a-f]{64})  (\S.*)$", line.rstrip("\n"))
-        if not m:
-            err(f"{P['pins_file']} line {n}: want '<sha256>  <path>'")
-            continue
-        listed[m.group(2)] = m.group(1)
+    with open(path, encoding="utf-8") as fh:
+        for n, line in enumerate(fh, 1):
+            m = re.match(r"^([0-9a-f]{64})  (\S.*)$", line.rstrip("\n"))
+            if not m:
+                err(f"{P['pins_file']} line {n}: want '<sha256>  <path>'")
+                continue
+            listed[m.group(2)] = m.group(1)
     want = pinned_paths(root)
     for f in sorted(want - set(listed)):
         err(f"{P['pins_file']} does not list {f}; run: bash scripts/check-pins.sh update")
@@ -103,12 +104,22 @@ def check_pins_file(root):
             err(f"{P['pins_file']}: {f} changed but its pin did not; run: bash scripts/check-pins.sh update")
 
 
-def is_pins_step(step):
-    """The exact pin step: name and run from the policy, env PINS_SHA256 equal to pins.txt's current hash, nothing else
-    but an optional id."""
+def is_pins_step(step, fname=None):
+    """True only for the exact pin step: the policy's name and run (the default-branch form for a workflow in
+    pins_default_branch_workflows), env exactly {PINS_SHA256: the current hash of pins.txt} (no env in the default-branch
+    form), and no other keys but an optional id. A step that merely carries the name is not one."""
     if not isinstance(step, dict) or step.get("name") != P["pins_step_name"]:
         return False
-    return True
+    if fname in P["pins_default_branch_workflows"]:
+        return str(step.get("run", "")) == P["pins_step_run_default_branch"] and not (set(step) - {"name", "run", "id"})
+    env = step.get("env") if isinstance(step.get("env"), dict) else {}
+    return (str(step.get("run", "")) == P["pins_step_run"] and set(env) == {"PINS_SHA256"}
+            and (PINS_HASH is None or str(env["PINS_SHA256"]) == PINS_HASH) and not (set(step) - {"name", "env", "run", "id"}))
+
+
+def names_pins_step(step):
+    """A step that carries the pin step's name (exact or not): where one is expected, check_pins_step says what is wrong."""
+    return isinstance(step, dict) and step.get("name") == P["pins_step_name"]
 
 
 def check_pins_step(fname, where, step):
@@ -148,6 +159,8 @@ def check_permissions(fname, where, perms, triggers):
                 f"per file {P['per_file_permission_scopes']}; read/write/none)")
         if k == "id-token" and v == "write" and any(t in PR_TRIGGERS for t in triggers):
             err(f"{where}: id-token: write is not allowed in a workflow that runs on pull_request/pull_request_target")
+        if v == "write" and fname in P["read_only_workflows"]:
+            err(f"{where}: permission {k}: write is not allowed in {fname} (its job token is read-only; the agents act with their own token)")
 
 
 def accounts_from_rows(rows):

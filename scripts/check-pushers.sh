@@ -5,18 +5,29 @@
 # main, and guards.yml reads it back. Anyone with write access can post a status under the same context; only the HMAC
 # makes a record valid: mac = HMAC-SHA256(GUARDS_LEDGER_KEY, "<sha> <id>"), and the key is a GitHub secret the agents'
 # token cannot read, so a forged, copied or edited status never verifies and a deleted one is "no record".
-#   record <base-ref> <head-ref> <pusher-id>   post a record on every commit of base..head that has no valid record yet
+#   record <ref-name> <default-ref> <before> <after> <pusher-id>   from a push event (pusher-ledger.yml): post a record, as
+#       the pusher, on every commit this push brought that no other branch already has: before..after (a fast-forward), or
+#       everything since the default branch for a new branch or a force push; commits reachable from any other branch stay
+#       as they are (an unrecorded commit a founder re-pushes under a new branch name is never credited to the founder);
+#       a deleted branch (after = zeros) records nothing
 #   verify <base-ref> <head-ref> <accounts-file>   print "<sha> <id> <founder|agent|unknown>" for every commit, or
-#       "<sha> - unknown" when no record has a valid mac; check-founder-files.sh then requires every line to be a founder
-#       when founder-only files changed
+#       "<sha> - unknown" when no record has a valid mac, or when valid records name more than one pusher (a commit never
+#       passes on a founder's record if another valid record names someone else); check-founder-files.sh then requires
+#       every line to be a founder when founder-only files changed
 # A GitHub API error is an error (exit 1), never "no record". Needs gh with GH_TOKEN (statuses: write for record) and
 # GH_REPO. Rules: docs/runbooks/ci-guards.md.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/check-accounts-lib.sh
 . "$HERE/check-accounts-lib.sh"
-CMD="${1:-}"; BASE="${2:-}"; HEAD="${3:-}"; ARG="${4:-}"
-[ -n "$CMD" ] && [ -n "$BASE" ] && [ -n "$HEAD" ] && [ -n "$ARG" ] || { echo "usage: check-pushers.sh record|verify <base-ref> <head-ref> <pusher-id|accounts-file>"; exit 2; }
+CMD="${1:-}"
+usage() { echo "usage: check-pushers.sh record <ref-name> <default-ref> <before> <after> <pusher-id> | verify <base-ref> <head-ref> <accounts-file>"; exit 2; }
+case "$CMD" in
+  record) REF_NAME="${2:-}"; DEFAULT="${3:-}"; BEFORE="${4:-}"; AFTER="${5:-}"; ARG="${6:-}"
+          [ -n "$REF_NAME" ] && [ -n "$DEFAULT" ] && [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ -n "$ARG" ] || usage;;
+  verify) BASE="${2:-}"; HEAD="${3:-}"; ARG="${4:-}"; [ -n "$BASE" ] && [ -n "$HEAD" ] && [ -n "$ARG" ] || usage;;
+  *) usage;;
+esac
 : "${GH_REPO:?GH_REPO (owner/repo)}"
 [[ "$GH_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "ERROR: bad GH_REPO '$GH_REPO'"; exit 2; }
 CTX=guards/pusher
@@ -27,23 +38,41 @@ mac_of() { # mac_of <sha> <id>: HMAC-SHA256 with the ledger key, first 40 hex ch
 records_of() { # records_of <sha>: the descriptions of every guards/pusher status on the commit; fails on an API error
   gh api --paginate "repos/$GH_REPO/commits/$1/statuses" --jq ".[] | select(.context == \"$CTX\") | .description"
 }
-valid_id_of() { # valid_id_of <sha>: the pusher id of the first record whose mac verifies, nothing if none; exit 1 on an API
-  local d id mac recs            # error (a network problem must never read as "no record")
+valid_id_of() { # valid_id_of <sha>: the one pusher id every valid record agrees on; nothing if none; "conflict" if the
+  local d id mac recs ids=""     # valid records name different ids; exit 1 on an API error (never read as "no record")
   recs=$(records_of "$1") || { echo "ERROR: could not read the statuses of $1 (GitHub API error); re-run the job" >&2; exit 1; }
   while read -r d; do
     [[ "$d" =~ ^id=([0-9]+)\ mac=([0-9a-f]{40})$ ]] || continue
     id="${BASH_REMATCH[1]}"; mac="${BASH_REMATCH[2]}"
-    if [ "$(mac_of "$1" "$id")" = "$mac" ]; then echo "$id"; return 0; fi
+    [ "$(mac_of "$1" "$id")" = "$mac" ] || continue
+    case " $ids " in *" $id "*) ;; *) ids+="$id ";; esac
   done <<<"$recs"
+  set -- $ids
+  if [ $# -gt 1 ]; then echo conflict; elif [ $# = 1 ]; then echo "$1"; fi
   return 0
 }
-if ! commits=$(git rev-list "$BASE".."$HEAD" 2>/dev/null); then echo "ERROR: could not list commits $BASE..$HEAD"; exit 1; fi
 
 case "$CMD" in
   record)
     [[ "$ARG" =~ ^[0-9]+$ ]] || { echo "ERROR: pusher id must be numeric: '$ARG'"; exit 2; }
+    [[ "$REF_NAME" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "ERROR: bad ref name '$REF_NAME'"; exit 2; }
+    [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$AFTER" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: before/after must be 40-hex commit shas"; exit 2; }
     [ -n "${GUARDS_LEDGER_KEY:-}" ] && [ "${#GUARDS_LEDGER_KEY}" -ge 32 ] \
       || { echo "ERROR: GUARDS_LEDGER_KEY is missing or shorter than 32 characters: a founder sets this GitHub secret (any long random string)"; exit 1; }
+    ZERO=0000000000000000000000000000000000000000
+    [ "$AFTER" != "$ZERO" ] || { echo "branch deleted; nothing to record"; exit 0; }
+    git cat-file -e "$AFTER^{commit}" 2>/dev/null || { echo "ERROR: the pushed commit $AFTER is not in this checkout"; exit 1; }
+    from="$DEFAULT"; kind="new branch or force push: everything since $DEFAULT"
+    if [ "$BEFORE" != "$ZERO" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && git merge-base --is-ancestor "$BEFORE" "$AFTER" 2>/dev/null; then
+      from="$BEFORE"; kind="fast-forward $BEFORE..$AFTER"
+    fi
+    # Only what this push brought: not reachable from the base, nor from any other branch of the repository.
+    others=$(git for-each-ref --format='%(refname)' refs/remotes/origin | grep -vx "refs/remotes/origin/$REF_NAME" || true)
+    # shellcheck disable=SC2086
+    if ! commits=$(git rev-list "$AFTER" --not "$from" $others 2>/dev/null); then
+      echo "ERROR: could not list commits for $kind"; exit 1
+    fi
+    echo "Recording $kind, excluding commits other branches already have."
     n=0
     for sha in $commits; do
       id=$(valid_id_of "$sha") || exit 1
@@ -57,11 +86,12 @@ case "$CMD" in
   verify)
     [ -n "${GUARDS_LEDGER_KEY:-}" ] || { echo "ERROR: GUARDS_LEDGER_KEY is missing: a founder sets this GitHub secret"; exit 1; }
     rows=$(accounts_rows "$ARG") || { echo "$rows"; exit 1; }
+    if ! commits=$(git rev-list "$BASE".."$HEAD" 2>/dev/null); then echo "ERROR: could not list commits $BASE..$HEAD"; exit 1; fi
     for sha in $commits; do
       id=$(valid_id_of "$sha") || exit 1
       if [ -z "$id" ]; then echo "$sha - unknown"; continue; fi
+      if [ "$id" = conflict ]; then echo "$sha - unknown (valid records name more than one pusher)"; continue; fi
       role=$(account_field "$rows" "$id" 3); echo "$sha $id ${role:-unknown}"
     done
     ;;
-  *) echo "usage: check-pushers.sh record|verify <base-ref> <head-ref> <pusher-id|accounts-file>"; exit 2;;
 esac

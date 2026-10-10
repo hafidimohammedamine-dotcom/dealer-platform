@@ -114,12 +114,12 @@ def check_checkout(where, step, ok_refs):
         core.err(f"{where}: the checkout needs persist-credentials: false")
 
 
-def check_job_start(jw, steps, ok_refs):
+def check_job_start(fname, jw, steps, ok_refs):
     """Checkout of the default (or base) branch without credentials, then the bare lock step. Returns the lock id."""
     first = steps[0] if steps and isinstance(steps[0], dict) else {}
     pins = steps[1] if len(steps) > 1 and isinstance(steps[1], dict) else {}
     second = steps[2] if len(steps) > 2 and isinstance(steps[2], dict) else {}
-    if (not str(first.get("uses", "")).startswith("actions/checkout@") or not core.is_pins_step(pins)
+    if (not str(first.get("uses", "")).startswith("actions/checkout@") or not core.is_pins_step(pins, fname)
             or second.get("uses") != core.P["lock_action"]):
         core.err(f"{jw}: a job with a claude step must start with actions/checkout, the pin step, then {core.P['lock_action']}")
         return None
@@ -183,7 +183,7 @@ def check_job(fname, jw, job, steps, required, triggers):
     """All rules for a job that has a claude step. Returns the number of claude steps."""
     P = core.P
     ok_refs = set(P["default_refs"]) | ({P["base_ref"]} if triggers == {"pull_request_target"} else set())
-    lock_id = check_job_start(jw, steps, ok_refs)
+    lock_id = check_job_start(fname, jw, steps, ok_refs)
     if lock_id is not None:
         check_checkout(f"{jw} step 1", steps[0], ok_refs)
         core.require_pinned(f"{jw} step 1", steps[0].get("uses"))

@@ -188,9 +188,12 @@
   "egress-lock-test.yml"
  ],
  "pins_required": {
-  "dirs": [".github/actions"],
+  "dirs": [".github/actions", ".claude"],
   "globs": ["scripts/check-*"],
-  "files": [".gitleaks.toml", ".github/accounts.txt"],
+  "files": [".gitleaks.toml", ".github/accounts.txt", "CLAUDE.md"],
   "exclude_suffixes": [".test.sh", "testlib.sh"]
- }
+ },
+ "read_only_workflows": [
+  "agent-manager.yml"
+ ]
 }

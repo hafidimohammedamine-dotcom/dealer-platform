@@ -30,13 +30,14 @@ Files and arguments
 
 Any workflow or composite action
 - `.github/pins.txt is missing`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is not
-  a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly the lock action's files, every
-  `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml` and `.github/accounts.txt` with their current
-  sha256: `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
+  a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly `pins_required` from the policy: all
+  of `.github/actions/` and `.claude/`, every `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml`,
+  `.github/accounts.txt` and `CLAUDE.md`, with their current sha256: `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
   the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
   <x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
   outside `pins_exempt` (`ci.yml`, `egress-lock-test.yml`) checks out and then runs the exact pin step from the policy
-  (`pins_step_name`, `pins_step_run`) with the current hash; `update` rewrites the hash. `the pin step's run must be
+  (`pins_step_name`, `pins_step_run`) with the current hash; a step is the pin step only when its name, run and env match
+  exactly (plus an optional `id`), so a decoy with the right name is reported as a wrong pin step; `update` rewrites the hash. `the pin step's run must be
   exactly the policy's pins_step_run_default_branch` / `may only have name, run and id` - a workflow in
   `pins_default_branch_workflows` (`pusher-ledger.yml`) reads the hash from the default branch's `guards.yml`.
 - `a workflow with a claude step must not run on push` - a push trigger would run freshly pushed code next to a Claude
@@ -95,7 +96,9 @@ Jobs with a claude step
   every job and the workflow level: only the scopes in `permission_scopes` (`actions`, `contents`, `issues`,
   `pull-requests`, `statuses`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
   `claude.yml` and `egress-lock-claude.yml`), each read, write or none. `id-token: write is not allowed in a workflow that
-  runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access.
+  runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access. `permission <scope>: write
+  is not allowed in <file> (its job token is read-only; the agents act with their own token)` - a workflow in
+  `read_only_workflows` (`agent-manager.yml`) may hold no write scope at any level.
 - `runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)` - no step may
   mention `/tmp/pr` (other than `/tmp/pr-meta`), the PR head, `head_ref`, `merge_commit_sha`, `refs/pull/`, `pull/<n>`,
   `gh pr checkout` or `event.issue.number`, except the exact prepare command in `pr_data_runs`.

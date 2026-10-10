@@ -24,10 +24,12 @@ jobs:
       (github.actor == 'github-actions[bot]' && github.event.inputs.focus == '')
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    # The job token stays read-only: the manager pushes, opens PRs and comments with the agents' own token (GH_TOKEN below),
+    # whose pushes start the review and ledger workflows; pushes with the job token would start none.
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      contents: read
+      pull-requests: read
+      issues: read
       actions: read
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"   # agents must finish before the job ends
@@ -41,7 +43,7 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -85,7 +87,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -94,7 +96,7 @@ jobs:
       - name: After the shift, the agents' account still owns no repository (re-checked with the pinned script)
         if: always()
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet

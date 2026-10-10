@@ -39,8 +39,8 @@
     `check-workflows-claude.py` the jobs with a claude step (checkout, lock, binaries, env, permissions, PR data, git moves,
     post-step pin checks, tag mode only on issues), both through `check-workflows-lib.py`: Claude runs only through the pinned
     claude-code-action after the lock; `claude_args` has only known flags and one `--disallowedTools` that denies
-    `Skill(<name>)` for `payload` and every third-party skill in the base or PR manifest; the manager keeps its 30 denies
-    (`Skill(payload)`, 24 command denies including `gh api`, `gh gist`, `gh repo` and `yarn npm publish/login`, and 5 path denies); `secrets` only as `secrets.<NAME>`, and Claude credentials only in
+    `Skill(<name>)` for `payload` and every third-party skill in the base or PR manifest; the manager keeps its 32 denies
+    (`Skill(payload)`, `WebFetch`, `WebSearch`, 24 command denies including `gh api`, `gh gist`, `gh repo` and `yarn npm publish/login`, and 5 path denies); `secrets` only as `secrets.<NAME>`, and Claude credentials only in
     a claude step's `claude_code_oauth_token`; no unlisted local action, reusable workflow, Docker action, container or service.
 - `scripts/check-skills-lib.sh` holds the shared helpers (`manifest_lines`, `manifest_entries`, `valid_skill_name`,
   `lock_row_one`, `lock_row_error`, lock-row parsing) used by every skill guard, including `check-skills.sh`; its own test also
@@ -108,6 +108,16 @@
   `WebFetch`, `WebSearch` and the `Read(//...)` paths (`claude_denies`); after its shift the manager re-checks that the
   agents' account owns no repository; tests for the remaining branches (`check-accounts-lib`, `check-pins`,
   `check-claude-answer`, empty ranges, failed pushes, diff errors); the seven remaining tests use `assert_result`.
+- **Round 11:** the main guard (script and fallback) cancels every running or queued run of the workflows it disables, and
+  `guards.yml` is on that list; the manager's job token is read-only (`read_only_workflows` in the policy; the agents act
+  with their own token), and the pins cover `.claude/` and `CLAUDE.md`; the pin step is matched exactly (name, run and
+  env), so a decoy step with the right name fails; `scripts/check-pins.sh` keeps only `update` (the list comes from
+  `pins_required` in the policy; the checker verifies); the ledger records by reachability (`before..after` on a
+  fast-forward, everything since the default branch on a new branch or force push, always minus what other branches
+  already hold) and two valid records naming different pushers verify as `unknown`; the review prepare step refuses
+  symlinks and special files; the fallback revert handles a zero `before`; `egress-lock-claude.yml`'s probe and scrub
+  use the standard pin step; `lock.sh` and `check-skills.sh` are split into functions of at most 50 lines; measured:
+  GitHub refuses a rewind of `main` past a workflow change even with no new commits (decision 4 in the lock runbook).
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

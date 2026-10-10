@@ -23,6 +23,10 @@ find "$DEST" -path "$DEST/.git" -prune -o \( -name CLAUDE.md -o -name CLAUDE.loc
 find "$DEST" -path "$DEST/.git" -prune -o -type d -name .claude -print0 | xargs -0 -r rm -rf
 left=$(find "$DEST" -path "$DEST/.git" -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json -o -name .claude \) -print)
 [ -z "$left" ] || { echo "ERROR: rule files left in $DEST:"; echo "$left"; exit 1; }
+# Only regular files and folders: a symlink (docs/x.md -> /proc/self/environ) read by a reviewer's tool would leak the job's
+# environment, and sockets or devices have no place in a PR.
+odd=$(find "$DEST" -path "$DEST/.git" -prune -o ! -type f ! -type d -print)
+[ -z "$odd" ] || { echo "ERROR: symlinks or special files in the PR (only regular files and folders are reviewed):"; echo "$odd"; exit 1; }
 if [ -n "$BASE" ]; then
   git -C "$DEST" rev-parse -q --verify "$BASE^{commit}" >/dev/null || { echo "ERROR: base ref not found: $BASE"; exit 1; }
   mkdir "$META"

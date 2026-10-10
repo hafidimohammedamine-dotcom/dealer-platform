@@ -220,7 +220,8 @@ for cmd in 'git checkout feature' 'git -C . switch x' 'git fetch origin' 'git wo
 done
 fx; before '      - run: git log --oneline -5'; expect ok "git log is not a checkout move" "Workflow denies OK"
 fx; sed -i 's/^on: workflow_dispatch$/on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]/' "$T/$W/t.yml"; expect fail "claude step in a workflow_run workflow" "must not run on workflow_run"
-fresh; sed -i 's/^      issues: write$/      issues: write\n      id-token: write/' "$T/$W/agent-manager.yml"; expect fail "id-token in agent-manager.yml" "permission id-token: write not allowed"
+fresh; sed -i 's/^      issues: read$/      issues: read\n      id-token: write/' "$T/$W/agent-manager.yml"; expect fail "id-token in agent-manager.yml" "permission id-token: write not allowed"
+fresh; sed -i 's/^      contents: read$/      contents: write/' "$T/$W/agent-manager.yml"; expect fail "a write scope on the manager's job token" "permission contents: write is not allowed in agent-manager.yml (its job token is read-only"
 fresh; grep -q 'id-token: write' "$T/$W/claude.yml" && expect ok "id-token stays allowed in claude.yml" "Workflow denies OK"
 fresh; sed -i 's/^  issue_comment:$/  pull_request_review_comment:\n    types: [created]\n  issue_comment:/' "$T/$W/claude.yml"; expect fail "tag mode on PR review comments" "a claude step without a prompt (tag mode) may run only on issue_comment, issues (found pull_request_review_comment)"
 fresh; sed -i 's/ \&\& !github.event.issue.pull_request//' "$T/$W/claude.yml"; expect fail "tag mode answering on PRs" "needs the job if to contain '!github.event.issue.pull_request'"

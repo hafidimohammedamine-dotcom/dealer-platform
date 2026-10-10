@@ -63,7 +63,7 @@ def check_token_guard(fname, jw, job, steps):
     lead = 0
     while lead < len(steps) and isinstance(steps[lead], dict) and (
             str(steps[lead].get("uses", "")).startswith("actions/checkout@") or steps[lead].get("uses") == P["lock_action"]
-            or core.is_pins_step(steps[lead])):
+            or core.is_pins_step(steps[lead], fname)):
         lead += 1
     guard = steps[lead] if lead < len(steps) and isinstance(steps[lead], dict) else {}
     if str(guard.get("run", "")).strip() != P["agent_token_guard"]:

@@ -26,7 +26,7 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -58,14 +58,19 @@ jobs:
             git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" && done="restored main to $BEFORE after a force push"
           else
             n=0
-            for c in $(git rev-list --first-parent "$BEFORE".."$AFTER" 2>/dev/null || git rev-list --first-parent --max-count=50 "$AFTER"); do
+            if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then commits=$(git rev-list --first-parent --max-count=50 "$AFTER")
+            else commits=$(git rev-list --first-parent "$BEFORE".."$AFTER" 2>/dev/null) || { commits=""; done="could not list the pushed commits ($BEFORE..$AFTER); revert them by hand"; }; fi
+            for c in $commits; do
               if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then m="-m 1"; else m=""; fi
               # shellcheck disable=SC2086
               git revert --no-edit $m "$c" >/dev/null 2>&1 && n=$((n+1)) || { git revert --abort 2>/dev/null || true; break; }
             done
             [ "$n" = 0 ] || { git push origin HEAD:refs/heads/main && done="reverted $n pushed commit(s) with new commits"; }
           fi
-          for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml; do gh workflow disable "$w" || true; done
+          for w in agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml; do
+            for st in in_progress queued; do for id in $(gh run list --workflow "$w" --status "$st" --json databaseId --jq '.[].databaseId' 2>/dev/null); do gh run cancel "$id" || true; done; done
+            gh workflow disable "$w" || true
+          done
           gh issue create --title "SECURITY: push to main changed pinned files (user ID $PUSHER_ID)" \
             --label area:security --label blocked --label priority:1 \
             --body "A push to main ($BEFORE..$AFTER by user ID $PUSHER_ID) changed pinned files (.github/pins.txt and the files it lists: the lock action, the guard scripts, the accounts list) without a founder's pin update. main-guard ${done:-could not undo it (see the job log)}; every workflow that holds a secret is disabled. Founders: check that push, finish undoing it if needed, run scripts/check-pins.sh update in a founder PR if the change was yours, then re-enable the workflows." || true

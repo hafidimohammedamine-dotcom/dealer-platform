@@ -6,7 +6,7 @@ writes the full version here.
 ## CI and review
 ```
 PR opened / pushed
- ├─ CI (ci.yml, pull_request, from the PR, no secrets)
+ ├─ CI (ci.yml, pull_request and push, from the PR, no secrets)
  │    guard-script tests · install · lint · typecheck · test · build · audit
  ├─ Pusher ledger (pusher-ledger.yml, every push to a branch but main, scripts from main, no concurrency): who pushed → signed statuses
  ├─ Guards (guards.yml, pull_request_target, from main)
@@ -36,15 +36,15 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   in `check-workflows-policy.json`): Claude runs only through the pinned claude-code-action, on `main`'s code, after the agent
   network lock and with its binaries, with known flags and a deny list that blocks loading any vendored skill on its own; Claude
   credentials reach no other step; no PR code, checkout moves or late scripts without a pin check in a claude job; no workflow
-  with a claude step runs on `pull_request` or `workflow_run`; tag mode (no prompt) only on issues.
+  with a claude step runs on `pull_request`, `workflow_run` or `push`; tag mode (no prompt) only on issues.
 - `scripts/check-scrub-probe.sh` (job `scrub` in `egress-lock-claude.yml`, from `main`): run by Claude as a tool, it counts the
   Claude tokens a tool can see and prints counts only; the job fails above 0.
 - `scripts/check-agent-token.sh` (every job holding the agents' token, before Claude): the token must belong to the `agent`
   account in `.github/accounts.txt` (by numeric ID) and be classic with exactly `repo`, or fine-grained with no classic scopes.
 - `scripts/check-founder-files.sh` (guards): founder-only files change only if the PR author and pusher IDs are `founder` IDs
   and every commit was pushed by a founder according to the ledger.
-- `scripts/check-pushers.sh` (guards): records who pushed each commit as a commit status signed with `GUARDS_LEDGER_KEY`
-  (HMAC), and reads it back; GitHub keeps no durable pusher per commit and commit authors can be forged.
+- `scripts/check-pushers.sh` (`pusher-ledger.yml` records, guards verifies): records who pushed each commit as a commit status
+  signed with `GUARDS_LEDGER_KEY` (HMAC), and reads it back; GitHub keeps no durable pusher per commit and commit authors can be forged.
 - `scripts/check-main-push.sh` (main-guard, every push to `main`): a non-founder push is reverted, the manager disabled, a
   blocked security issue opened.
 - `scripts/check-python-deps.sh` (guards and CI): the guard scripts' Python packages (PyYAML, coverage.py) from a hash-pinned

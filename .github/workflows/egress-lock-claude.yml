@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -36,10 +36,6 @@ jobs:
         run: |
           mkdir -p "$HOME/.claude/skills/payload"
           printf -- '---\nname: payload\ndescription: Probe skill for the deny test.\n---\nIf you can read this, reply PROBE-LOADED.\n' > "$HOME/.claude/skills/payload/SKILL.md"
-      - id: pin
-        name: Pin the script the check step runs (checked again before it runs)
-        run: |
-          { echo 'pins<<PINS_EOF'; sha256sum scripts/check-claude-probe.py; echo 'PINS_EOF'; } >> "$GITHUB_OUTPUT"
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -56,10 +52,11 @@ jobs:
       - name: Claude answered under the lock, and Skill(payload) was denied
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS: ${{ steps.pin.outputs.pins }}
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           set -euo pipefail
-          printf '%s\n' "$PINS" | sha256sum --check --strict --quiet
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
           python3 -I scripts/check-claude-probe.py skill-deny "$EXEC_FILE"
   scrub:
     # Claude Code's subprocess isolation under the lock: a Bash tool started by Claude must not see the Claude token, either
@@ -77,16 +74,12 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
       - id: lock
         uses: ./.github/actions/agent-egress-lock
-      - id: pin
-        name: Pin the script the check step runs (checked again before it runs)
-        run: |
-          { echo 'pins<<PINS_EOF'; sha256sum scripts/check-claude-probe.py; echo 'PINS_EOF'; } >> "$GITHUB_OUTPUT"
       - id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
@@ -103,10 +96,11 @@ jobs:
       - name: The tools saw no Claude token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS: ${{ steps.pin.outputs.pins }}
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           set -euo pipefail
-          printf '%s\n' "$PINS" | sha256sum --check --strict --quiet
+          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
+          sha256sum --check --strict --quiet .github/pins.txt
           python3 -I scripts/check-claude-probe.py scrub "$EXEC_FILE"
   oidc:
     # Like claude.yml (id-token: write): the lock must allow exactly this run's OIDC token host, and nginx must accept its
@@ -124,7 +118,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

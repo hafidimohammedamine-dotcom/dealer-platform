@@ -33,7 +33,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a257be0f5cc79dacd0957429aaf1743c663421c6f011f1a87c2cfb5942605783"
+          PINS_SHA256: "d3e660741824ef19de6735aae5819ef5bf7367384041b4bc6d241547401e4b1a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -71,10 +71,11 @@ jobs:
       - name: Agent workflows keep their denies and pins (base script, the PR's tree as data)
         run: |
           set -euo pipefail
-          # The PR's whole tree, as data (/tmp/pr: checked out, never run): its workflows, local actions, pins.txt and the
-          # pinned files. The accounts list comes from the base branch (a PR cannot add itself). Skill denies are required for
-          # every third-party skill named in the base or the PR manifest.
-          bash scripts/check-workflows.sh /tmp/pr --accounts .github/accounts.txt \
+          # The PR's whole tree unpacked as data (never run; /tmp/pr has the rule files removed, but the pins cover them):
+          # its workflows, local actions, pins.txt and every pinned file. The accounts list comes from the base branch (a PR
+          # cannot add itself). Skill denies are required for every third-party skill named in the base or the PR manifest.
+          rm -rf /tmp/pr-wf && mkdir -p /tmp/pr-wf && git archive refs/remotes/pr/head | tar -x -C /tmp/pr-wf
+          bash scripts/check-workflows.sh /tmp/pr-wf --accounts .github/accounts.txt \
             --manifest .claude/skills/manifest.txt --manifest /tmp/pr-skills/.claude/skills/manifest.txt
       - uses: ./.github/actions/install-gitleaks
       - name: Secret scan of the PR's commits (base config, no ignore files, no inline allow)

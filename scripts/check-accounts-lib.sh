@@ -2,7 +2,7 @@
 # Reads .github/accounts.txt for the guard scripts (founder-owned): the one parser of that file. Sourced by
 # check-founder-files.sh, check-agent-token.sh, check-pushers.sh, check-main-push.sh and check-workflows.sh (which hands the
 # rows to Python). Format: "<id> <login> <role>" per line, role founder or agent; '#' starts a comment; blank lines skipped.
-# main-guard.yml pins this file by sha256: a change here updates the pin there (scripts/check-main-push.test.sh checks).
+# Pinned in .github/pins.txt: a change here needs `bash scripts/check-pins.sh update` in the same founder PR.
 
 # accounts_rows <file>: prints "<id> <login> <role>" for every entry. Returns 1 (with a message) on a missing file, a bad
 # line, a user ID listed twice or a file without any founder, so a broken file never lets anyone through.

@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PUSHER="${1:?pusher id}"; BEFORE="${2:?before sha}"; AFTER="${3:?after sha}"; ACCOUNTS="${4:?accounts file}"
 # Every workflow that holds a secret or acts with write scopes: all of them stop until a founder re-enables them, so no job
 # runs tampered code with a token even if the revert below fails.
-WORKFLOWS="${MAIN_GUARD_WORKFLOWS:-agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml}"
+WORKFLOWS="${MAIN_GUARD_WORKFLOWS:-agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml}"
 : "${GH_REPO:?GH_REPO (owner/repo)}"
 [[ "$PUSHER" =~ ^[0-9]+$ ]] || { echo "ERROR: pusher id must be numeric: '$PUSHER'"; exit 2; }
 [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$AFTER" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: before/after must be 40-hex commit shas"; exit 2; }
@@ -32,7 +32,7 @@ if [ "$BEFORE" != "$ZERO" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null &&
   range="$BEFORE..$AFTER (force push)"
   if git push --force-with-lease="main:$AFTER" origin "$BEFORE:refs/heads/main" >/dev/null 2>&1; then
     what="restored main to $BEFORE after a force push (the rewritten history is gone from main)"
-  else left="main was force-pushed and could not be restored to $BEFORE (${left:-check the job log}); the founders restore it by hand"; fi
+  else left="main was force-pushed and could not be restored to $BEFORE (check the job log); the founders restore it by hand"; fi
 else
   if [ "$BEFORE" = "$ZERO" ]; then
     commits=$(git rev-list --first-parent --max-count=50 "$AFTER" 2>/dev/null || true); range="(new branch) ..$AFTER"
@@ -52,9 +52,18 @@ else
   fi
   what="reverted $reverted pushed commit(s) with new commits on main"
 fi
+# Runs already going (the manager shift that pushed, for one) keep their tokens for up to 150 minutes: cancel them first.
+cancelled=0
+for w in $WORKFLOWS; do
+  for st in in_progress queued; do
+    for id in $(gh run list --workflow "$w" --status "$st" --json databaseId --jq '.[].databaseId' 2>/dev/null); do
+      gh run cancel "$id" >/dev/null 2>&1 && cancelled=$((cancelled+1)) || true
+    done
+  done
+done
 off=""; notoff=""
 for w in $WORKFLOWS; do gh workflow disable "$w" >/dev/null 2>&1 && off+="$w " || notoff+="$w "; done
-stopped="disabled ${off:-no workflow}(re-enable them after the review)"; [ -z "$notoff" ] || stopped+="; could not disable $notoff- disable by hand"
+stopped="cancelled $cancelled running or queued run(s); disabled ${off:-no workflow}(re-enable them after the review)"; [ -z "$notoff" ] || stopped+="; could not disable $notoff- disable by hand"
 body="**Someone other than a founder pushed to \`main\`.** Pusher: user ID $PUSHER (${login:-not in accounts.txt}, role ${role:-unknown}). Range: \`$range\`.
 
 What main-guard did: $what; $stopped.${left:+ **Left to do:** $left}

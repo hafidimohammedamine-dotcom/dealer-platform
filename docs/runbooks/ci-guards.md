@@ -33,18 +33,22 @@ Runs on `pull_request_target`: GitHub always runs the copy on `main`, with `main
 
 ### Step "Fetch the PR as data into /tmp/pr" fails
 `ERROR: bad PR number`, `already exists`, a git fetch error, or `rule files left in /tmp/pr`. Re-run the job once; if it fails
-again, tell a founder.
+again, tell a founder. `symlinks or special files in the PR (only regular files and folders are reviewed)` lists them: the
+PR must remove them (a symlink such as `docs/x.md -> /proc/self/environ` would show a reviewer's tool the job's environment).
 
 ### Workflow "Pusher ledger" (job `record`) fails
 Its own workflow (`pusher-ledger.yml`, no concurrency group, so no push is ever dropped or cancelled) runs on every push to
 a branch other than `main` (the push event's sender is the account that pushed; opening a PR records nothing, so a commit
 pushed before the PR existed is never credited to whoever opens it). The workflow file comes from the pushed branch (the
 agents' token cannot change workflow files); the scripts come from the default branch, pinned. It records exactly this
-push's commits - `before..after`, or everything since the default branch after a force push or on a new branch (whoever
-rewrote the branch answers for what is on it) - as pushed by the sender: `scripts/check-pushers.sh record` posts one
+push's commits - `before..after` when `before` is an ancestor of `after` (a fast-forward), or everything since the default
+branch on a new branch or after a force push (whoever rewrote the branch answers for what is on it), in both cases minus
+the commits any other branch already holds (`Recording fast-forward ...` / `Recording new branch or force push: ...`) -
+as pushed by the sender: `scripts/check-pushers.sh record` posts one
 commit status `guards/pusher`
 (`id=<user id> mac=<40 hex>`) on every such commit without a valid record; the mac is an HMAC-SHA256 of "<sha> <id>" with
 the secret `GUARDS_LEDGER_KEY`, which nobody with the agents' token can read, so a forged or copied status never verifies.
+A commit with valid records naming more than one pusher verifies as `unknown (valid records name more than one pusher)`.
 `GUARDS_LEDGER_KEY is missing or shorter than 32 characters` - a founder creates that repository secret (any random string
 of 32+ characters; `openssl rand -hex 32`). `could not record the pusher of <sha>` / `could not read the statuses of <sha>
 (GitHub API error)` - re-run the workflow once (nothing is recorded as "unknown" on an API error). `bad after sha` - the
@@ -158,9 +162,10 @@ Runs on every push to `main`. `scripts/check-main-push.sh` compares the pusher's
 push (every merge) prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder
 approval were bypassed (the agents' token can push to `main`; the free plan cannot block it): the job prints `::error::push to
 main by user ID <id> ...`, reverts the pushed first-parent commits with new commits (a merge commit against its first parent;
-never a force push), pushes the reverts with its own token (which starts no workflow), disables every workflow that holds a
-secret (the manager, review team, founder mentions, daily report, weekly audit, the Claude lock probe and the pusher ledger)
-so nothing runs tampered code with a token even if the revert failed, and opens an issue `SECURITY: non-founder push to main
+never a force push), pushes the reverts with its own token (which starts no workflow), cancels every running or queued run
+of the eight workflows that hold a secret or judge pushes (the manager, review team, founder mentions, daily report, weekly
+audit, the Claude lock probe, the pusher ledger and guards) and disables them (`cancelled <n> running or queued run(s);
+disabled ...`) so nothing runs tampered code with a token even if the revert failed, and opens an issue `SECURITY: non-founder push to main
 by user ID <id>` labeled `area:security`, `blocked`, `priority:1`, mentioning the founders. Founders then: read what the
 pushed commits contained, check the repositories the pusher's account owns, rotate `AGENT_GH_TOKEN` if the agents' account
 was involved, and re-enable the workflows (Actions -> each workflow -> Enable).
@@ -169,7 +174,7 @@ issue` - the job did what it could and prints the rest; a founder finishes by ha
 `main` back to the previous tip (`main was force-pushed and could not be restored` means a founder does it by hand).
 Because the push itself could have changed the script, its library or `.github/accounts.txt`, the job's pin step (above)
 runs first; on a mismatch, the fallback step - written in the workflow file alone, with the founders' user IDs - undoes the
-push the same way (revert or restore), disables the same workflows and opens `SECURITY: push to main changed pinned files`;
+push the same way (revert or restore), cancels and disables the same workflows and opens `SECURITY: push to main changed pinned files`;
 if the pusher was a founder it only fails with `pinned files changed by a founder's push ... run scripts/check-pins.sh
 update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs, labels and that its workflow list equals
 the script's.

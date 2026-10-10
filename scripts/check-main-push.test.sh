@@ -7,7 +7,18 @@ TMPROOT="${TMPDIR:-/tmp}"
 W=$(mktemp -d "$TMPROOT/mp.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null   # the test's local pushes must not pick up proxy/negotiation settings
 mkdir -p "$W/nogit"; printf '#!/usr/bin/env bash\ncase "$1" in revert) [ "$2" = --abort ] && exit 0; exit 1;; esac; exec "%s" "$@"\n' "$(command -v git)" > "$W/nogit/git"; chmod +x "$W/nogit/git"
-mkdir -p "$W/stub"; printf '#!/usr/bin/env bash\necho "gh $*" >> "$GH_LOG"; case "$1" in workflow) [ "$3" = "${STUB_WF_FAIL:-}" ] && exit 1; exit "${STUB_WF_RC:-0}";; issue) exit "${STUB_ISSUE_RC:-0}";; esac; exit 9\n' > "$W/stub/gh"; chmod +x "$W/stub/gh"
+mkdir -p "$W/stub"; cat > "$W/stub/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "gh $*" >> "$GH_LOG"
+case "$1 $2" in
+  "workflow disable") [ "$3" = "${STUB_WF_FAIL:-}" ] && exit 1; exit "${STUB_WF_RC:-0}";;
+  "issue create") exit "${STUB_ISSUE_RC:-0}";;
+  "run list") [ "$4" = agent-manager.yml ] && [ "$6" = in_progress ] && echo "${STUB_RUNNING_ID:-}"; exit 0;;   # one running manager shift
+  "run cancel") exit "${STUB_CANCEL_RC:-0}";;
+esac
+exit 9
+STUB
+chmod +x "$W/stub/gh"
 printf '111 founder-one founder\n222 founder-two founder\n333 agents-bot agent\n' > "$W/accounts"
 fresh() { # a bare origin with main = base; a clone where the "pushed" commits are made and pushed to origin main
   rm -rf "$W/origin" "$W/clone"; git init -q --bare -b main "$W/origin"
@@ -24,13 +35,14 @@ Z=0000000000000000000000000000000000000000
 
 fresh; push_commits 1; run ok "a founder's push is fine" "Push to main by founder 'founder-one' (ID 111): OK." 111 "$BASE" "$HEAD"
 check "founder push: nothing reverted, nothing disabled, no issue" bash -c '! grep -q . "$1"' _ "$W/gh.log"
-fresh; push_commits 1 2; run fail "an agent's push is reverted, the manager disabled, an issue opened" "reverted 2 pushed commit(s) with new commits on main; disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml (re-enable them after the review)" 333 "$BASE" "$HEAD"
+fresh; push_commits 1 2; run fail "an agent's push is reverted, the manager disabled, an issue opened" "reverted 2 pushed commit(s) with new commits on main; cancelled 1 running or queued run(s); disabled agent-manager.yml review.yml claude.yml agent-daily-report.yml agent-weekly-audit.yml egress-lock-claude.yml pusher-ledger.yml guards.yml (re-enable them after the review)" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
 check "origin main now has the two reverts on top and the base content" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && git show origin/main:f | grep -qx base && ! git ls-tree --name-only origin/main | grep -q "^f1$"' _ "$W/clone"
-check "every secret-holding workflow disabled and the issue labeled security + blocked" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 7 ] && grep -q "gh workflow disable review.yml" "$1" && grep -q "gh workflow disable pusher-ledger.yml" "$1" && grep -q "gh issue create --title SECURITY: non-founder push to main by user ID 333 --label area:security --label blocked --label priority:1" "$1" && grep -q "@founder-one @founder-two" "$1"' _ "$W/gh.log"
+check "the running shift is cancelled before the disables (both states asked for every workflow)" bash -c 'grep -q "gh run cancel 4242" "$1" && [ "$(grep -c "gh run list --workflow " "$1")" = 16 ] && [ "$(grep -n "gh run cancel 4242" "$1" | cut -d: -f1)" -lt "$(grep -n "gh workflow disable agent-manager.yml" "$1" | cut -d: -f1)" ]' _ "$W/gh.log"
+check "every secret-holding workflow disabled and the issue labeled security + blocked" bash -c '[ "$(grep -c "gh workflow disable " "$1")" = 8 ] && grep -q "gh workflow disable review.yml" "$1" && grep -q "gh workflow disable guards.yml" "$1" && grep -q "gh issue create --title SECURITY: non-founder push to main by user ID 333 --label area:security --label blocked --label priority:1" "$1" && grep -q "@founder-one @founder-two" "$1"' _ "$W/gh.log"
 fresh; push_commits 1; run fail "an unknown account's push" "not in $W/accounts, role unknown" 999 "$BASE" "$HEAD"
 fresh; push_commits 1; run fail "a new-branch push (before = zeros) reverts up to 50 commits" "reverted 2 pushed commit(s)" 333 "$Z" "$HEAD"
 fresh; cd "$W/clone" && git checkout -q -b side && echo s > s && git add s && git commit -qm side && git checkout -q main && git merge -q --no-ff -m merge side && git push -q origin main && HEAD=$(git rev-parse HEAD)
-run fail "a merge commit is reverted against its first parent (its branch not again)" "reverted 1 pushed commit(s) with new commits on main; disabled agent-manager.yml" 333 "$BASE" "$HEAD"
+run fail "a merge commit is reverted against its first parent (its branch not again)" "reverted 1 pushed commit(s) with new commits on main; cancelled 0 running or queued run(s); disabled agent-manager.yml" 333 "$BASE" "$HEAD"
 check "the merge's file is gone from origin main" bash -c 'cd "$1" && git fetch -q origin && ! git ls-tree --name-only origin/main | grep -q "^s$"' _ "$W/clone"
 # A force push: main is put back to the previous tip (force-with-lease on the pushed tip), nothing is reverted.
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
@@ -40,13 +52,14 @@ mkdir -p "$W/nopush"; printf '#!/usr/bin/env bash\ncase "$1" in push) exit 1;; e
 fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
 run fail "a force push that cannot be restored is reported" "main was force-pushed and could not be restored to $OLD" 333 "$OLD" "$HEAD" PATH="$W/nopush:$W/stub:$PATH"
 fresh; push_commits 1; run fail "the revert cannot be pushed: reported, manager still disabled, issue still opened" "the revert could not be pushed" 333 "$BASE" "$HEAD" PATH="$W/nopush:$W/stub:$PATH"
-check "revert push failure: 0 reverted in the report, every workflow disabled, issue opened" bash -c 'grep -q "reverted 0 pushed commit" "$1" && [ "$(grep -c "gh workflow disable" "$1")" = 7 ] && grep -q "gh issue create" "$1"' _ "$W/gh.log"
+check "revert push failure: 0 reverted in the report, every workflow disabled, issue opened" bash -c 'grep -q "reverted 0 pushed commit" "$1" && [ "$(grep -c "gh workflow disable" "$1")" = 8 ] && grep -q "gh issue create" "$1"' _ "$W/gh.log"
 fresh; push_commits 1; run fail "disable fails for every workflow: reported, still exits 1" "disabled no workflow(re-enable them after the review); could not disable agent-manager.yml review.yml" 333 "$BASE" "$HEAD" STUB_WF_RC=1
+fresh; push_commits 1; run fail "a cancel that fails does not stop the rest" "cancelled 0 running or queued run(s); disabled agent-manager.yml" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242 STUB_CANCEL_RC=1
 fresh; push_commits 1; run fail "disable fails for one workflow: the others are off, the one is named" "could not disable claude.yml - disable by hand" 333 "$BASE" "$HEAD" STUB_WF_FAIL=claude.yml
 fresh; push_commits 1; run fail "issue creation fails: the text goes to the log" "could not open the security issue; founders:" 333 "$BASE" "$HEAD" STUB_ISSUE_RC=1
 fresh; push_commits 1; run fail "the pushed commits cannot be listed" "could not list the pushed commits" 333 "$(printf 'a%.0s' {1..40})" "$HEAD"
 fresh; push_commits 1; run fail "revert conflict: aborted, the rest left to the founders" "did not apply cleanly" 333 "$BASE" "$HEAD" PATH="$W/nogit:$W/stub:$PATH"
-check "revert conflict: nothing pushed, workflows disabled, issue still opened" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable" "$2")" = 7 ] && grep -q "Left to do" "$2"' _ "$W/clone" "$W/gh.log"
+check "revert conflict: nothing pushed, workflows disabled, issue still opened" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && [ "$(grep -c "gh workflow disable" "$2")" = 8 ] && grep -q "Left to do" "$2"' _ "$W/clone" "$W/gh.log"
 fresh; run fail "non-numeric pusher" "pusher id must be numeric" abc "$BASE" "$BASE"
 fresh; run fail "bad sha" "before/after must be 40-hex" 333 "$BASE" nope
 fresh; printf 'nonsense\n' > "$W/bad-accounts"; out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_REPO=owner/repo bash "$SCRIPT" 333 "$BASE" "$BASE" "$W/bad-accounts" 2>&1); rc=$?
@@ -55,7 +68,26 @@ out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" bash "$SCRIPT
 [ $rc != 0 ] && grep -q "GH_REPO" <<<"$out" && t PASS "GH_REPO required" || t FAIL "GH_REPO required ($rc)"
 # main-guard.yml's pin step (id pins) uses .github/pins.txt like every workflow; scripts/check-pins.sh checks it is current.
 REPO_ROOT="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
-check "the repository's pins (pins.txt and every workflow's PINS_SHA256) are current" bash "$REPO_ROOT/scripts/check-pins.sh" check "$REPO_ROOT"
+check "the repository's pins (pins.txt and every workflow's PINS_SHA256) are current (the checker verifies them)" bash "$REPO_ROOT/scripts/check-workflows.sh" "$REPO_ROOT"
+# The pin-mismatch fallback step, run exactly as written in main-guard.yml against the throwaway repo and the gh stub.
+fb_run() { python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for s in d["jobs"]["guard"]["steps"] if s.get("name", "").startswith("If the pins did not match")))' "$REPO_ROOT/.github/workflows/main-guard.yml"; }
+FB=$(fb_run)
+runfb() { # runfb <name> <message> <pusher> <before> <after> [VAR=value ...]   (the step exits 1 on a non-founder push)
+  local name=$1 msg=$2 pusher=$3 before=$4 after=$5; shift 5; : > "$W/gh.log"
+  out=$(cd "$W/clone" && env PATH="$W/stub:$PATH" GH_LOG="$W/gh.log" GH_TOKEN=t GH_REPO=owner/repo PUSHER_ID="$pusher" BEFORE="$before" AFTER="$after" FOUNDER_IDS="111 222" "$@" bash -c "$FB" 2>&1); rc=$?
+  assert_result fail "$rc" "$name" "$msg" "$out"; }
+fresh; push_commits 1 2; runfb "fallback: normal push by the agent is reverted, runs cancelled, workflows disabled, issue opened" "::error::push to main by user ID 333 changed pinned files" 333 "$BASE" "$HEAD" STUB_RUNNING_ID=4242
+check "fallback: origin main has the base content back, cancel before disable, 8 disables, issue" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 5 ] && ! git ls-tree --name-only origin/main | grep -q "^f1$" && grep -q "gh run cancel 4242" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ] && grep -q "reverted 2 pushed commit(s) with new commits" "$2" && grep -q "gh issue create --title SECURITY: push to main changed pinned files" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; OLD=$HEAD; cd "$W/clone" && git commit -q --amend -m rewritten && git push -q --force origin main && HEAD=$(git rev-parse HEAD)
+runfb "fallback: force push restored" "changed pinned files" 333 "$OLD" "$HEAD"
+check "fallback: origin main is the previous tip again, issue says restored" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-parse origin/main)" = "$3" ] && grep -q "restored main to $3 after a force push" "$2"' _ "$W/clone" "$W/gh.log" "$OLD"
+fresh; push_commits 1; runfb "fallback: new-branch push (zero before) reverts up to 50" "changed pinned files" 333 "$Z" "$HEAD"
+check "fallback: zero before reverted both commits (the whole new main, base included)" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 4 ] && grep -q "reverted 2 pushed commit(s)" "$2"' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; runfb "fallback: missing before reverts nothing and says so" "changed pinned files" 333 "$(printf 'a%.0s' {1..40})" "$HEAD"
+check "fallback: nothing reverted, the issue says the commits could not be listed" bash -c 'cd "$1" && git fetch -q origin && [ "$(git rev-list --count origin/main)" = 2 ] && grep -q "could not list the pushed commits" "$2" && [ "$(grep -c "gh workflow disable " "$2")" = 8 ]' _ "$W/clone" "$W/gh.log"
+fresh; push_commits 1; runfb "fallback: a founder's push only reports the missing pin update" "pinned files changed by a founder's push" 111 "$BASE" "$HEAD"
+check "fallback: founder push reverted nothing, disabled nothing" bash -c '! grep -q "gh " "$1"' _ "$W/gh.log"
 # The pin-mismatch fallback in main-guard.yml: runs only on a pin failure, calls no repo script, carries the founders' IDs
 # from accounts.txt, and labels the issue area:security + blocked + priority:1.
 python3 -I - "$REPO_ROOT" <<'PY' && t PASS "main-guard.yml fallback: condition, no repo script, founder IDs, labels" || t FAIL "main-guard.yml fallback"
@@ -73,7 +105,7 @@ assert sorted(fb["env"]["FOUNDER_IDS"].split()) == founders, (fb["env"]["FOUNDER
 for lab in ("area:security", "blocked", "priority:1"):
     assert f"--label {lab}" in fb["run"], lab
 assert "git revert --no-edit" in fb["run"] and "force-with-lease" in fb["run"]
-wfs = re.search(r"for w in ([^;]+); do gh workflow disable", fb["run"]).group(1).split()
+wfs = re.search(r"for w in ([^;\n]+); do", fb["run"]).group(1).split()
 src = open(f"{root}/scripts/check-main-push.sh").read()
 assert wfs == re.search(r'MAIN_GUARD_WORKFLOWS:-([^}]+)\}', src).group(1).split(), (wfs, "must equal the script's list")
 main = [s for s in steps if s.get("name", "").startswith("The pusher must be a founder")][0]
