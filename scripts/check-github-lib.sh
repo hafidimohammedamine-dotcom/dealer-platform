@@ -65,6 +65,26 @@ main_guard_latest() {
     --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null
 }
 
+# main_guard_runs_intact <this-run-number>: no main-guard run has been deleted (the agents' classic `repo` token can delete
+# workflow runs, which is how the newest checked head could be erased: delete every run newer than an older commit's and
+# main_guard_latest points at that commit). Run numbers are sequential and never reused, and GitHub's retention removes
+# runs from the old end only, so the retained runs other than this one must be one unbroken sequence ending at
+# <this-run-number> - 1. Prints "ok ..." and returns 0, "deleted ..." and returns 1, or "ERROR: ..." on an API error.
+main_guard_runs_intact() {
+  local me=$1 numbers n prev=""
+  [[ "$me" =~ ^[0-9]+$ ]] || { echo "ERROR: bad run number: '$me'"; return 1; }
+  numbers=$("$GH" api --paginate "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=100" --jq '.workflow_runs[].run_number' 2>/dev/null) \
+    || { echo "ERROR: could not list the main-guard runs."; return 1; }
+  numbers=$(tr -s ' \n' '\n' <<<"$numbers" | grep -vx "$me" | grep -x '[0-9]*' | sort -n | uniq || true)
+  [ -n "$numbers" ] || { echo "ok no earlier main-guard run is retained"; return 0; }
+  for n in $numbers; do
+    [ -z "$prev" ] || [ "$n" = $((prev+1)) ] || { echo "deleted main-guard run(s) between #$prev and #$n: someone deleted workflow runs"; return 1; }
+    prev=$n
+  done
+  [ "$prev" = $((me-1)) ] || { echo "deleted main-guard run(s) between #$prev and this run #$me: someone deleted workflow runs"; return 1; }
+  echo "ok main-guard runs #$(head -n1 <<<"$numbers")..#$prev are all retained"
+}
+
 # MAIN_GUARD_FLOOR: the head of the default branch when the main guard was written (founder-owned constant, pinned with
 # this file; a workflow file cannot be changed by the agents' token either). Every commit that is an ancestor of it predates
 # the guard and is accepted; every push after it must have its own passed run. A constant, because the runs list the API

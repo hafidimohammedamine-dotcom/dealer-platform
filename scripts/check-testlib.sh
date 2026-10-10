@@ -14,7 +14,8 @@ summary() { echo "$pass passed, $failed failed"; [ "$failed" = 0 ]; }
 # write_gh_stub <dir>: a fake `gh` at <dir>/gh for tests of the GitHub helpers (scripts/check-github-lib.sh), driven by
 # STUB_* variables: STUB_WHO/STUB_RC (`api user`), STUB_HEAD/STUB_HEAD_RC (main's head), STUB_REL/STUB_REL_RC (the compare
 # status), STUB_RUNS/STUB_RUNS_RC/STUB_RUNS_LATER with STUB_COUNT (the main-guard runs of a head; LATER after the first
-# call), STUB_LATEST/STUB_LATEST_RC (the newest successful push run's head; empty = none), STUB_MARKS/STUB_MARKS_RC (how
+# call), STUB_LATEST/STUB_LATEST_RC (the newest successful push run's head; empty = none), STUB_NUMBERS/STUB_NUMBERS_RC (the
+# run numbers of every retained main-guard run), STUB_MARKS/STUB_MARKS_RC (how
 # many guards/main-guard statuses a commit carries), STUB_MARK_RC (posting one),
 # STUB_GH_LOG (every call appended). A test adds its own cases in <dir>/gh-extra: a file holding one
 # `case "$*" in ...;; esac` (or on "$1 $2") whose arms `exit`; unmatched calls fall through to the shared cases, then exit 9.
@@ -31,6 +32,7 @@ case "$*" in
   'api repos/owner/repo/compare/'*' --jq .status') [ "${STUB_REL_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_REL:-behind}"; exit 0;;
   'api repos/owner/repo/commits/'*'/status --jq '*) [ "${STUB_MARKS_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_MARKS-0}"; exit 0;;
   'api -X POST repos/owner/repo/statuses/'*' -f state=success -f context=guards/main-guard -f description='*) exit "${STUB_MARK_RC:-0}";;
+  'api --paginate repos/owner/repo/actions/workflows/main-guard.yml/runs?per_page=100 --jq .workflow_runs[].run_number') [ "${STUB_NUMBERS_RC:-0}" = 0 ] || exit 1; printf '%s\n' ${STUB_NUMBERS:-}; exit 0;;
   'api repos/owner/repo/actions/workflows/main-guard.yml/runs?event=push&status=success&per_page=1 --jq '*) [ "${STUB_LATEST_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_LATEST:-}"; exit 0;;
   'api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha='*)
     [ "${STUB_RUNS_RC:-0}" = 0 ] || exit 1

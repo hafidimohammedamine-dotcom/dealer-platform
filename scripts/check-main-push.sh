@@ -93,7 +93,18 @@ if [ "$chain_ok" = 0 ]; then
   echo "main-guard: unchecked push $chain_sha; $stopped"
   exit 1
 fi
-[ "$PUSHER" != schedule ] || { echo "Scheduled check: main's head $chain_sha passed the main guard."; exit 0; }
+if [ "$PUSHER" = schedule ]; then
+  # The runs the lineage check reads must all still exist: this run's number is sequential, so a deleted run is a gap.
+  if intact=$(main_guard_runs_intact "${GITHUB_RUN_NUMBER:-}"); then echo "Runs: $intact"
+  else
+    case "$intact" in ERROR:*) echo "$intact"; exit 1;; esac
+    echo "::error::$intact"
+    stopped=$(stop_agents "SECURITY: main-guard workflow runs were deleted" \
+      "**Main-guard runs were deleted.** $intact. The lineage check (main must descend from the newest checked head) reads those runs, so a deletion can hide a force push back to an older commit. Founders: read the repository's audit log (who deleted runs, any force push to \`main\`), put \`main\` back if it was moved, rotate \`AGENT_GH_TOKEN_V2\` if the agents' account did it, then re-enable the workflows. What main-guard did:")
+    echo "main-guard: runs deleted; $stopped"; exit 1
+  fi
+  echo "Scheduled check: main's head $chain_sha passed the main guard."; exit 0
+fi
 
 role=$(account_field "$rows" "$PUSHER" 3); login=$(account_field "$rows" "$PUSHER" 2)
 if [ "$role" = founder ]; then echo "Push to main by founder '$login' (ID $PUSHER): OK."; exit 0; fi

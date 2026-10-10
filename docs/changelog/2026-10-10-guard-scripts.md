@@ -212,6 +212,9 @@
   workflow disabled or its run cancelled is now caught by the next push, the hourly run, every Claude job and every
   shift (`rolled back ...`; issue `SECURITY: main was moved back to an older commit`); the fallback counts such a tip as
   unchecked. Tests in the lib, main-push (script and fallback) and agent-token suites.
+- **Round 25:** the hourly run requires every retained main-guard run to still exist (`main_guard_runs_intact`: run
+  numbers one unbroken sequence ending just before the current run), since the agents' token can delete runs and so erase
+  the newest checked head; a gap stops the agents (`SECURITY: main-guard workflow runs were deleted`).
 
 ## Founder steps before and after merging this PR
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher

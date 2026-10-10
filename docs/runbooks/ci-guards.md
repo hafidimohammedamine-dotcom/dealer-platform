@@ -202,7 +202,12 @@ older commit (rolled back <sha> (behind the last checked head <sha>, compare: be
 opens `SECURITY: main was moved back to an older commit (<sha>)`; nothing is restored (founders read the audit log, put
 `main` back by hand, re-enable). The same `is behind the last checked head` error stops every Claude job
 (`check-main-head.sh`) and every shift (`check-agent-token.sh`), and the fallback step counts such a tip as unchecked
-(`behind the last checked head <sha>`). `commit <sha> reached main without passing the main guard
+(`behind the last checked head <sha>`). Because the agents' classic token can **delete** workflow runs (which is how the
+newest checked head could be erased), the hourly run also requires every retained main-guard run to still exist: run
+numbers are sequential and never reused, and GitHub's retention removes runs from the old end only, so the retained runs
+other than the current one must be one unbroken sequence ending just before it (`Runs: ok main-guard runs #a..#b are all
+retained`); a gap stops the agents and opens `SECURITY: main-guard workflow runs were deleted`. Founders never delete
+main-guard runs by hand. `commit <sha> reached main without passing the main guard
 (missing <sha> (runs: ...))` means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or
 the workflow disabled at the time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to
 main passed no main-guard run (commit <sha>)` without reverting anything (it cannot tell what that push contained);

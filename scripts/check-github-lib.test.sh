@@ -93,5 +93,14 @@ check "main_guard_passed: the lineage compare fails" test "$(mgp2 "$S40" STUB_LA
 check "main_guard_passed: the lineage is asked after the run/status/floor checks (a missing commit is reported as missing)" test "$(mgp2 "$S40" STUB_RUNS= STUB_REL=behind STUB_LATEST="$L40")" = "missing $S40 (runs: none)"
 check "main_guard_latest asks for the newest successful push run" bash -c '( GH="$1/bin/gh"; REPO=owner/repo; . "$2/check-accounts-lib.sh"; . "$2/check-github-lib.sh"; STUB_GH_LOG="$1/log6" STUB_LATEST=x main_guard_latest >/dev/null ); grep -qF "runs?event=push&status=success&per_page=1 --jq .workflow_runs[0].head_sha // empty" "$1/log6"' _ "$D" "$HERE"
 check "main_head_passed: a rolled-back head names the move" test "$(mhp 'any agent runs' STUB_LATEST="$L40" STUB_REL=behind)" = "ERROR: the default branch's head ($S40) is behind the last checked head (rolled back $S40 (behind the last checked head $L40, compare: behind): the default branch was moved back to an older commit). A founder checks who moved the default branch back (the repository's audit log; the workflow disabled or a run cancelled meanwhile?) before any agent runs."
+# Deleted runs: the retained main-guard runs other than this one must be one unbroken sequence ending just before it
+mri() { ( GH="$D/bin/gh"; REPO=owner/repo; export "${@:2}"; main_guard_runs_intact "$1" ) 2>&1; }
+check "main_guard_runs_intact: unbroken up to this run" test "$(mri 12 'STUB_NUMBERS=9 10 11 12')" = "ok main-guard runs #9..#11 are all retained"
+check "main_guard_runs_intact: unordered and repeated numbers (pages) are fine" test "$(mri 12 'STUB_NUMBERS=11 9 10 10')" = "ok main-guard runs #9..#11 are all retained"
+check "main_guard_runs_intact: no other run" test "$(mri 1 'STUB_NUMBERS=1')" = "ok no earlier main-guard run is retained"
+check "main_guard_runs_intact: a gap in the middle" test "$(mri 12 'STUB_NUMBERS=9 11')" = "deleted main-guard run(s) between #9 and #11: someone deleted workflow runs"
+check "main_guard_runs_intact: the newest runs gone" test "$(mri 12 'STUB_NUMBERS=9 10')" = "deleted main-guard run(s) between #10 and this run #12: someone deleted workflow runs"
+check "main_guard_runs_intact: the API fails" test "$(mri 12 STUB_NUMBERS_RC=1)" = "ERROR: could not list the main-guard runs."
+check "main_guard_runs_intact: a bad run number" test "$(mri x STUB_NUMBERS=)" = "ERROR: bad run number: 'x'"
 check "no MAIN_GUARD_FLOOR_OVERRIDE: the floor is the constant" bash -c '! grep -q "FLOOR_OVERRIDE" "$1/check-github-lib.sh"' _ "$HERE"
 summary
