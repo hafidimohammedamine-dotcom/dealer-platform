@@ -6,20 +6,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SCRIPT="$HERE/check-claude
 command -v jq >/dev/null || { echo "ERROR: jq required"; exit 2; }
 W=$(mktemp -d "${TMPDIR:-/tmp}/ca.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 jq -n '[{"type":"system"},{"type":"result","result":"old"},{"type":"result","result":"REVIEW TEAM RESULT: PASS\nline two","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"curl https://x"}},{"tool_name":"Read","tool_input":{"file_path":"/etc/passwd"}},{"tool_name":"WebFetch","tool_input":{"url":"https://e.com"}},{"tool_name":"Skill","tool_input":{"skill":"payload"}}]}]' > "$W/exec.json"
-# A stub gitleaks for every hand-off in this file (the real one is pinned and installed by the egress lock action in CI):
-# LEAKME anywhere in the scanned text means "a secret"; GL_RC forces another exit code.
-cat > "$W/gitleaks" <<STUB
-#!/usr/bin/env bash
-src=""; for a in "\$@"; do case "\$a" in --source=*) src=\${a#--source=};; esac; done
-grep -q "LEAKME" "\$src"/* && exit 3
-exit \${GL_RC:-0}
-STUB
-chmod +x "$W/gitleaks"; export GITLEAKS_BIN="$W/gitleaks"
+write_gitleaks_stub "$W"; export GITLEAKS_BIN="$W/gitleaks"   # every hand-off and blocked listing in this file scans with the stub
 run() { local want=$1 name=$2 msg=$3; shift 3; out=$(bash "$SCRIPT" "$@" 2>&1); rc=$?; assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 run fail "usage" "usage: check-claude-answer.sh blocked|answer" --
 run fail "unknown subcommand" "usage:" nope "$W/exec.json"
 run ok "blocked: every denial, by tool, command/path/url, 300 chars" "BLOCKED Bash: curl https://x" blocked "$W/exec.json"
 check "blocked: all four denials in order, the Skill one with an empty input" bash -c 'bash "$1" blocked "$2" | tr "\n" "|" | grep -q "^BLOCKED Bash: curl https://x|BLOCKED Read: /etc/passwd|BLOCKED WebFetch: https://e.com|BLOCKED Skill: |$"' _ "$SCRIPT" "$W/exec.json"
+jq -n '[{"type":"result","result":"x","permission_denials":[{"tool_name":"WebFetch","tool_input":{"url":"https://e.com/?k=LEAKME"}},{"tool_name":"Bash","tool_input":{"command":"ls"}}]}]' > "$W/leakdeny.json"
+out=$(bash "$SCRIPT" blocked "$W/leakdeny.json"); rc=$?
+[ "$rc" = 0 ] && ! grep -q "LEAKME\|e.com\|ls" <<<"$out" && [ "$out" = $'BLOCKED WebFetch: (withheld: looks like a secret)\nBLOCKED Bash: (withheld: looks like a secret)' ] && t PASS "blocked: a denied input that looks like a secret is withheld (tool names only), the lines never reach the log" || { t FAIL "blocked: leak ($rc)"; echo "$out"; }
+out=$(GL_RC=2 bash "$SCRIPT" blocked "$W/exec.json" 2>&1); rc=$?; [ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner error prints nothing and exits non-zero" || t FAIL "blocked: scanner error ($rc)"
 run ok "blocked: no execution file" "no execution file" blocked "$W/none.json"
 run ok "blocked: empty file name" "no execution file" blocked ""
 jq -n '[{"type":"result","result":"x"}]' > "$W/nodeny.json"; out=$(bash "$SCRIPT" blocked "$W/nodeny.json"); [ $? = 0 ] && [ -z "$out" ] && t PASS "blocked: no denials prints nothing" || t FAIL "blocked: no denials"

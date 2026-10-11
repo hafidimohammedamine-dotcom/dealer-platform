@@ -175,6 +175,10 @@ Also `pull_request_target`, also from `main`.
   draft and ready-for-review). If the hand-off itself fails (jq or the cutter fails, the scanner is missing, or the
   scanner exits with a code other than 0 or 3), its step fails with the cause in the review job log, the post job is
   skipped, nothing is posted and no label changes: re-run the review the same way.
+  The post job's own stops, each with nothing posted and no label changed, re-run the review the same way:
+  `ERROR: the secret scan failed with exit code N` (gitleaks itself failed), `ERROR: the C.UTF-8 locale is missing on
+  this runner` (bash would count bytes, so the post script refuses to cut), `ERROR: no gitleaks at <path>` (the install
+  step did not run or the pinned download failed).
 - **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'
   account (user ID 250452267 in `.github/accounts.txt`), on an `agent/` branch. When the PR has the label `changes-requested`
   it starts `agent-manager.yml` and prints `Manager shift started for PR #<n>`; otherwise `Review passed or no result; no fix

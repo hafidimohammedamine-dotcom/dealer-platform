@@ -13,16 +13,9 @@ if [ "\$1 \$2" = "pr comment" ] || [ "\$1 \$2" = "issue comment" ]; then while [
 [ "\$1 \$2" = "issue create" ] && printf 'https://github.com/o/r/issues/%s\n' "\${STUB_CREATED_NUMBER:-77}"
 exit 0
 STUB
-cat > "$W/gitleaks" <<STUB
-#!/usr/bin/env bash
-src=""; for a in "\$@"; do case "\$a" in --source=*) src=\${a#--source=};; esac; done
-grep -q "LEAKME" "\$src"/* && exit 3
-grep -qE "TOKEN_[A-Z0-9]{20}" "\$src"/* && exit 3   # a minimum-length rule: TOKEN_ plus 20 characters
-grep -qE "ENDTOK\$" "\$src"/* && exit 3   # a rule anchored at a line end: matches the cut-off text, not the whole line
-exit \${GL_RC:-0}
-STUB
-chmod +x "$W/gh" "$W/gitleaks"
+chmod +x "$W/gh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
+write_gitleaks_stub "$W"
 A=""; answer() { A="$1"; }   # the answer the next run posts (ANSWER in the post jobs)
 run() { # run <name> <expect-rc 0|1> <posted-first-line> <label-arg-expected>
   rm -f "$W/gh.log" "$W/posted.md"

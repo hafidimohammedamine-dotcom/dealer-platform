@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Reads the claude-code-action execution file after a Claude step (founder-owned; runs in every Claude job, pinned):
 #   blocked <execution-file>   print "BLOCKED <tool>: <command or path>" for every denied tool call (names and commands
-#                              only, 300 characters each), so the job log shows what the deny lists stopped
+#                              only, 300 characters each), so the job log shows what the deny lists stopped; the lines
+#                              are scanned with the pinned gitleaks first, and on a hit only the tool names are printed
 #   answer  <execution-file>   print GitHub job outputs: has_result=true|false and, when there is an answer, `answer` as a
 #                              multi-line output for the post job: the last result's text, cut to at most 120000 bytes of
 #                              UTF-8 by scripts/check-claude-answer-cut.py (rules in its docstring), then scanned with the
@@ -14,10 +15,19 @@ set -euo pipefail
 CMD="${1:-}"; EXEC="${2:-}"
 case "$CMD" in blocked|answer) ;; *) echo "usage: check-claude-answer.sh blocked|answer <execution-file>" >&2; exit 2;; esac
 have=0; [ -n "$EXEC" ] && [ -f "$EXEC" ] && jq -e 'type == "array"' "$EXEC" >/dev/null 2>&1 && have=1
+. "$(dirname "$0")/check-scan-lib.sh"   # scan_answer: the pinned gitleaks (GITLEAKS_BIN); the job log is public
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan"
 if [ "$CMD" = blocked ]; then
   [ "$have" = 1 ] || { echo "no execution file"; exit 0; }
+  # The denied tool inputs are Claude's own commands, paths and URLs: scanned before they reach the log, like the answer.
   jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-         | "BLOCKED " + (.tool_name // "?") + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' "$EXEC"
+         | "BLOCKED " + (.tool_name // "?") + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' "$EXEC" > "$T/scan/blocked.md"
+  set +e; scan_answer "$T/scan"; rc=$?; set -e
+  case $rc in
+    0) cat "$T/scan/blocked.md";;
+    3) jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[] | "BLOCKED " + (.tool_name // "?") + ": (withheld: looks like a secret)"' "$EXEC";;
+    *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;;
+  esac
   exit 0
 fi
 if [ "$have" != 1 ]; then echo "has_result=false"; exit 0; fi
@@ -28,8 +38,7 @@ text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EX
 # Secret scan BEFORE the text leaves this job: the post job gets it as a step `env:` value, and GitHub prints those in the
 # step's log header (public logs). Anything that looks like a secret is replaced by a fixed notice (the post job then posts
 # FAIL); a missing scanner or a scanner error fails this step (nothing is handed over, the post job is skipped).
-. "$(dirname "$0")/check-scan-lib.sh"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan"; printf '%s\n' "$text" > "$T/scan/answer.md"
+printf '%s\n' "$text" > "$T/scan/answer.md"
 set +e; scan_answer "$T/scan"; rc=$?; set -e
 case $rc in 0) ;; 3) text="(answer withheld: it contained something that looks like a secret)";; *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;; esac
 d="ANSWER_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"   # a delimiter the answer cannot contain by accident

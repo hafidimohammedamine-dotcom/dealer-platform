@@ -16,6 +16,20 @@ rep() { head -c "$1" /dev/zero | tr '\0' "$2"; }   # rep <n> <char>: n copies of
 mk_exec() { python3 -c 'import json,sys; json.dump([{"type":"result","result":sys.stdin.read()}], open(sys.argv[1],"w"))' "$1"; }
 # handoff_text <output of check-claude-answer.sh answer>: the handed answer (the lines between the delimiters)
 handoff_text() { local d; d=$(sed -n '2s/^answer<<//p' <<<"$1"); printf '%s\n' "$1" | sed -n "3,/^$d\$/p" | sed '$d'; }
+# write_gitleaks_stub <dir>: a fake gitleaks at <dir>/gitleaks for tests of the answer scan (scripts/check-scan-lib.sh):
+# LEAKME anywhere means "a secret"; TOKEN_ plus 20 upper-case or digit characters is a minimum-length rule; ENDTOK at a
+# line end is a rule anchored at a line end; GL_RC forces another exit code (a scanner error).
+write_gitleaks_stub() {
+  cat > "$1/gitleaks" <<'STUB'
+#!/usr/bin/env bash
+src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done
+grep -q "LEAKME" "$src"/* && exit 3
+grep -qE "TOKEN_[A-Z0-9]{20}" "$src"/* && exit 3
+grep -qE "ENDTOK$" "$src"/* && exit 3
+exit ${GL_RC:-0}
+STUB
+  chmod +x "$1/gitleaks"
+}
 # write_gh_stub <dir>: a fake `gh` at <dir>/gh for tests of the GitHub helpers (scripts/check-github-lib.sh), driven by
 # STUB_* variables: STUB_WHO/STUB_RC (`api user`), STUB_HEAD/STUB_HEAD_RC (main's head), STUB_REL/STUB_REL_RC (the compare
 # status), STUB_RUNS/STUB_RUNS_RC/STUB_RUNS_LATER with STUB_COUNT (the main-guard runs of a head; LATER after the first

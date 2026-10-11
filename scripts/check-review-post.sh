@@ -50,7 +50,7 @@ mkdir -p "$T/scan"; printf '%s\n' "$text" > "$T/scan/full.md"; printf '%s\n' "$p
 set +e; scan_answer "$T/scan"; rc=$?; set -e
 case $rc in
   0) cp "$T/scan/post.md" "$T/body.md";;
-  3) printf '%s\n' "REVIEW TEAM RESULT: FAIL" "The agent's answer contained something that looks like a secret, so it was not posted. A founder should check the job." > "$T/body.md"
+  3) printf '%s\n' "REVIEW TEAM RESULT: FAIL" "The agent's answer contained something that looks like a secret, so it was not posted. A founder should re-run the review (see docs/runbooks/ci-guards.md, \"Post the result\")." > "$T/body.md"
      first="REVIEW TEAM RESULT: FAIL";;
   *) echo "ERROR: the secret scan failed with exit code $rc"; exit 1;;
 esac

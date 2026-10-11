@@ -89,6 +89,9 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   except tests and test libraries, `.gitleaks.toml`, `.github/accounts.txt`, `.yarnrc.yml`, and every `CLAUDE.md`,
   `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere) and the `PINS_SHA256` every workflow checks before running any of them; `verify`
   fails a job whose tree holds such a file that is not listed.
+- `scripts/check-scan-lib.sh` (sourced by the hand-off and by `check-review-post.sh`): `scan_answer <dir>`, the one
+  gitleaks call over an agent's text with `.gitleaks.toml`; returns 0 (clean), 3 (looks like a secret: a fixed notice
+  replaces the text) or another code (an error: the step fails and nothing is posted).
 - `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
   answer to the post job as a job output: scanned with the pinned gitleaks before it leaves the job (a job output is
   shown in the post job's log header), cut by the pinned `scripts/check-claude-answer-cut.py` to at most 120000 bytes
