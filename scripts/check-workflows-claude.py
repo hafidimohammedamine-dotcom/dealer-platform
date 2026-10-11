@@ -180,7 +180,12 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
             check_checkout(sw, step, ok_refs)
         for key in ("working-directory", "shell"):
             if key in step:
-                core.err(f"{sw}: '{key}' not allowed in a job with a claude step")
+                # After the claude step one shell is allowed: the hardened one from the policy (an absolute bash that reads
+                # no profile or rc file), so a step's own shell is not found through a PATH the claude step could prepend.
+                if key == "shell" and claude_at and i > claude_at and step.get("shell") == P["post_claude_shell"]:
+                    continue
+                core.err(f"{sw}: '{key}' not allowed in a job with a claude step"
+                         + (f" (after the claude step only shell: {P['post_claude_shell']})" if key == "shell" and claude_at and i > claude_at else ""))
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
         reviewed = str(step.get("run", "")).strip() in P["pr_data_runs"]
         if PR_DATA.search(body) and not reviewed:

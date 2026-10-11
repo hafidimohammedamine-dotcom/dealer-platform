@@ -96,6 +96,9 @@ fx; sed -i 's|,WebFetch,||' "$T/$W/t.yml"; expect fail "a claude step without on
 # Actions and jobs
 fx; printf '      - uses: "./.github/actions/evil"\n' >> "$T/$W/t.yml"; expect fail "quoted local action not on the allow-list" "local action not on the allow-list: ./.github/actions/evil"
 fx; printf '      - uses: ./.github/actions/install-gitleaks\n' >> "$T/$W/t.yml"; expect fail "local action after the claude step" "no local action after the claude step"
+fx; printf '      - shell: /usr/bin/bash --noprofile --norc -eo pipefail {0}\n        run: echo hi\n' >> "$T/$W/t.yml"; expect ok "the hardened shell after the claude step" "Workflow denies OK"
+fx; printf '      - shell: bash\n        run: echo hi\n' >> "$T/$W/t.yml"; expect fail "another shell after the claude step" "after the claude step only shell: /usr/bin/bash --noprofile --norc -eo pipefail {0}"
+fx; before '      - shell: /usr/bin/bash --noprofile --norc -eo pipefail {0}\n        run: bash scripts/check-x.sh'; expect fail "the hardened shell before the claude step" "not allowed in a job with a claude step"
 fx; printf '      - uses: docker://alpine:3\n' >> "$T/$W/t.yml"; expect fail "docker:// action" "not allowed: docker://alpine:3"
 fx; printf '  r:\n    uses: org/repo/.github/workflows/w.yml@v1\n' >> "$T/$W/t.yml"; expect fail "reusable workflow job" "reusable workflow not allowed"
 fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    container: node:20|' "$T/$W/t.yml"; expect fail "container job" "'container' not allowed"

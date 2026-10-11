@@ -142,24 +142,24 @@ Also `pull_request_target`, also from `main`.
 - The `review` job runs only for a PR whose head is in this repository (a fork's PR gets no Claude run; the repo is
   public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned
   `scripts/check-claude-answer.sh`, which prints the blocked tool calls (scanned first, see "After changing agent
-  permissions") and hands the answer to the job `post` as a job
-  output: text, at most 120000 bytes of UTF-8 (the post job gets it as one environment variable, which Linux caps at 128
-  KiB). A longer answer is cut at the last line break, space or tab before the cap and never inside a `-----BEGIN ...
-  -----END` block, so a token or a key block is never handed over in part; when nothing before the cap is safe to keep,
-  the text is withheld and a notice is handed over instead; every cut ends with a `(truncated)` line. Before it leaves
-  the review job the text is scanned with the pinned gitleaks (installed by the egress lock action): a job output is
-  printed in the post job's log header, and the repo is public, so anything that looks like a secret is replaced by a
-  fixed notice there. The handed text is all `post` ever sees. `post` is the only job with write scopes and runs no
-  Claude: `scripts/check-review-post.sh pr <n>` reads the answer from `ANSWER`, scans it for secrets (the whole handed
-  text and the text about to be posted, in one gitleaks run, before anything is posted), then posts it - a longer answer
-  cut to 60000 characters with a `(truncated)` line - and sets labels (a cut PASS keeps its labels: its verdict line is
-  posted and a PASS has no findings to lose). The daily report and weekly audit do the same with
-  `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
-  (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
-  naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread
-  with `gh issue view`, and its answer is posted by the `post` job after the scan. The daily and weekly runs, like the
-  manager's, start only from their schedule or a founder's manual run. The weekly audit has a `deps` job first (no secret)
-  that runs `yarn npm audit` and uploads `npm-audit.json`; the `audit` job downloads it as data.
+  permissions") and hands the answer to the job `post` as a job output: text, at most 120000 bytes of UTF-8 (the post
+  job gets it as one environment variable, which Linux caps at 128 KiB). A longer answer is cut at the last line break,
+  space or tab before the cap and never inside a `-----BEGIN ... -----END` block, so a token or a key block is never
+  handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed over
+  instead; every cut ends with a `(truncated)` line. Before it leaves the review job the text is scanned with the pinned
+  gitleaks (installed by the egress lock action): a job output is printed in the post job's log header, and the repo is
+  public, so anything that looks like a secret is replaced by a fixed notice there. The handed text is all `post` ever
+  sees. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
+  answer from `ANSWER`, scans it for secrets (the whole handed text and the text about to be posted, in one gitleaks
+  run, before anything is posted), then posts it - a longer answer cut to 60000 characters with a `(truncated)` line -
+  and sets labels (a cut PASS keeps its labels: its verdict line is posted and a PASS has no findings to lose). The
+  daily report and weekly audit do the same with `check-review-post.sh daily-reports` (the open "Daily reports" issue,
+  created if missing), and "Claude on mention" (`claude.yml`: a founder's `@claude` comment on an issue) with
+  `check-review-post.sh issue <n>` - Claude gets a prompt naming the issue (never tag mode, so the action adds no
+  comment or git tools and swaps no OIDC token), reads the thread with `gh issue view`, and its answer is posted by the
+  `post` job after the scan. The daily and weekly runs, like the manager's, start only from their schedule or a
+  founder's manual run. The weekly audit has a `deps` job first (no secret) that runs `yarn npm audit` and uploads
+  `npm-audit.json`; the `audit` job downloads it as data.
 - **"The default branch's head passed the main guard"** (every Claude job, before the lock: `scripts/check-main-head.sh`)
   fails with `the default branch's head (<sha>) has no successful main-guard run (...)` - the push that put that head on
   `main` was never checked (a `[skip ci]` head commit, a cancelled run): a founder looks before any Claude job runs again

@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
+          PINS_SHA256: "6d778d3dc4a16153334afb001bbaca7ca97fdb6f33482873f1b74d09aa114060"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -60,14 +60,17 @@ jobs:
       - name: Show blocked tool calls and hand the answer to the post job (pinned script)
         id: answer
         if: always()
+        shell: /usr/bin/bash --noprofile --norc -eo pipefail {0}   # an absolute bash, no profile or rc: not found through a PATH the claude step could change
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
+          BASH_ENV: ""     # a step's own env wins over $GITHUB_ENV: nothing the claude step wrote there reaches this shell
+          LD_PRELOAD: ""
+          PINS_SHA256: "6d778d3dc4a16153334afb001bbaca7ca97fdb6f33482873f1b74d09aa114060"
         run: |
-          set -euo pipefail
-          # Everything after a Claude step runs with a clean environment and fixed paths: nothing Claude could have put on
-          # PATH, in $GITHUB_ENV, BASH_ENV or LD_PRELOAD is used, and the scanner is the pinned one by hash (the pinned
-          # scripts carry the hash). The step fails, with nothing printed, when the scanner or its hash is wrong.
+          set -u
+          # After a Claude step: this shell is the absolute bash above with BASH_ENV and LD_PRELOAD emptied by the step env,
+          # the pins are checked with /usr/bin/sha256sum, then the pinned hand-off runs under `env -i` with a fixed PATH
+          # and scans with a fresh copy of the scanner checked against the pinned hash (a wrong one fails the step).
           echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
           /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
           /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" TMPDIR="${RUNNER_TEMP:-/tmp}" GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= BASH_ENV= LD_PRELOAD= /usr/bin/bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
@@ -90,7 +93,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
+          PINS_SHA256: "6d778d3dc4a16153334afb001bbaca7ca97fdb6f33482873f1b74d09aa114060"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

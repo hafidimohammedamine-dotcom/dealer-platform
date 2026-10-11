@@ -21,10 +21,10 @@ are gone.
   reader sees the end is missing even when the post job's own cut does not run. Bytes that are not UTF-8 become U+FFFD
   and NULs are removed before the cap is measured, so the handed text is never over 120000 bytes. The cut uses no temp
   file (jq -> python -> stdout); the scan writes the cut text to a temporary directory deleted on exit; and the output
-  block is printed only once the whole text is in hand: a failing jq or
-  python exits non-zero with no half-written block. End-to-end tests (hand-off, then post): a secret across 60000
-  (withheld); 70000 four-byte characters in the answer, about 30000 posted with the marker; a token across the
-  120000-byte cap (never handed over); a key block across the cap after multibyte filler (never handed over or posted).
+  block is printed only once the whole text is in hand: a failing jq or python exits non-zero with no half-written
+  block. End-to-end tests (hand-off, then post): a secret across 60000 (withheld); 70000 four-byte characters in the
+  answer, about 30000 posted with the marker; a token across the 120000-byte cap (never handed over); a key block across
+  the cap after multibyte filler (never handed over or posted).
 - A withheld hand-off (the notice instead of the text) has no `REVIEW TEAM RESULT:` first line, so the post job posts
   FAIL and sets `changes-requested` whatever the review said; the review's result is lost (no job log holds it), and a
   founder re-runs the review (`docs/runbooks/ci-guards.md`, "Post the result").
@@ -35,15 +35,21 @@ are gone.
   has no findings to lose); only a withheld answer loses its result.
 - `scripts/check-scan-lib.sh` (pinned): the one gitleaks call (`scan_answer <dir>`) both the hand-off and the post
   script use; `check-review-post.sh` stops if the runner lacks the C.UTF-8 locale (bash would count bytes).
-- The scan checks the scanner: `scan_answer` compares `/tmp/gitleaks` with the pinned binary sha256 (a swapped or
-  edited binary is an error, nothing is handed over or posted), and every hand-off and blocked-call step runs the
-  script under `/usr/bin/env -i` with `PATH=/usr/bin:/bin`, `GITLEAKS_BIN=/tmp/gitleaks`, an empty `GITLEAKS_SHA256`
-  (the pinned constant in `check-scan-lib.sh` is the one copy of the hash), `BASH_ENV` and `LD_PRELOAD` empty, and
-  `/usr/bin/sha256sum` by absolute path, so nothing a Claude step put on `PATH` or in `$GITHUB_ENV` is used (the
-  manager runs Claude with full Bash). A cut that would keep nothing (a line break at index 0) hands over the withheld
-  notice, never an
-  empty answer. `scripts/check-claude-answer-cut.test.sh` tests `cut()` directly; the post tests run one case with the
-  real pinned gitleaks when it is installed.
-- `check-claude-answer.sh blocked` scans the denied-call lines before printing them: on a hit it prints
-  `BLOCKED <tool>: (withheld: looks like a secret)` per denial; a scanner error fails the step with nothing printed (the
-  post job is then skipped in the jobs that have one).
+- The scan checks the scanner: `scan_answer` compares `/tmp/gitleaks` with the pinned binary sha256 (a swapped or edited
+  binary is an error, nothing is handed over or posted), and every hand-off and blocked-call step runs the script under
+  `/usr/bin/env -i` with `PATH=/usr/bin:/bin`, `GITLEAKS_BIN=/tmp/gitleaks`, an empty `GITLEAKS_SHA256` (the pinned
+  constant in `check-scan-lib.sh` is the one copy of the hash), `BASH_ENV` and `LD_PRELOAD` empty, and
+  `/usr/bin/sha256sum` by absolute path, so nothing a Claude step put on `PATH` or in `$GITHUB_ENV` is used (the manager
+  runs Claude with full Bash). A cut that would keep nothing (a line break at index 0) hands over the withheld notice,
+  never an empty answer. `scripts/check-claude-answer-cut.test.sh` tests `cut()` directly; the post tests run one case
+  with the real pinned gitleaks when it is installed.
+- `check-claude-answer.sh blocked` scans the denied-call lines before printing them: on a hit it prints `BLOCKED <tool>:
+  (withheld: looks like a secret)` per denial; a scanner error fails the step with nothing printed (the post job is then
+  skipped in the jobs that have one).
+- Review round 18 (founder decisions): the five post-Claude steps use the one shell the workflow checker now allows
+  after a Claude step (`/usr/bin/bash --noprofile --norc -eo pipefail {0}`, policy key `post_claude_shell`) with
+  `BASH_ENV` and `LD_PRELOAD` emptied in the step's own `env:`; the scan hashes and runs a private copy of the scanner.
+  Not done, on purpose: a composite action for the hand-off step (the checker forbids local actions after a Claude step,
+  since their files could have changed; nine near-identical lines are the price of that rule), and copying the pinned
+  scripts themselves before running them (the pins check and the run are in one step, and a process left over from the
+  sandboxed Claude step would also have to own the checkout; accepted as a residual risk).

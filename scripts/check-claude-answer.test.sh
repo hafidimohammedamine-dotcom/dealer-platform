@@ -119,6 +119,12 @@ out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result\|REVIEW TEAM" <<<"$out" && grep -q "has sha256" <<<"$out" && t PASS "answer: a scanner whose sha256 is not the pinned one is an error: nothing handed over, the mismatch in the log" || t FAIL "answer: wrong hash (rc=$rc)"
 out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000000000 bash "$SCRIPT" blocked "$W/exec.json" 2>&1); rc=$?
 [ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner with the wrong sha256 prints no denial line" || t FAIL "blocked: wrong hash (rc=$rc)"
+# The scan runs a private copy: a stub that overwrites the original with something else on its first run still gets the
+# hash check (on the copy) and the scan (the copy) right, and the original's later content never matters.
+S3=$(mktemp -d "$W/swap.XXXXXX"); printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 0\\n" > "%s/gitleaks"; src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done; grep -q LEAKME "$src"/* && exit 3; exit 0\n' "$S3" > "$S3/gitleaks"; chmod +x "$S3/gitleaks"
+printf 'REVIEW TEAM RESULT: PASS\nkey LEAKME\n' | mk_exec "$W/swapleak.json"
+out=$(GITLEAKS_BIN="$S3/gitleaks" GITLEAKS_SHA256=$(sha256sum "$S3/gitleaks" | cut -c1-64) bash "$SCRIPT" answer "$W/swapleak.json"); H=$(handoff_text "$out")
+[ "$H" = "(answer withheld: it contained something that looks like a secret)" ] && t PASS "answer: the scan runs a private copy of the scanner (a self-replacing original still scans with the checked copy)" || t FAIL "answer: private copy: $H"
 S2=$(mktemp -d "$W/fake.XXXXXX"); printf '#!/usr/bin/env bash\necho 0000000000000000000000000000000000000000000000000000000000000000  x\n' > "$S2/sha256sum"; chmod +x "$S2/sha256sum"
 out=$(PATH="$S2:$PATH" bash "$SCRIPT" answer "$W/exec.json"); H=$(handoff_text "$out")
 [ "$H" = $'REVIEW TEAM RESULT: PASS\nline two' ] && t PASS "answer: a fake sha256sum first on PATH is not used (the scan calls /usr/bin/sha256sum)" || t FAIL "answer: fake sha256sum on PATH: $H"
