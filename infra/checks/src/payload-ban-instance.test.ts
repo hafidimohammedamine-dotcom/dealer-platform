@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { allowedPayloadMembers } from '../../../eslint.payload-ban.mjs';
-import { ACCESS, errors, inside, listOutside, outside } from './test-helpers/lint.js';
+import { ACCESS, errors, inside, listOutside, messageIds, outside } from './test-helpers/lint.js';
 
 // Every bypass any review round has found, plus close variants. Each must be flagged outside
 // packages/data. The rule bans names and sources, so new spellings of a use are covered too.
@@ -86,6 +86,36 @@ const bypasses: [string, string][] = [
   ['import getPayload', "import { getPayload } from 'payload'; void getPayload;"],
   ['renamed import of getPayload', "import { getPayload as gp } from 'payload'; void gp;"],
   ['type import of Payload', "import type { Payload } from 'payload';"],
+  ['JSON.stringify with a replacer function', 'JSON.stringify(req, (k, v) => v);'],
+  ['JSON.stringify with a replacer variable', 'JSON.stringify(req, replacer);'],
+  ['JSON.stringify with a computed array', 'JSON.stringify(req, [a]);'],
+  ['JSON.stringify with a replacer and space', 'JSON.stringify(req, fn, 2);'],
+  ['JSON.parse with a reviver', 'JSON.parse(text, (k, v) => v);'],
+  ['JSON.stringify with spread arguments', 'JSON.stringify(...args);'],
+  ['JSON.stringify saved to a variable', 'const s = JSON.stringify; s(req, fn);'],
+  ['JSON as a value', 'const J = JSON; J.stringify(req, fn);'],
+  ['globalThis.JSON', 'globalThis.JSON.stringify(req, fn);'],
+  ["globalThis['JSON']", "globalThis['JSON'].stringify(req, fn);"],
+  ['JSON with a dynamic member', 'JSON[name](req, fn);'],
+  ['JSON.stringify.call', 'JSON.stringify.call(JSON, req, fn);'],
+  ['Local API call with collection', "void rows.find({ collection: 'leads' });"],
+  ['Local API call with a global', "void rows.findGlobal({ global: 'settings' });"],
+  ['quoted collection key', "void rows.count({ 'collection': 'leads' });"],
+  ['shorthand collection key', 'void rows.create({ collection, data });'],
+  ['bare destructured call with collection', "void find({ collection: 'leads' });"],
+  ['.call with collection', "void rows.update.call(rows, { collection: 'leads' });"],
+  ['cache read global._payload', 'void global._payload;'],
+  ['cache read globalThis._payload', 'void globalThis._payload;'],
+  ["cache read globalThis['_payload']", "void globalThis['_payload'];"],
+  ['cache read with a template key', 'void globalThis[`_payload`];'],
+  ['cache read through globalThis.global', 'void globalThis.global._cache;'],
+  ['cache destructure', 'const { _payload: cache } = globalThis; void cache;'],
+  ['any _ member of global', 'void global._something;'],
+  ['any _ member destructured', 'const { _something } = global; void _something;'],
+  ['any _ member assigned to a variable', 'let c; ({ _x: c } = globalThis); void c;'],
+  ['cache Map form', "void global._payload.get('default');"],
+  ['cache object form', 'void global._payload.payload.find({});'],
+  ['_payload as a name', 'const _payload = 1; void _payload;'],
 ];
 
 describe('local/no-payload-instance-access', () => {
@@ -166,6 +196,85 @@ describe('local/no-payload-instance-access', () => {
       expect(await errors('void req.payload;\n', file), file).toEqual([ACCESS]);
     }
     expect(await errors('void req.payload;\n', 'packages/data/src/deep/dir/x.ts')).toEqual([]);
+  });
+});
+
+describe('JSON.stringify and JSON.parse outside packages/data', () => {
+  it('allow no second argument, null, or an array of fixed strings', async () => {
+    const code = [
+      'void JSON.stringify(body);',
+      'void JSON.stringify(body, null);',
+      'void JSON.stringify(body, null, 2);',
+      "void JSON.stringify(body, ['id', `name`]);",
+      'void JSON.stringify(body, []);',
+      'void JSON.parse(text);',
+      'void JSON.parse(text, null);',
+      'void JSON.stringify?.(body);',
+      'const o = { JSON: 1 };',
+      'void o;',
+      '',
+    ].join('\n');
+    expect(await errors(code, outside)).toEqual([]);
+  });
+
+  it('flag an array with a name that is not fixed, or a hole', async () => {
+    expect(await errors('JSON.stringify(body, [key]);\n', outside)).toEqual([ACCESS]);
+    expect(await errors('JSON.stringify(body, [, "a"]);\n', outside)).toEqual([ACCESS]);
+    expect(await errors('JSON.stringify(body, ...rest);\n', outside)).toEqual([ACCESS]);
+  });
+
+  it('are not restricted inside packages/data', async () => {
+    expect(await errors('JSON.stringify(req, (k, v) => v);\n', inside)).toEqual([]);
+  });
+});
+
+describe('global object members and Local API targets outside packages/data', () => {
+  it('flag the Payload cache with the message for global members', async () => {
+    expect(await messageIds('void global._payload;\n', outside)).toEqual(['globalMember', 'named']);
+    expect(await messageIds("void globalThis['_cache'];\n", outside)).toEqual(['globalMember']);
+    expect(await messageIds('const { _cache } = globalThis;\nvoid _cache;\n', outside)).toEqual([
+      'globalMember',
+    ]);
+  });
+
+  it('leave public members of global and private members of other objects alone', async () => {
+    const code = [
+      'void globalThis.process;',
+      'void global.setTimeout;',
+      'void other._private;',
+      'const { process: p } = globalThis;',
+      'const { _a } = other;',
+      'const { _b } = nothing();',
+      'let q; ({ _c: q } = other); ({ _d: q } = nothing());',
+      'void p; void _a; void _b; void q;',
+      '',
+    ].join('\n');
+    expect(await errors(code, outside)).toEqual([]);
+  });
+
+  it('flag a Local API call that names a collection or global', async () => {
+    expect(await messageIds("find({ collection: 'leads' });\n", outside)).toEqual(['localApiCall']);
+  });
+
+  it('leave other calls with those names alone', async () => {
+    const code = [
+      'rows.find((row) => row.id === 1);',
+      "rows.find({ name: 'a' });",
+      'rows.find({ ...opts });',
+      'rows.find({ [k]: 1 });',
+      "rows.find('collection');",
+      'rows.find.call(rows, { id: 1 });',
+      "other({ collection: 'a' });",
+      "other.run({ collection: 'a' });",
+      'rows.find();',
+      '',
+    ].join('\n');
+    expect(await errors(code, outside)).toEqual([]);
+  });
+
+  it('do not apply inside packages/data', async () => {
+    const code = "global._payload; rows.find({ collection: 'leads' });\n";
+    expect(await errors(code, inside)).not.toContain(ACCESS);
   });
 });
 

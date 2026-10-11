@@ -22,7 +22,9 @@ export default defineConfig({
       exclude: ['src/**/*.test.ts'],
       allowExternal: isInfraChecks,
       reporter: ['text-summary', 'json-summary'],
+      // Each file must reach the thresholds on its own, so one weak file cannot hide behind the totals.
       thresholds: {
+        perFile: true,
         lines: 90,
         functions: 90,
         branches: 90,

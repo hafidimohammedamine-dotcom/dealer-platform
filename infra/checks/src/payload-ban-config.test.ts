@@ -169,7 +169,9 @@ describe('allow-lists apply only to their own paths', () => {
     expect(blockFor('packages/data/src/tenant-transaction.ts', configs)[0]?.rules).toEqual({
       [OVERRIDE]: ['error', { requireOptions: true, allowDb: true }],
     });
-    expect(blockFor('services/jobs/**', configs)[0]?.rules).toEqual({ [OVERRIDE]: 'off' });
+    expect(blockFor('services/jobs/**', configs)[0]?.rules).toEqual({
+      [OVERRIDE]: ['error', { requireOptions: true, allowOverrideTrue: true }],
+    });
     expect(blockFor('services/messaging/src/telnyx/body.ts', configs)[0]?.rules).toEqual({
       [ACCESS]: ['error', { allowNames: true }],
     });

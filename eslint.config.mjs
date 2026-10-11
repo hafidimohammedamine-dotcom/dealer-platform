@@ -11,7 +11,17 @@ export default tseslint.config(
     // Nobody can switch the Payload bans off with a comment. A comment that tries to is an error.
     linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
   },
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.nx/**', '**/.yarn/**', '**/coverage/**'] },
+  {
+    // Build outputs only, anchored to the top of a workspace. A `dist` or `coverage` folder deeper in the source tree
+    // (`apps/admin/src/x/dist/y.ts`) is source and is linted, so no folder name can hide a file from the Payload bans.
+    ignores: [
+      '{apps,services,packages,infra}/*/dist/**',
+      '{apps,services,packages,infra}/*/coverage/**',
+      '**/node_modules/**',
+      '.nx/**',
+      '.yarn/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   { languageOptions: { globals: { ...globals.node } } },

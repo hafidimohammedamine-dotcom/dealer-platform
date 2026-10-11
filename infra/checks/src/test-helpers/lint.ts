@@ -38,8 +38,9 @@ export const eslintWith = (extra: unknown): ESLint =>
 
 /** Error rule ids of the bans for `code` linted as `file` with a given ESLint instance. */
 export async function errorsWith(linter: ESLint, code: string, file: string): Promise<string[]> {
-  const [result] = await linter.lintText(code, { filePath: join(root, file) });
-  return (result?.messages ?? [])
+  const results = await linter.lintText(code, { filePath: join(root, file) });
+  return results
+    .flatMap((result) => result.messages)
     .filter((message) => message.severity === 2)
     .map((message) => message.ruleId ?? 'parse-error')
     .filter((id) => id === 'parse-error' || ours.has(id));
@@ -64,18 +65,27 @@ const ours = new Set([
 export const outside = 'services/intake/src/example.ts';
 export const inside = 'packages/data/src/example.ts';
 
+/** Message ids of local/no-payload-instance-access for `code` linted as `file`, in order. */
+export async function messageIds(code: string, file: string): Promise<string[]> {
+  const results = await eslint.lintText(code, { filePath: join(root, file) });
+  return results
+    .flatMap((result) => result.messages)
+    .filter((message) => message.ruleId === ACCESS)
+    .map((message) => String(message.messageId));
+}
+
 /** All error rule ids, including rules that are not ours (warnings are not counted). */
 export async function allErrors(code: string, file: string): Promise<string[]> {
-  const [result] = await eslint.lintText(code, { filePath: join(root, file) });
-  return (result?.messages ?? [])
+  const results = await eslint.lintText(code, { filePath: join(root, file) });
+  return results
+    .flatMap((result) => result.messages)
     .filter((message) => message.severity === 2)
     .map((message) => message.ruleId ?? 'parse-error');
 }
 
-/** Error rule ids of the bans only, plus parse errors. */
-export async function errors(code: string, file: string): Promise<string[]> {
-  return (await allErrors(code, file)).filter((id) => id === 'parse-error' || ours.has(id));
-}
+/** Error rule ids of the bans only, plus parse errors, with the repo's own config. */
+export const errors = (code: string, file: string): Promise<string[]> =>
+  errorsWith(eslint, code, file);
 
 /** Every workspace except packages/data, the only full exemption. */
 export const listOutside = (): string[] =>

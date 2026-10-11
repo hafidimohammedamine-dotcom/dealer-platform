@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import type { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
 import {
   localApiMethods,
@@ -13,7 +14,6 @@ import {
   MODULES,
   OVERRIDE,
   errors,
-  errorsWith,
   eslint,
   eslintWith,
   inside,
@@ -22,8 +22,12 @@ import {
 } from './test-helpers/lint.js';
 
 /** Message ids of local/no-override-access, in order. */
-const overrideMessages = async (code: string, file: string): Promise<string[]> => {
-  const [result] = await eslint.lintText(code, { filePath: join(root, file) });
+const overrideMessages = async (
+  code: string,
+  file: string,
+  linter: ESLint = eslint,
+): Promise<string[]> => {
+  const [result] = await linter.lintText(code, { filePath: join(root, file) });
   return (result?.messages ?? [])
     .filter((message) => message.ruleId === OVERRIDE)
     .map((message) => message.messageId ?? '');
@@ -237,23 +241,15 @@ describe('packages/data reads a Local API method only to call it directly', () =
     const listed = eslintWith(
       payloadBanConfigs({ overrideAccessAllowed: [], payloadDbAllowed: [file] }),
     );
-    const messages = async (code: string, path: string): Promise<string[]> => {
-      const [result] = await listed.lintText(code, { filePath: join(root, path) });
-      return (result?.messages ?? [])
-        .filter((message) => message.ruleId === OVERRIDE)
-        .map((message) => message.messageId ?? '');
-    };
-    expect(await messages('payload.db.drizzle.execute(sql);\n', file)).toEqual([]);
-    expect(await messages('const { db } = payload; void db;\n', file)).toEqual([]);
-    expect(await messages('const { find } = payload; void find;\n', file)).toEqual(['notCalled']);
-    expect(await messages('payload.find({});\n', file)).toHaveLength(4);
-    expect(await messages('payload.db.find({});\n', 'packages/data/src/other.ts')).toEqual([
-      'rawDb',
-      'missing',
-      'missing',
-      'missing',
-      'missingOneOf',
+    expect(await overrideMessages('payload.db.drizzle.execute(sql);\n', file, listed)).toEqual([]);
+    expect(await overrideMessages('const { db } = payload; void db;\n', file, listed)).toEqual([]);
+    expect(await overrideMessages('const { find } = payload; void find;\n', file, listed)).toEqual([
+      'notCalled',
     ]);
+    expect(await overrideMessages('payload.find({});\n', file, listed)).toHaveLength(4);
+    expect(
+      await overrideMessages('payload.db.find({});\n', 'packages/data/src/other.ts', listed),
+    ).toEqual(['rawDb', 'missing', 'missing', 'missing', 'missingOneOf']);
   });
 
   it('does not apply these checks outside packages/data (the instance rule covers them there)', async () => {
@@ -282,6 +278,12 @@ describe('dynamic keys and spreads outside packages/data', () => {
       'Object.assign({}, req);',
       'Reflect.get(req, k);',
       'const p = await getPayload({}); p.find({});',
+      'JSON.stringify(req, (k, v) => (k === "x" ? v.find({}) : v));',
+      'JSON.parse(text, (k, v) => v);',
+      "find({ collection: 'leads', overrideAccess: true });",
+      "rows.find({ collection: 'leads' });",
+      'global._payload.find({});',
+      "globalThis['_payload'].get('default').find({});",
     ];
     for (const code of reaches) expect(await errors(`${code}\n`, outside), code).toContain(ACCESS);
     for (const code of [
@@ -293,13 +295,5 @@ describe('dynamic keys and spreads outside packages/data', () => {
     ]) {
       expect(await errors(`${code}\n`, outside), code).toContain(MODULES);
     }
-  });
-
-  it('is checked with the same config for the system-job files', async () => {
-    const listed = eslintWith(payloadBanConfigs({ overrideAccessAllowed: [outside] }));
-    expect(await errorsWith(listed, 'f({ overrideAccess: true });\n', outside)).toEqual([]);
-    expect(
-      await errorsWith(listed, 'f({ overrideAccess: true });\n', 'services/ai/src/x.ts'),
-    ).toEqual([OVERRIDE]);
   });
 });

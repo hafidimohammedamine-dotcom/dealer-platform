@@ -69,16 +69,21 @@ Notes:
     `Reflect` is banned. A computed read whose key is not a fixed string (`obj[key]`, or `const p = req[k]`) is flagged in
     any use. Plain writes (`obj[k] = 1`) and `delete obj[k]` are not. `Object.values`, `entries`, `assign`,
     `getOwnPropertyDescriptor(s)` and `getOwnPropertyNames` are banned, and so is any use of `Object` other than
-    `Object.<fixed name>`.
+    `Object.<fixed name>`. `JSON.stringify` and `JSON.parse` take no replacer or reviver function (only `null` or an
+    array of fixed strings): a function there is handed every value, the Payload instance included. `_payload` is a
+    banned name, and so is any `_`-prefixed member of `global` or `globalThis` (Payload's `getPayload` keeps its cache on
+    `global._payload`). A call to a Local API method name (`find`, `create`, ...) whose first argument has a `collection` or
+    `global` key is flagged too.
     A webhook body with a field of that name (Telnyx sends `data.payload`) needs a reviewed entry in
     `payloadNameAllowedPaths`.
   - `local/no-restricted-modules`, outside `packages/data`: only type imports from `payload`. No database client at all
     (`pg` and `pg-*`, `postgres`, `kysely`, `knex`, `drizzle-orm`, `drizzle-kit`, Prisma, Neon, `@vercel/postgres`,
     `node:sqlite`, every `@payloadcms/db-*` adapter and more). The reviewed exception list is empty, so no file outside
-    `packages/data` may import one yet. A separate rule stops code outside `services/desking/` from importing
+    `packages/data` may import one yet. The `deskingDb` message of the same rule stops code outside `services/desking/` from importing
     `services/desking/src/db/`. `import()` and `require()` take fixed names only.
   - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`, except in a system job
-    listed in `packages/data/override-allowlist.txt`. That file is created by founder PR #43, is founder-only and is
+    listed in `packages/data/override-allowlist.txt`. A listed file may also skip the `user`/`req` requirement, but every
+    other check stays on for it (`depth`, `versions`, `showHiddenFields`, spreads, computed keys, `.db`). That file is created by founder PR #43, is founder-only and is
     empty, so no file may use `true` yet. It is not in the branch that adds this page; it reaches `main` only when
     PR #43 merges. The rule reads it as exact repo-relative paths, one per line. `#` comment lines and blank lines are
     skipped. No globs, no trailing comments, no `..` and no leading `/`. A missing file counts as an empty list. A
@@ -122,7 +127,8 @@ Notes:
   `apps/*`, `services/*`, `packages/*` and `infra/*`.
 - Runs dependencies first. Each of these targets depends on `^build`, so Nx builds the workspaces a project depends on
   before it type checks or tests that project.
-- Caches results. If the inputs did not change, Nx replays the saved result.
+- Caches results. If the inputs did not change, Nx replays the saved result. The `infra/checks` tests are never cached:
+  they read files that are not Nx inputs.
   The inputs include the workspace's own files and these root files: `tsconfig.base.json`, `eslint.config.mjs`,
   `eslint.payload-ban.mjs` and `eslint-rules/` (the Payload ban rules that `eslint.config.mjs` imports), `vitest.config.ts`,
   `package.json`, `yarn.lock`, `.yarnrc.yml` and `.env.example`. Changing any of them invalidates the cache for every

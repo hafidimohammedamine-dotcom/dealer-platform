@@ -195,7 +195,7 @@
   of the same head, the agents' own status, a pending one and another context all count for nothing); the main-push
   tests carry a token sentinel and `assert_no_token`.
 - **Round 20:** a non-founder push is undone with one commit carrying the previous tip's tree (`git read-tree --reset -u
-<before>`, tree equality checked before the push and the mark), never per-commit reverts: a pushed merge whose first
+  <before>`, tree equality checked before the push and the mark), never per-commit reverts: a pushed merge whose first
   parent was an older `main` commit made `git revert -m 1` roll `main` back to that older tree and mark the head; script and
   inline fallback; a push that creates `main` or whose previous tip cannot be fetched is left to the founders, unmarked.
 - **Round 21:** the fallback step runs whenever the guard step was skipped (pins mismatch or a failed checkout), uses the

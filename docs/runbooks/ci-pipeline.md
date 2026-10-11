@@ -4,7 +4,7 @@ The pipeline is `.github/workflows/ci.yml`. It runs on pull requests into `main`
 It has one job, `checks`, on Ubuntu, with a 30-minute timeout and read-only repo permissions (`contents: read`).
 
 Two other workflows also check every pull request. `guards.yml` runs from `main`, checks founder-only files and scans
-the pull request's commits for secrets. The review workflow reads the result. See [Guards and review](ci-guards.md).
+the pull request's commits for secrets. The review workflow reads the result. See [Guards, review job and CI guard tests](ci-guards.md).
 
 The workflow is founder-owned (`.github/` is in the founders-only list in `CLAUDE.md`). To change a step, comment on the
 issue with `REQUEST: .github/workflows/ci.yml - <change> - <why>`.
@@ -19,7 +19,7 @@ repo has no `package.json`.
 | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
 | 1   | Checkout                                     | `actions/checkout`, full history (`fetch-depth: 0`), no persisted token                                                                                                  | Always              |
 | 2   | Install gitleaks                             | `./.github/actions/install-gitleaks`: gitleaks 8.18.4 from its GitHub release, sha256 checked, no Docker                                                                 | Always              |
-| 3   | Secret scan                                  | `gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose` on the full history                                                                              | Push to `main` only |
+| 3   | Secret scan of all history (pushes to main)  | `gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose` on the full history                                                                              | Push to `main` only |
 | 4   | Pinned Python packages for the guard scripts | `bash scripts/check-python-deps.sh`: hash-checked packages in a private venv; its `bin` folder is added to `PATH`                                                        | Always              |
 | 5   | Guard script tests and coverage              | `bash scripts/check-workflows.sh`, then `bash scripts/check-coverage.sh 90`: runs every `scripts/*.test.sh`, then requires every guard script to reach 90% line coverage | Always              |
 | 6   | Set up Node                                  | `actions/setup-node`, Node 20                                                                                                                                            | If `package.json`   |
@@ -95,7 +95,7 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
   Run the failing test locally, for example `bash scripts/check-skills.test.sh`, and read the failing case.
 - For the secret config test, set `GITLEAKS` to your local binary: `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh`.
 - The `scripts/check-*` files and `.gitleaks.toml` are founder-owned. Do not change them to make a test pass. Follow
-  [Guards and review](ci-guards.md) and send a `REQUEST:`.
+  [Guards, review job and CI guard tests](ci-guards.md) and send a `REQUEST:`.
 
 ### Secret scan fails (push to `main`)
 
@@ -104,7 +104,7 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
   Then follow [Key leak or loss](key-leak-or-loss.md) for our own keys.
 - Removing the key from a later commit does not stop the leak. The old commit still holds it.
 - Do not add an ignore rule yourself. Ask a founder with `REQUEST:`.
-- A secret in a pull request is caught earlier, by the `guards` job. See [Guards and review](ci-guards.md).
+- A secret in a pull request is caught earlier, by the `guards` job. See [Guards, review job and CI guard tests](ci-guards.md).
 
 ### Lint fails
 
@@ -112,7 +112,9 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
   - `local/no-payload-instance-access`: outside `packages/data`, nothing may be named `payload`, `getPayload…`,
     `Payload` or `BasePayload` (only `payload.logger` is allowed), and no `Reflect`. A computed read whose key is not a fixed string is flagged, even
     when saved to a variable. `Object.values`, `entries`, `assign`, the property-descriptor helpers, and any `Object` use
-    other than `Object.<fixed name>` are banned.
+    other than `Object.<fixed name>` are banned. `JSON.stringify`/`JSON.parse` with a replacer or reviver function,
+    `_payload`, any `_`-prefixed member of `global`/`globalThis`, and a Local API method call with a `collection` or
+    `global` option are banned too.
     If the name is unrelated (a webhook body), rename the value, or ask security to add the file to
     `payloadNameAllowedPaths`.
   - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients are banned

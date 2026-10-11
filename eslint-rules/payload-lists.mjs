@@ -84,7 +84,7 @@ export const localApiMethods = [
 // ---------------------------------------------------------------------------------------------
 
 /** Every name the Payload instance, its factory or its type goes by. */
-export const instanceName = /^(?:payload|getPayload\w*|Payload|BasePayload)$/;
+export const instanceName = /^(?:_?payload|getPayload\w*|Payload|BasePayload)$/;
 /** The one name that may be read for an allowed member (`payload.logger`). */
 export const memberOwnerName = /^payload$/;
 /** Members that hand out an object's values without naming them. Banned in packages/data. */
@@ -100,6 +100,14 @@ export const objectBannedMembers = [...reflectiveMembers, 'getOwnPropertyNames',
 export const objectName = /^Object$/;
 /** The raw database adapter member of the Payload instance (`payload.db`). */
 export const rawDbMember = 'db';
+/** The global `JSON`. `stringify`/`parse` with a replacer or reviver function could be handed the Payload instance. */
+export const jsonName = /^JSON$/;
+/** The `JSON` members that take a replacer or reviver. */
+export const jsonMembers = ['stringify', 'parse'];
+/** The global object. Its `_`-prefixed members hold caches such as Payload's `global._payload`. */
+export const globalObjectName = /^(?:global|globalThis)$/;
+/** Option keys that only a Payload Local API call has (`find({ collection })`, `findGlobal({ slug })`). */
+export const localApiTargetKeys = ['collection', 'global'];
 /** Reflection reaches any property by a computed name. */
 export const reflectionName = /^Reflect$/;
 /** The `payload` package and its subpaths. */

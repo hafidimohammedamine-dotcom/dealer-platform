@@ -12,7 +12,7 @@ import { memberName, outermostWrapper, propertyName, staticString, unwrap } from
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
  * @typedef {import('@typescript-eslint/utils').TSESTree.CallExpression} CallExpression
- * @typedef {{ requireOptions?: boolean, allowDb?: boolean }} OverrideOptions
+ * @typedef {{ requireOptions?: boolean, allowDb?: boolean, allowOverrideTrue?: boolean }} OverrideOptions
  * @typedef {'notFalse' | 'notLiteral' | 'spread' | 'computedKey' | 'missing' | 'missingOneOf' | 'showHidden' | 'notCalled' | 'dynamicKey' | 'reflection' | 'rawDb'} OverrideMessage
  */
 
@@ -30,6 +30,8 @@ import { memberName, outermostWrapper, propertyName, staticString, unwrap } from
 // or `x.find.call(x, {...})`). So no destructured `find`, no `[x.find][0](...)`, no `.apply`/`.bind`,
 // no dynamic or numeric key, no `Reflect`, no `.values()`/`.entries()`/property descriptors, and no
 // `.db` (the raw adapter) unless `allowDb` is set (the one file in payloadDbAllowedPaths).
+// `allowOverrideTrue` (the system-job files in the founder-only allow-list) skips only the `notFalse` report and
+// the `missingOneOf` report (a system job has no user). Every other check stays on for those files.
 // ---------------------------------------------------------------------------------------------
 
 /**
@@ -109,8 +111,9 @@ function isEmptyValue(value) {
  * @param {import('@typescript-eslint/utils').TSESLint.RuleContext<OverrideMessage, [OverrideOptions?]>} context
  * @param {CallExpression} call
  * @param {Node | null} options
+ * @param {boolean} allowOverrideTrue a system job: no user is needed
  */
-function checkLocalApiOptions(context, call, options) {
+function checkLocalApiOptions(context, call, options, allowOverrideTrue) {
   if (options?.type !== 'ObjectExpression') {
     context.report({ node: options ?? call, messageId: 'notLiteral' });
     return;
@@ -136,7 +139,7 @@ function checkLocalApiOptions(context, call, options) {
   for (const name of requiredLocalApiOptions) {
     if (!keys.has(name)) context.report({ node: options, messageId: 'missing', data: { name } });
   }
-  if (!requiredOneOfLocalApiOptions.some((name) => keys.has(name))) {
+  if (!allowOverrideTrue && !requiredOneOfLocalApiOptions.some((name) => keys.has(name))) {
     context.report({ node: options, messageId: 'missingOneOf' });
   }
 }
@@ -162,7 +165,11 @@ export const noOverrideAccess = {
     schema: [
       {
         type: 'object',
-        properties: { requireOptions: { type: 'boolean' }, allowDb: { type: 'boolean' } },
+        properties: {
+          requireOptions: { type: 'boolean' },
+          allowDb: { type: 'boolean' },
+          allowOverrideTrue: { type: 'boolean' },
+        },
         additionalProperties: false,
       },
     ],
@@ -194,6 +201,7 @@ export const noOverrideAccess = {
   create(context) {
     const requireOptions = context.options[0]?.requireOptions === true;
     const allowDb = context.options[0]?.allowDb === true;
+    const allowOverrideTrue = context.options[0]?.allowOverrideTrue === true;
     /**
      * @param {Node} node
      * @param {OverrideMessage | undefined} messageId
@@ -205,7 +213,9 @@ export const noOverrideAccess = {
       Property(node) {
         if (node.parent.type !== 'ObjectPattern') {
           const isFalse = node.value.type === 'Literal' && node.value.value === false;
-          if (propertyName(node) === 'overrideAccess' && !isFalse) report(node, 'notFalse');
+          if (propertyName(node) === 'overrideAccess' && !isFalse && !allowOverrideTrue) {
+            report(node, 'notFalse');
+          }
           return;
         }
         if (!requireOptions) return;
@@ -227,7 +237,7 @@ export const noOverrideAccess = {
       CallExpression(node) {
         if (!requireOptions) return;
         const options = localApiOptionsArgument(node);
-        if (options !== undefined) checkLocalApiOptions(context, node, options);
+        if (options !== undefined) checkLocalApiOptions(context, node, options, allowOverrideTrue);
       },
     };
   },

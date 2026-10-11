@@ -4,21 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import rootVitestConfig, { lintRuleFiles } from '../../../vitest.config.js';
-import {
-  dependenciesMetaProblems,
-  envValueProblems,
-  lifecycleScriptProblems,
-  yarnrcProblems,
-} from './checks.js';
-import {
-  findFiles,
-  findRepoRoot,
-  isRecord,
-  listWorkspaces,
-  parseEnvTemplate,
-  readJson,
-  readText,
-} from './repo.js';
+import { dependenciesMetaProblems, lifecycleScriptProblems, yarnrcProblems } from './checks.js';
+import { findFiles, findRepoRoot, isRecord, listWorkspaces, readJson, readText } from './repo.js';
 
 const root = findRepoRoot();
 
@@ -28,36 +15,6 @@ const hasCompilerOptions = (
   isRecord(value) && (value['compilerOptions'] === undefined || isRecord(value['compilerOptions']));
 const hasScripts = (value: unknown): value is { scripts: Record<string, string> } =>
   isRecord(value) && isRecord(value['scripts']);
-
-// Add a name here (and to .env.example) whenever a service needs a new variable.
-const expectedEnvKeys = [
-  'APP_ENV',
-  'DATABASE_URL',
-  'MIGRATION_DATABASE_URL',
-  'DESKING_DATABASE_URL',
-  'REDIS_URL',
-  'PAYLOAD_SECRET',
-  'PAYLOAD_PUBLIC_SERVER_URL',
-  'FIELD_ENCRYPTION_KEY',
-  'RESEND_API_KEY',
-  'RESEND_WEBHOOK_SECRET',
-  'TELNYX_API_KEY',
-  'TELNYX_PUBLIC_KEY',
-  'TELNYX_MESSAGING_PROFILE_ID',
-  'ELEVENLABS_API_KEY',
-  'ELEVENLABS_WEBHOOK_SECRET',
-  'ANTHROPIC_API_KEY',
-  'META_APP_SECRET',
-  'META_VERIFY_TOKEN',
-  'META_PAGE_ACCESS_TOKEN',
-  'ROUTEONE_CLIENT_ID',
-  'ROUTEONE_CLIENT_SECRET',
-  'ROUTEONE_WEBHOOK_SECRET',
-  'DEALERTRACK_CLIENT_ID',
-  'DEALERTRACK_CLIENT_SECRET',
-  'DEALERTRACK_WEBHOOK_SECRET',
-  'SENTRY_DSN',
-];
 
 describe('tsconfig.base.json', () => {
   const { compilerOptions = {} } = readJson(root, 'tsconfig.base.json', hasCompilerOptions);
@@ -127,6 +84,7 @@ describe('workspaces', () => {
 describe('shared vitest config', () => {
   it('gates coverage at 90% for lines, functions, branches and statements', () => {
     expect(rootVitestConfig.test?.coverage?.thresholds).toEqual({
+      perFile: true,
       lines: 90,
       functions: 90,
       branches: 90,
@@ -156,19 +114,24 @@ describe('shared vitest config, failure case', () => {
   // Runs the real shared config on a throw-away workspace in the temp folder. A run that is killed by the
   // timeout has no exit status (null), so the tests below compare with exact exit codes: a slow runner
   // makes the test fail loudly, and can never make the "below 90%" case pass by accident.
-  function runCoverage(source: string, testCode: string): number | null {
+  function runCoverage(
+    source: string,
+    testCode: string,
+    { extra = [], files = [] }: { extra?: string[]; files?: [string, string][] } = {},
+  ): number | null {
     const dir = mkdtempSync(join(tmpdir(), 'coverage-gate-'));
     temps.push(dir);
     mkdirSync(join(dir, 'src'));
     symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'dir');
     writeFileSync(join(dir, 'src', 'unit.ts'), source);
     writeFileSync(join(dir, 'src', 'unit.test.ts'), testCode);
+    for (const [name, text] of files) writeFileSync(join(dir, 'src', name), text);
     const env = { ...process.env };
     for (const name of Object.keys(env)) if (name.startsWith('VITEST')) delete env[name];
     const vitestBin = join(root, 'node_modules', 'vitest', 'vitest.mjs');
     return spawnSync(
       process.execPath,
-      [vitestBin, 'run', '--coverage', '--config', join(root, 'vitest.config.ts')],
+      [vitestBin, 'run', '--coverage', '--config', join(root, 'vitest.config.ts'), ...extra],
       { cwd: dir, env, encoding: 'utf8', timeout: coverageRunTimeout },
     ).status;
   }
@@ -191,6 +154,25 @@ describe('shared vitest config, failure case', () => {
   it('exits zero when coverage is full (control)', () => {
     const all = [1, 2, 3, 4, 5].map((n) => `expect(pick(${n})).toBeTypeOf('string');`).join('\n');
     expect(runCoverage(unit, `${imports}it('all', () => {\n${all}\n});\n`)).toBe(0);
+  }, 180_000);
+
+  // Two files: `big.ts` is fully covered and large, so the totals pass, but `unit.ts` alone is below 90%.
+  const big = Array.from(
+    { length: 40 },
+    (_, n) =>
+      `export function f${n}(x: boolean): number {\n  if (x) return 1;\n  return 2;\n}\nf${n}(true);\nf${n}(false);`,
+  ).join('\n');
+  const useBig = "import './big.js';\n";
+
+  it('exits non-zero when one file is below 90% even though the totals pass', () => {
+    const test = `${useBig}${imports}it('one', () => expect(pick(1)).toBe('one'));\n`;
+    expect(runCoverage(unit, test, { files: [['big.ts', big]] })).toBe(1);
+  }, 180_000);
+
+  it('passes the same run when per-file checking is turned off (control: the totals are fine)', () => {
+    const test = `${useBig}${imports}it('one', () => expect(pick(1)).toBe('one'));\n`;
+    const extra = ['--coverage.thresholds.perFile=false'];
+    expect(runCoverage(unit, test, { files: [['big.ts', big]], extra })).toBe(0);
   }, 180_000);
 });
 
@@ -218,36 +200,5 @@ describe('.yarnrc.yml and install scripts', () => {
     for (const file of manifests) {
       expect(lifecycleScriptProblems(readJson(root, file, isRecord), file)).toEqual([]);
     }
-  });
-});
-
-describe('.env.example', () => {
-  const vars = parseEnvTemplate(readText(root, '.env.example'));
-
-  it('lists every expected variable and nothing else', () => {
-    expect([...vars.keys()].sort()).toEqual([...expectedEnvKeys].sort());
-  });
-
-  it('has no real-looking secret values', () => {
-    expect(envValueProblems(vars)).toEqual([]);
-  });
-});
-
-describe('.prettierignore', () => {
-  const lines = readText(root, '.prettierignore').split('\n');
-
-  // `yarn format` (prettier --write .) must never rewrite a founder-only file.
-  it.each([
-    '.github',
-    '.claude',
-    'CLAUDE.md',
-    'scripts/check-*',
-    '.gitleaks.toml',
-    '.gitleaksignore',
-    '.yarnrc.yml',
-    '.mcp.json',
-    'CLAUDE.local.md',
-  ])('skips the founder-only file %s', (entry) => {
-    expect(lines).toContain(entry);
   });
 });

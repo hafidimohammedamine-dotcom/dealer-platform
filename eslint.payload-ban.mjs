@@ -142,7 +142,13 @@ export function payloadBanConfigs({
     });
   }
   if (overrideAccessAllowed.length > 0) {
-    configs.push({ files: overrideAccessAllowed, rules: { 'local/no-override-access': 'off' } });
+    // A system job may pass `overrideAccess: true` (and has no user). Every other check stays on for it, `.db` too.
+    configs.push({
+      files: overrideAccessAllowed,
+      rules: {
+        'local/no-override-access': ['error', { requireOptions: true, allowOverrideTrue: true }],
+      },
+    });
   }
   return configs;
 }

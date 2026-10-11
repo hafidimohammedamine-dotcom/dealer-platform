@@ -9,7 +9,7 @@ import {
   payloadBanConfigs,
   readOverrideAllowlist,
 } from '../../../eslint.payload-ban.mjs';
-import { OVERRIDE, errorsWith, eslintWith, outside, root } from './test-helpers/lint.js';
+import { OVERRIDE, errorsWith, eslintWith, inside, outside, root } from './test-helpers/lint.js';
 
 const temps: string[] = [];
 afterEach(() => {
@@ -178,5 +178,68 @@ describe('local/no-override-access follows the allow-list file', () => {
   it('cannot build a config from a list with a glob', () => {
     const { file } = fakeRepo('services/**/*.ts\n', []);
     expect(() => payloadBanConfigs({ allowlist: { root, file } })).toThrow('no globs');
+  });
+});
+
+describe('a system-job file may use overrideAccess: true, and nothing else is relaxed', () => {
+  const job = 'packages/data/src/system-job.ts';
+  const listed = eslintWith(payloadBanConfigs({ overrideAccessAllowed: [job] }));
+  const messages = async (code: string, file = job): Promise<string[]> => {
+    const [result] = await listed.lintText(code, { filePath: join(root, file) });
+    return (result?.messages ?? [])
+      .filter((message) => message.ruleId === OVERRIDE)
+      .map((message) => message.messageId ?? '');
+  };
+  const call = (options: string): string => `payload.find({ ${options} });\n`;
+
+  it('turns the rule on in strict mode for the listed file, with only the two skips', () => {
+    const configs = payloadBanConfigs({ overrideAccessAllowed: [job] });
+    const block = configs.find((config) => config.files?.includes(job));
+    expect(block?.rules).toEqual({
+      [OVERRIDE]: ['error', { requireOptions: true, allowOverrideTrue: true }],
+    });
+  });
+
+  it('allows overrideAccess: true, with no user, when depth and versions are spelled out', async () => {
+    expect(await messages(call('overrideAccess: true, depth: 0, versions: false'))).toEqual([]);
+  });
+
+  it('still fails a call without depth or versions', async () => {
+    expect(await messages(call('overrideAccess: true, versions: false'))).toEqual(['missing']);
+    expect(await messages(call('overrideAccess: true, depth: 0'))).toEqual(['missing']);
+    expect(await messages('payload.find({});\n')).toEqual(['missing', 'missing', 'missing']);
+  });
+
+  it('still fails showHiddenFields: true', async () => {
+    const options = 'overrideAccess: true, depth: 0, versions: false, showHiddenFields: true';
+    expect(await messages(call(options))).toEqual(['showHidden']);
+  });
+
+  it('still fails .db, spreads, computed keys, options that are not a literal and bare method reads', async () => {
+    expect(await messages('payload.db.drizzle.execute(sql);\n')).toEqual(['rawDb']);
+    expect(
+      await messages(call('...opts, overrideAccess: true, depth: 0, versions: false')),
+    ).toEqual(['spread']);
+    expect(
+      await messages(call('[k]: true, overrideAccess: true, depth: 0, versions: false')),
+    ).toEqual(['computedKey']);
+    expect(await messages('payload.find(opts);\n')).toEqual(['notLiteral']);
+    expect(await messages('const { find } = payload; void find;\n')).toEqual(['notCalled']);
+  });
+
+  it('does not relax any other file, in or out of packages/data', async () => {
+    const code = call('overrideAccess: true, depth: 0, versions: false');
+    expect(await messages(code, inside)).toEqual(['missingOneOf', 'notFalse']);
+    expect(await messages('f({ overrideAccess: true });\n', outside)).toEqual(['notFalse']);
+  });
+
+  it('the rule schema accepts only a boolean for the option', async () => {
+    const bad = eslintWith([
+      {
+        files: [job],
+        rules: { [OVERRIDE]: ['error', { allowOverrideTrue: 'yes' }] },
+      },
+    ]);
+    await expect(bad.lintText('x;\n', { filePath: join(root, job) })).rejects.toThrow();
   });
 });
