@@ -96,31 +96,31 @@ HANDOFF="$(cd "$(dirname "$0")" && pwd)/check-claude-answer.sh"
 e2e() { # e2e <exec.json>: hand off, then post what was handed (A = the handed text)
   A=$(handoff_text "$(bash "$HANDOFF" answer "$1")"); rm -f "$W/gh.log" "$W/posted.md"
   ANSWER="$A" GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?; }
-python3 -c 'print("REVIEW TEAM RESULT: FAIL\n"+"x"*59972+"LEAKME"+"y"*30000, end="")' | mk "$W/e2e.json"
+python3 -c 'print("REVIEW TEAM RESULT: FAIL\n"+"x"*59972+"LEAKME"+"y"*30000, end="")' | mk_exec "$W/e2e.json"
 e2e "$W/e2e.json"
 [ $rc = 0 ] && [ "${#A}" = 90003 ] && ! grep -q "LEAK\|xxxxxxxxxx" "$W/posted.md" && grep -q "looks like a secret" "$W/posted.md" && grep -q "add-label changes-requested" "$W/gh.log" \
   && t PASS "end to end: the hand-off passes 90003 characters whole and the post script catches the secret straddling 60000" || t FAIL "end to end (rc=$rc, handed ${#A} characters)"
 # 70000 four-byte characters (280000 bytes) in blank-separated runs: the hand-off keeps under 120000 bytes, which is under
 # 60000 characters, so this script's own cut never runs; the hand-off's (truncated) line tells the reader the end is missing.
-python3 -c 'print("REVIEW TEAM RESULT: PASS\n"+("\U0001F600"*100+" ")*700, end="")' | mk "$W/wide.json"
+python3 -c 'print("REVIEW TEAM RESULT: PASS\n"+("\U0001F600"*100+" ")*700, end="")' | mk_exec "$W/wide.json"
 e2e "$W/wide.json"
 [ $rc = 0 ] && [ "$(chars "$W/posted.md")" -lt 60000 ] && [ "$(chars "$W/posted.md")" -gt 29000 ] && [ "$(tail -n1 "$W/posted.md")" = "(truncated)" ] && grep -q "add-label ready-to-merge" "$W/gh.log" \
   && t PASS "end to end: 70000 four-byte characters are posted under 60000 characters with the hand-off's (truncated) line" || t FAIL "end to end wide (rc=$rc, $(chars "$W/posted.md") characters)"
 # A token straddling the hand-off's 120000-byte cap is dropped whole at the hand-off (the cut moves back to the line break),
 # so nothing of it reaches gitleaks or the comment; the comment is the 60000 cut with its marker.
-python3 -c 'print("REVIEW TEAM RESULT: FAIL\n"+"y"*119900+"\nTOKEN_AAAAAAAAAAAAAAAAAAAA"+"z"*100, end="")' | mk "$W/cap.json"
+python3 -c 'print("REVIEW TEAM RESULT: FAIL\n"+"y"*119900+"\nTOKEN_AAAAAAAAAAAAAAAAAAAA"+"z"*100, end="")' | mk_exec "$W/cap.json"
 e2e "$W/cap.json"
 [ $rc = 0 ] && ! grep -q "TOKEN" <<<"$A" && [ "$(chars "$W/posted.md")" = 60014 ] && grep -q "^yyyy" "$W/posted.md" && grep -q "add-label changes-requested" "$W/gh.log" \
   && t PASS "end to end: a token across the 120000-byte cap is never handed over, and the long text is posted cut at 60000" || t FAIL "end to end cap (rc=$rc, $(chars "$W/posted.md") characters)"
 # A key block across the 120000-byte cap after multibyte filler (under 60000 characters, so this script's own cut never
 # runs): the hand-off drops the block whole, so no BEGIN line reaches gitleaks or the comment.
-python3 -c 'print("REVIEW TEAM RESULT: PASS\n"+("\U0001F600"*100+" ")*280+"\n-----BEGIN TEST BLOCK-----\nBLOCKBODY"+"0"*60000+"\n-----END TEST BLOCK-----\n", end="")' | mk "$W/pem.json"
+python3 -c 'print("REVIEW TEAM RESULT: PASS\n"+("\U0001F600"*100+" ")*280+"\n-----BEGIN TEST BLOCK-----\nBLOCKBODY"+"0"*60000+"\n-----END TEST BLOCK-----\n", end="")' | mk_exec "$W/pem.json"
 e2e "$W/pem.json"
 [ $rc = 0 ] && ! grep -q "BEGIN\|BLOCKBODY" <<<"$A" && ! grep -q "BEGIN\|BLOCKBODY" "$W/posted.md" && [ "$(tail -n1 "$W/posted.md")" = "(truncated)" ] && grep -q "add-label ready-to-merge" "$W/gh.log" \
   && t PASS "end to end: a key block across the hand-off cap after multibyte filler is never handed over or posted" || t FAIL "end to end pem (rc=$rc)"
 # The cut landing inside the END line of a block (8 bytes in, on its first blank): the block is open at the cut, so the
 # hand-off drops it whole and nothing of it is posted.
-n=$((119987 - 8 - 25 - 1 - 27 - 10 - 1)); { echo "REVIEW TEAM RESULT: PASS"; rep "$n" y; echo; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; printf -- '-----END TEST BLOCK-----\n'; rep 5000 z; } | mk "$W/endline.json"
+n=$((119987 - 8 - 25 - 1 - 27 - 10 - 1)); { echo "REVIEW TEAM RESULT: PASS"; rep "$n" y; echo; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; printf -- '-----END TEST BLOCK-----\n'; rep 5000 z; } | mk_exec "$W/endline.json"
 e2e "$W/endline.json"
 [ $rc = 0 ] && ! grep -q "BEGIN\|BLOCKBODY" <<<"$A" && ! grep -q "BEGIN\|BLOCKBODY" "$W/posted.md" && grep -q "(truncated)" "$W/posted.md" && grep -q "add-label ready-to-merge" "$W/gh.log" \
   && t PASS "end to end: a block whose END line straddles the hand-off cap is never handed over or posted" || t FAIL "end to end END line (rc=$rc)"

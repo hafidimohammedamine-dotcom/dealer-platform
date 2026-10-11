@@ -11,7 +11,8 @@ are gone.
   bytes. Tests: long PASS and FAIL answers, a long single-line answer, a CR first line, a secret across the cut.
 - `check-claude-answer.sh` (the hand-off) no longer cuts at 60000: it hands over at most 120000 bytes of UTF-8 (the
   post job receives the answer as one environment variable; Linux rejects one over 128 KiB), and that handed text is
-  all the post job ever sees or scans. A longer answer is cut at the last line break or blank before the cap, and never
+  all the post job ever sees or scans. A longer answer is cut at the last line break, space or tab before the cap, and
+  never
   inside a `-----BEGIN ... -----END` block (blocks paired in order; the kept text stops before the first open BEGIN),
   so a token or a key block is never
   handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed over.

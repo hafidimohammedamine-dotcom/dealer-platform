@@ -144,7 +144,7 @@ Also `pull_request_target`, also from `main`.
   `scripts/check-claude-answer.sh`,
   which prints the blocked tool calls and hands the answer to the job `post` as a job output: text, at most 120000 bytes
   of UTF-8 (the post job gets it as one environment variable, which Linux caps at 128 KiB). A longer answer is cut at the
-  last line break or blank before the cap and never inside a `-----BEGIN ... -----END` block, so a token or a key block
+  last line break, space or tab before the cap and never inside a `-----BEGIN ... -----END` block, so a token or a key block
   is never handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed
   over instead; every cut ends with a `(truncated)` line. The handed text is all `post` ever sees.
   `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
@@ -164,7 +164,7 @@ Also `pull_request_target`, also from `main`.
 - **"Post the result (secret-scanned) and set labels"** (job `post`): if the answer looked like it contained a secret, it
   posts FAIL without the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
   If the hand-off withheld the answer (nothing before its 120000-byte cap was safe to keep: a huge run of text with no
-  line break or blank, or a BEGIN/END block from the first line), `ANSWER` is the notice `(answer withheld: ...)` with
+  line break, space or tab, or a BEGIN/END block from the first line), `ANSWER` is the notice `(answer withheld: ...)` with
   no `REVIEW TEAM RESULT:` first line, so `post` posts FAIL ("did not produce a valid result") and sets
   `changes-requested` whatever the review said: the review's own result is lost (no job log holds it; the review job
   does not print Claude's output). A founder re-runs the review (re-runs are skipped by design: push a commit, or

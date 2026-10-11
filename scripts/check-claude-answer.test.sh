@@ -25,67 +25,69 @@ jq -n '[{"type":"result","result":"no text here" | ascii_upcase}]' > /dev/null; 
 # handed <exec.json>: the answer text the post job would receive (the lines between the delimiters), in $H; bytes in $HB
 handed() { local out; out=$(bash "$SCRIPT" answer "$1"); rc=$?; H=$(handoff_text "$out"); HB=$(printf '%s' "$H" | wc -c); }
 utf8ok() { printf '%s' "$1" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null; }
-rep 250000 a | mk "$W/long.json"
-WITHHELD="(answer withheld: no line break or blank before the 120000-byte limit)"$'\n\n(truncated)'
+rep 250000 a | mk_exec "$W/long.json"
+WITHHELD="(answer withheld: nothing before the 120000-byte limit was safe to keep)"$'\n\n(truncated)'
 (set -o pipefail; handed "$W/long.json"; [ "$rc" = 0 ] && [ "$H" = "$WITHHELD" ]) \
   && t PASS "answer: 250000 characters with no line break or blank are withheld (notice plus marker), exit 0 (no SIGPIPE: a long review must still be posted)" || t FAIL "answer: cut"
-rep 90000 a | mk "$W/mid.json"; handed "$W/mid.json"
+rep 90000 a | mk_exec "$W/mid.json"; handed "$W/mid.json"
 [ "$HB" = 90000 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: 90000 characters pass whole, no marker (the 60000 comment cut is the post script's, scanned before posting)" || t FAIL "answer: 90000 ($HB)"
-{ rep 59999 x; echo; } | mk "$W/nl.json"; handed "$W/nl.json"; [ "$HB" = 59999 ] && t PASS "answer: a trailing newline is not kept" || t FAIL "answer: trailing newline ($HB)"
-python3 -c 'print("\U0001F600"*60000, end="")' | mk "$W/wide.json"   # 60000 four-byte characters = 240000 bytes
+{ rep 59999 x; echo; } | mk_exec "$W/nl.json"; handed "$W/nl.json"; [ "$HB" = 59999 ] && t PASS "answer: a trailing newline is not kept" || t FAIL "answer: trailing newline ($HB)"
+python3 -c 'print("\U0001F600"*60000, end="")' | mk_exec "$W/wide.json"   # 60000 four-byte characters = 240000 bytes
 handed "$W/wide.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: 240000 bytes of four-byte characters with no blank are withheld (never cut inside, never over 128 KiB)" || t FAIL "answer: wide ($HB)"
-{ rep 119985 a; printf ' ééééééééééé'; } | mk "$W/edge.json"; handed "$W/edge.json"   # 120008 bytes; a blank, then é on the cut byte
+{ rep 119985 a; printf ' ééééééééééé'; } | mk_exec "$W/edge.json"; handed "$W/edge.json"   # 120008 bytes; a blank, then é on the cut byte
 [ "$H" = "$(rep 119985 a)"$'\n\n(truncated)' ] && utf8ok "$H" && t PASS "answer: the cut at the last blank drops the multibyte run after it whole, never split" || t FAIL "answer: boundary ($HB)"
 # A token across the cap: the cut moves back to the last line break, so the token is dropped whole (never handed in part,
 # where a cut-off prefix would slip past an exact-length gitleaks rule in the post job).
-{ echo "REVIEW TEAM RESULT: FAIL"; rep 110000 y; echo; printf 'TOKEN_AAAAAAAAAAAAAAAAAAAA'; rep 20000 z; } | mk "$W/tok.json"
+{ echo "REVIEW TEAM RESULT: FAIL"; rep 110000 y; echo; printf 'TOKEN_AAAAAAAAAAAAAAAAAAAA'; rep 20000 z; } | mk_exec "$W/tok.json"
 handed "$W/tok.json"
 [ "$H" = "REVIEW TEAM RESULT: FAIL"$'\n'"$(rep 110000 y)"$'\n\n(truncated)' ] && t PASS "answer: the cut is at the last line break or blank before 120000 bytes; a token straddling the cap is dropped whole" || t FAIL "answer: line cut ($HB)"
-{ echo "REVIEW TEAM RESULT: PASS"; rep 118975 x; printf ' '; rep 5000 y; } | mk "$W/blank.json"; handed "$W/blank.json"
+{ echo "REVIEW TEAM RESULT: PASS"; rep 118975 x; printf ' '; rep 5000 y; } | mk_exec "$W/blank.json"; handed "$W/blank.json"
 [ "$H" = "REVIEW TEAM RESULT: PASS"$'\n'"$(rep 118975 x)"$'\n\n(truncated)' ] && t PASS "answer: a blank after the last line break is where the cut goes (the later of the two)" || t FAIL "answer: blank cut ($HB)"
-python3 -c 'print("\u00e9"*59980+"TOKEN_AAAAAAAAAAAAAAAAAAAA"+"\u00e9"*50, end="")' | mk "$W/toklim.json"   # a token right at byte 119960, no blank anywhere
+python3 -c 'print("\u00e9"*59980+"TOKEN_AAAAAAAAAAAAAAAAAAAA"+"\u00e9"*50, end="")' | mk_exec "$W/toklim.json"   # a token right at byte 119960, no blank anywhere
 handed "$W/toklim.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: a no-blank multibyte answer with a token at the limit hands over no body text and no TOKEN_ prefix" || t FAIL "answer: token at limit ($HB)"
 # A BEGIN/END block across the cap (a key or certificate in real life; a neutral name here so no scanner trips on this
 # file or on a review quoting it): the cut moves to before its BEGIN line, as a partial block passes the private-key rule.
 PEM=$'-----BEGIN TEST BLOCK-----\nBLOCKBODY0000000000000000000000000000000000000000000000000000\n'
-{ echo "REVIEW TEAM RESULT: FAIL"; rep 119000 y; echo; printf '%s' "$PEM"; rep 5000 z; echo; echo '-----END TEST BLOCK-----'; } | mk "$W/pem.json"
+{ echo "REVIEW TEAM RESULT: FAIL"; rep 119000 y; echo; printf '%s' "$PEM"; rep 5000 z; echo; echo '-----END TEST BLOCK-----'; } | mk_exec "$W/pem.json"
 handed "$W/pem.json"
 [ "$H" = "REVIEW TEAM RESULT: FAIL"$'\n'"$(rep 119000 y)"$'\n\n(truncated)' ] && t PASS "answer: a key block across the cap is dropped whole (the cut moves to before its BEGIN line)" || t FAIL "answer: pem ($HB)"
-{ printf '%s' "$PEM"; rep 130000 z; echo; echo '-----END TEST BLOCK-----'; } | mk "$W/pem0.json"; handed "$W/pem0.json"
+{ printf '%s' "$PEM"; rep 130000 z; echo; echo '-----END TEST BLOCK-----'; } | mk_exec "$W/pem0.json"; handed "$W/pem0.json"
 [ "$H" = "$WITHHELD" ] && t PASS "answer: a key block that starts on the first line and crosses the cap: withheld" || t FAIL "answer: pem first line ($HB)"
-{ echo "REVIEW TEAM RESULT: PASS"; printf '%s' "$PEM"; echo '-----END TEST BLOCK-----'; rep 119000 y; echo; rep 5000 z; } | mk "$W/pem1.json"; handed "$W/pem1.json"
+{ echo "REVIEW TEAM RESULT: PASS"; printf '%s' "$PEM"; echo '-----END TEST BLOCK-----'; rep 119000 y; echo; rep 5000 z; } | mk_exec "$W/pem1.json"; handed "$W/pem1.json"
 grep -q "^-----END TEST" <<<"$H" && grep -q "^yyyy" <<<"$H" && [ "$(tail -n1 <<<"$H")" = "(truncated)" ] && t PASS "answer: a closed key block before the cap is not a reason to move the cut" || t FAIL "answer: closed pem ($HB)"
-{ rep 130000 a; echo; echo '-----BEGIN TEST BLOCK-----'; echo '-----END TEST BLOCK-----'; } | mk "$W/pem2.json"; handed "$W/pem2.json"
+{ rep 130000 a; echo; echo '-----BEGIN TEST BLOCK-----'; echo '-----END TEST BLOCK-----'; } | mk_exec "$W/pem2.json"; handed "$W/pem2.json"
 [ "$H" = "$WITHHELD" ] && [ "$HB" -le 120000 ] && t PASS "answer: no blank before the cap, then a line break and a block: withheld (the block guard never widens the cut)" || t FAIL "answer: pem after cap ($HB)"
-{ rep 300000 a; echo; echo '-----BEGIN TEST BLOCK-----'; } | mk "$W/pem3.json"; handed "$W/pem3.json"
+{ rep 300000 a; echo; echo '-----BEGIN TEST BLOCK-----'; } | mk_exec "$W/pem3.json"; handed "$W/pem3.json"
 [ "$H" = "$WITHHELD" ] && [ "$HB" -le 120000 ] && t PASS "answer: the same with a BEGIN and no END: withheld, under the cap" || t FAIL "answer: begin no end ($HB)"
 # The cut landing on a blank inside the END line (8 and 13 bytes into "-----END TEST BLOCK-----"): the block is not closed
 # before the cut, so the cut moves to before its BEGIN line. keep = 120000 - 13 = 119987 bytes.
 for off in 8 13; do
   n=$((119987 - off - 25 - 1 - 27 - 10 - 1))   # header 25, newline, BEGIN line 27, BLOCKBODY line 10, newline, y filler
-  { echo "REVIEW TEAM RESULT: PASS"; rep "$n" y; echo; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; printf -- '-----END TEST BLOCK-----\n'; rep 5000 z; } | mk "$W/endline.json"
+  { echo "REVIEW TEAM RESULT: PASS"; rep "$n" y; echo; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; printf -- '-----END TEST BLOCK-----\n'; rep 5000 z; } | mk_exec "$W/endline.json"
   handed "$W/endline.json"
   [ "$H" = "REVIEW TEAM RESULT: PASS"$'\n'"$(rep "$n" y)"$'\n\n(truncated)' ] && t PASS "answer: the cut on the blank $off bytes into the END line: the block is open, the cut moves before BEGIN" || t FAIL "answer: END line blank $off ($HB)"
 done
-{ echo "REVIEW TEAM RESULT: PASS"; rep 119000 y; echo; echo '-----begin test block-----'; echo BLOCKBODY; rep 5000 z; echo; echo '-----end test block-----'; } | mk "$W/lower.json"; handed "$W/lower.json"
+{ echo "REVIEW TEAM RESULT: PASS"; rep 119000 y; echo; echo '-----begin test block-----'; echo BLOCKBODY; rep 5000 z; echo; echo '-----end test block-----'; } | mk_exec "$W/lower.json"; handed "$W/lower.json"
 [ "$H" = "REVIEW TEAM RESULT: PASS"$'\n'"$(rep 119000 y)"$'\n\n(truncated)' ] && t PASS "answer: lowercase BEGIN/END markers are a block too (the private-key rule ignores case)" || t FAIL "answer: lowercase ($HB)"
 # Blocks in order (each BEGIN closed by the next whole END line after it):
 H1="REVIEW TEAM RESULT: PASS"
-{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk "$W/twoopen.json"; handed "$W/twoopen.json"
+{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk_exec "$W/twoopen.json"; handed "$W/twoopen.json"
 [ "$H" = "$H1"$'\n\n(truncated)' ] && t PASS "answer: a BEGIN with no END, then a second BEGIN across the cap: the cut moves before the FIRST open block" || t FAIL "answer: two open ($HB)"
-{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----END TEST BLOCK-----'; rep 119000 b; echo; rep 5000 c; } | mk "$W/nested.json"; handed "$W/nested.json"
-[ "$H" = "$H1"$'\n-----BEGIN TEST BLOCK-----\nBLOCKBODY\n-----BEGIN TEST BLOCK-----\nBLOCKBODY\n-----END TEST BLOCK-----\n'"$(rep 119000 b)"$'\n\n(truncated)' ] && t PASS "answer: two BEGINs then one END before the cut: in order, the END closes the first block, nothing is open, the cut stays at the line break" || t FAIL "answer: nested ($HB)"
-{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----END TEST BLOCK-----'; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk "$W/closedopen.json"; handed "$W/closedopen.json"
+{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----END TEST BLOCK-----'; rep 119000 b; echo; rep 5000 c; } | mk_exec "$W/nested.json"; handed "$W/nested.json"
+[ "$H" = "$H1"$'\n\n(truncated)' ] && t PASS "answer: two BEGINs then one END: the END closes the nearest BEGIN, the first is left open, the cut moves before it" || t FAIL "answer: nested ($HB)"
+{ echo "$H1"; echo '-----BEGIN A-----'; echo '-----BEGIN KEY BLOCK-----'; echo BLOCKBODY; echo '-----END A-----'; rep 119000 b; echo; rep 5000 c; } | mk_exec "$W/stray.json"; handed "$W/stray.json"
+[ "$H" = "$H1"$'\n\n(truncated)' ] && t PASS "answer: BEGIN A, BEGIN KEY, body, a stray END A: the key block has no END of its own, nothing after the first BEGIN is handed over" || t FAIL "answer: stray END ($HB)"
+{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----END TEST BLOCK-----'; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk_exec "$W/closedopen.json"; handed "$W/closedopen.json"
 [ "$H" = "$H1"$'\n-----BEGIN TEST BLOCK-----\nBLOCKBODY\n-----END TEST BLOCK-----\n'"$(rep 1000 a)"$'\n\n(truncated)' ] && t PASS "answer: a closed block, then an open one across the cap: the closed block is kept, the cut moves before the open one" || t FAIL "answer: closed then open ($HB)"
-{ echo "$H1"; rep 119000 a; echo; printf 'prose then -----BEGIN TEST BLOCK----- on one line '; rep 5000 b; } | mk "$W/inline.json"; handed "$W/inline.json"
+{ echo "$H1"; rep 119000 a; echo; printf 'prose then -----BEGIN TEST BLOCK----- on one line '; rep 5000 b; } | mk_exec "$W/inline.json"; handed "$W/inline.json"
 [ "$H" = "$H1"$'\n'"$(rep 119000 a)"$'\n\n(truncated)' ] && t PASS "answer: prose and BEGIN on one line across the cap: that whole line is dropped, the cut is at the line break before it" || t FAIL "answer: inline BEGIN ($HB)"
 # The exact cap boundaries (LIMIT 120000, keep = LIMIT - 13 = 119987):
-{ rep 119999 a; echo; } | mk "$W/b0.json"; handed "$W/b0.json"; [ "$HB" = 119999 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: 119999 bytes plus a trailing newline (120000) pass whole, no marker" || t FAIL "answer: 120000 ($HB)"
-{ rep 60000 a; echo; rep 59999 b; } | mk "$W/b1.json"; handed "$W/b1.json"; [ "$HB" = 120000 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: exactly 120000 bytes pass whole, no marker" || t FAIL "answer: exactly 120000 ($HB)"
-{ rep 60000 a; echo; rep 60000 b; } | mk "$W/b2.json"; handed "$W/b2.json"; [ "$H" = "$(rep 60000 a)"$'\n\n(truncated)' ] && t PASS "answer: 120001 bytes are cut (at the line break)" || t FAIL "answer: 120001 ($HB)"
-{ rep 119987 a; echo; rep 100 b; } | mk "$W/b3.json"; handed "$W/b3.json"; [ "$HB" = 120000 ] && [ "$H" = "$(rep 119987 a)"$'\n\n(truncated)' ] && t PASS "answer: a line break at byte 119987 (= keep) is used: exactly 120000 bytes with the marker" || t FAIL "answer: keep boundary ($HB)"
-{ rep 119988 a; echo; rep 100 b; } | mk "$W/b4.json"; handed "$W/b4.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: a line break at byte 119988 (= keep + 1) is past the cap and not used: withheld" || t FAIL "answer: keep+1 boundary ($HB)"
-{ rep 100 a; echo; rep 119886 b; printf ' '; rep 100 c; } | mk "$W/b5.json"; handed "$W/b5.json"; [ "$H" = "$(rep 100 a)"$'\n'"$(rep 119886 b)"$'\n\n(truncated)' ] && t PASS "answer: a blank at byte 119987 is used (the later of line break and blank)" || t FAIL "answer: blank at keep ($HB)"
+{ rep 119999 a; echo; } | mk_exec "$W/b0.json"; handed "$W/b0.json"; [ "$HB" = 119999 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: 119999 bytes plus a trailing newline (120000) pass whole, no marker" || t FAIL "answer: 120000 ($HB)"
+{ rep 60000 a; echo; rep 59999 b; } | mk_exec "$W/b1.json"; handed "$W/b1.json"; [ "$HB" = 120000 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: exactly 120000 bytes pass whole, no marker" || t FAIL "answer: exactly 120000 ($HB)"
+{ rep 60000 a; echo; rep 60000 b; } | mk_exec "$W/b2.json"; handed "$W/b2.json"; [ "$H" = "$(rep 60000 a)"$'\n\n(truncated)' ] && t PASS "answer: 120001 bytes are cut (at the line break)" || t FAIL "answer: 120001 ($HB)"
+{ rep 119987 a; echo; rep 100 b; } | mk_exec "$W/b3.json"; handed "$W/b3.json"; [ "$HB" = 120000 ] && [ "$H" = "$(rep 119987 a)"$'\n\n(truncated)' ] && t PASS "answer: a line break at byte 119987 (= keep) is used: exactly 120000 bytes with the marker" || t FAIL "answer: keep boundary ($HB)"
+{ rep 119988 a; echo; rep 100 b; } | mk_exec "$W/b4.json"; handed "$W/b4.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: a line break at byte 119988 (= keep + 1) is past the cap and not used: withheld" || t FAIL "answer: keep+1 boundary ($HB)"
+{ rep 100 a; echo; rep 119886 b; printf ' '; rep 100 c; } | mk_exec "$W/b5.json"; handed "$W/b5.json"; [ "$H" = "$(rep 100 a)"$'\n'"$(rep 119886 b)"$'\n\n(truncated)' ] && t PASS "answer: a blank at byte 119987 is used (the later of line break and blank)" || t FAIL "answer: blank at keep ($HB)"
 printf '[{"type":"result","result":"ab\xffcd\\u0000ef"}]' > "$W/badutf.json"; handed "$W/badutf.json"
 [ "$rc" = 0 ] && [ "$H" = $'ab\xef\xbf\xbdcdef' ] && t PASS "answer: a byte that is not UTF-8 becomes U+FFFD, a NUL is removed, nothing else is dropped" || t FAIL "answer: bad utf-8 ($rc)"
 # More than 120000 bytes that are not UTF-8: cleaned to U+FFFD (3 bytes each) BEFORE the cap is measured, so the handed text
