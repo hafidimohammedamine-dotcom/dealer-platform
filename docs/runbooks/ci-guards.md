@@ -140,9 +140,15 @@ Also `pull_request_target`, also from `main`.
   it did, it posts `REVIEW TEAM RESULT: FAIL` saying there was no valid result. If no result comment appears and no label
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
 - The `review` job runs Claude with a read-only token; its last step runs the pinned `scripts/check-claude-answer.sh`,
-  which prints the blocked tool calls and hands the answer (text, at most 60000 bytes) to the job `post` as a job
-  output. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
-  answer from `ANSWER`, scans it, posts it and sets labels. The daily report and weekly audit do the same with
+  which prints the blocked tool calls and hands the answer to the job `post` as a job output: text, at most 120000 bytes
+  of UTF-8 (the post job gets it as one environment variable, which Linux caps at 128 KiB). A longer answer is cut at the
+  last line break or blank before the cap and never inside a `-----BEGIN ... -----END` block, so a token or a key block
+  is never handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed
+  over instead; every cut ends with a `(truncated)` line. The handed text is all `post` ever sees.
+  `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
+  answer from `ANSWER`, scans it for secrets (the whole handed text and the text about to be posted, in one gitleaks
+  run, before anything is posted), then posts it - a longer answer cut to 60000 characters with a `(truncated)` line -
+  and sets labels. The daily report and weekly audit do the same with
   `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
   (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
   naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread

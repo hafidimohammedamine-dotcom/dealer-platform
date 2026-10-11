@@ -9,6 +9,7 @@
 # Usage: ANSWER=<text> scripts/check-review-post.sh <pr|issue> <number>   or   check-review-post.sh daily-reports
 #        GH_BIN / GITLEAKS_BIN may point to stubs.
 set -euo pipefail
+export LC_ALL=C.UTF-8   # ${#text} and ${text:0:60000} count characters, never bytes (a byte cut could split a multibyte character)
 MODE="${1:?pr, issue or daily-reports}"
 case "$MODE" in
   pr|issue) PR="${2:?number}";;
@@ -27,7 +28,9 @@ if [ "$MODE" = daily-reports ]; then   # the founders' running thread; MODE beco
   [[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: could not find or create the Daily reports issue"; exit 1; }
   MODE=issue
 fi
-first=$(printf '%s\n' "$text" | head -n1 | tr -d '\r')
+# The first line, cut in bash: `printf | head -n1` dies of SIGPIPE on a long answer (pipefail + set -e then exit 1 before
+# anything is posted, which hid the review of PR #43 on 2026-10-11).
+first="${text%%$'\n'*}"; first="${first//$'\r'/}"
 if [ "$MODE" = issue ]; then
   [ -n "$text" ] || text="The agent job did not produce an answer. A founder should check the job log."
   first="REVIEW TEAM RESULT: PASS"   # format check only applies to PRs
@@ -37,17 +40,18 @@ case "$first" in
   *) text=$'REVIEW TEAM RESULT: FAIL\nThe review job did not produce a valid result (missing or wrong first line). A founder should re-run the review.'
      first="REVIEW TEAM RESULT: FAIL";;
 esac
-if [ "${#text}" -gt 60000 ]; then text="${text:0:60000}"$'\n\n(truncated)'; fi
-
-printf '%s\n' "$text" > "$T/body.md"
-mkdir -p "$T/scan" "$T/noignore"; cp "$T/body.md" "$T/scan/body.md"
+# Secret scan before anything is posted, on two files in one gitleaks run: the whole answer (a secret that straddles the
+# 60000-character cut is caught whole) and the exact text that would be posted (a cut-off start of a long token, or the
+# `(truncated)` marker next to it, could match a rule the whole token does not). The post body is written only on rc=0.
+post="$text"; if [ "${#post}" -gt 60000 ]; then post="${post:0:60000}"$'\n\n(truncated)'; fi
+mkdir -p "$T/scan" "$T/noignore"; printf '%s\n' "$text" > "$T/scan/full.md"; printf '%s\n' "$post" > "$T/scan/post.md"
 set +e
 "$GITLEAKS" detect --no-git --source="$T/scan" --config="$ROOT/.gitleaks.toml" --gitleaks-ignore-path="$T/noignore" \
   --ignore-gitleaks-allow --exit-code 3 --redact >/dev/null 2>&1
 rc=$?
 set -e
 case $rc in
-  0) ;;
+  0) cp "$T/scan/post.md" "$T/body.md";;
   3) printf '%s\n' "REVIEW TEAM RESULT: FAIL" "The agent's answer contained something that looks like a secret, so it was not posted. A founder should check the job." > "$T/body.md"
      first="REVIEW TEAM RESULT: FAIL";;
   *) echo "ERROR: gitleaks failed with exit code $rc"; exit 1;;

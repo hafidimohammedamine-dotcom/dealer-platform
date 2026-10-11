@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a80980858cf5edc1e137bb0d987abbbab509a715d80d05b9131b57030dfc7520"
+          PINS_SHA256: "f966ca6e33b83021778b3d95fcf1a3da538b0a2bbe0b609282936209e78cb54b"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -62,7 +62,7 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "a80980858cf5edc1e137bb0d987abbbab509a715d80d05b9131b57030dfc7520"
+          PINS_SHA256: "f966ca6e33b83021778b3d95fcf1a3da538b0a2bbe0b609282936209e78cb54b"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -87,7 +87,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a80980858cf5edc1e137bb0d987abbbab509a715d80d05b9131b57030dfc7520"
+          PINS_SHA256: "f966ca6e33b83021778b3d95fcf1a3da538b0a2bbe0b609282936209e78cb54b"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

@@ -11,6 +11,8 @@ assert_result() { # assert_result <ok|fail> <rc> <name> <message> <output>: the 
   local got; got=$([ "$2" = 0 ] && echo ok || echo fail)
   if [ "$got" = "$1" ] && grep -qF -- "$4" <<<"$5"; then t PASS "$3"; else t FAIL "$3 ($got, rc=$2)"; echo "$5" | tail -n 8; fi; }
 summary() { echo "$pass passed, $failed failed"; [ "$failed" = 0 ]; }
+handoff_text() { # handoff_text <output of check-claude-answer.sh answer>: the handed answer (the lines between the delimiters)
+  local d; d=$(sed -n '2s/^answer<<//p' <<<"$1"); printf '%s\n' "$1" | sed -n "3,/^$d\$/p" | sed '$d'; }
 # write_gh_stub <dir>: a fake `gh` at <dir>/gh for tests of the GitHub helpers (scripts/check-github-lib.sh), driven by
 # STUB_* variables: STUB_WHO/STUB_RC (`api user`), STUB_HEAD/STUB_HEAD_RC (main's head), STUB_REL/STUB_REL_RC (the compare
 # status), STUB_RUNS/STUB_RUNS_RC/STUB_RUNS_LATER with STUB_COUNT (the main-guard runs of a head; LATER after the first
