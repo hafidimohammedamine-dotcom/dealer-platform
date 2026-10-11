@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "3af1dc007bdf3726ea0fd86840edae3a037426b49ce5c718c1f160245492b062"
+          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

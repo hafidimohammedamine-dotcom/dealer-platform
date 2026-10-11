@@ -141,7 +141,8 @@ Also `pull_request_target`, also from `main`.
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
 - The `review` job runs only for a PR whose head is in this repository (a fork's PR gets no Claude run; the repo is
   public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned
-  `scripts/check-claude-answer.sh`, which prints the blocked tool calls and hands the answer to the job `post` as a job
+  `scripts/check-claude-answer.sh`, which prints the blocked tool calls (scanned first, see "After changing agent
+  permissions") and hands the answer to the job `post` as a job
   output: text, at most 120000 bytes of UTF-8 (the post job gets it as one environment variable, which Linux caps at 128
   KiB). A longer answer is cut at the last line break, space or tab before the cap and never inside a `-----BEGIN ...
   -----END` block, so a token or a key block is never handed over in part; when nothing before the cap is safe to keep,
@@ -326,7 +327,13 @@ update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs,
 the script's.
 
 ## After changing agent permissions (founder, manual)
-Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only, pinned script)" step. Once vendored
+Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only, pinned script)" step.
+The step scans the denied-call lines with the pinned gitleaks before printing them (the job log is public): on a hit it
+prints `BLOCKED <tool>: (withheld: looks like a secret)` per denial and no input; a scanner error (a missing, swapped or
+edited `/tmp/gitleaks`, or a gitleaks exit code other than 0 or 3) fails the step with nothing printed, and in the
+review, mention, daily-report and weekly-audit jobs the `post` job is then skipped (the manager posts its own shift log
+from inside the Claude step, so its log is already up). The step runs under `env -i` with a fixed `PATH` and
+`/usr/bin/sha256sum`, so nothing a Claude step put on `PATH`, in `$GITHUB_ENV`, `BASH_ENV` or `LD_PRELOAD` is used. Once vendored
 skills exist (the Payload skill, #22), a `Skill(payload)` deny must not stop builders from preloading `payload` with
 `payload-dealer-overrides`. If a builder reports it can't see the skill, **do not remove the deny**: open an `area:security`
 issue for the founders.

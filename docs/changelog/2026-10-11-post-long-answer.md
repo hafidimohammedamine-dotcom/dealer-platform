@@ -36,8 +36,14 @@ are gone.
 - `scripts/check-scan-lib.sh` (pinned): the one gitleaks call (`scan_answer <dir>`) both the hand-off and the post
   script use; `check-review-post.sh` stops if the runner lacks the C.UTF-8 locale (bash would count bytes).
 - The scan checks the scanner: `scan_answer` compares `/tmp/gitleaks` with the pinned binary sha256 (a swapped or
-  edited binary is an error, nothing is handed over or posted), and every hand-off and blocked-call step pins
-  `GITLEAKS_BIN`, `GITLEAKS_SHA256` and `BASH_ENV` in its own `env:`, which a Claude step's writes to `$GITHUB_ENV`
-  cannot override. A cut that would keep nothing (a line break at index 0) hands over the withheld notice, never an
+  edited binary is an error, nothing is handed over or posted), and every hand-off and blocked-call step runs the
+  script under `/usr/bin/env -i` with `PATH=/usr/bin:/bin`, `GITLEAKS_BIN=/tmp/gitleaks`, an empty `GITLEAKS_SHA256`
+  (the pinned constant in `check-scan-lib.sh` is the one copy of the hash), `BASH_ENV` and `LD_PRELOAD` empty, and
+  `/usr/bin/sha256sum` by absolute path, so nothing a Claude step put on `PATH` or in `$GITHUB_ENV` is used (the
+  manager runs Claude with full Bash). A cut that would keep nothing (a line break at index 0) hands over the withheld
+  notice, never an
   empty answer. `scripts/check-claude-answer-cut.test.sh` tests `cut()` directly; the post tests run one case with the
   real pinned gitleaks when it is installed.
+- `check-claude-answer.sh blocked` scans the denied-call lines before printing them: on a hit it prints
+  `BLOCKED <tool>: (withheld: looks like a secret)` per denial; a scanner error fails the step with nothing printed (the
+  post job is then skipped in the jobs that have one).

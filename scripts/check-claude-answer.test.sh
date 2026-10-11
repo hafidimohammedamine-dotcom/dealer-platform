@@ -119,6 +119,9 @@ out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result\|REVIEW TEAM" <<<"$out" && grep -q "has sha256" <<<"$out" && t PASS "answer: a scanner whose sha256 is not the pinned one is an error: nothing handed over, the mismatch in the log" || t FAIL "answer: wrong hash (rc=$rc)"
 out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000000000 bash "$SCRIPT" blocked "$W/exec.json" 2>&1); rc=$?
 [ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner with the wrong sha256 prints no denial line" || t FAIL "blocked: wrong hash (rc=$rc)"
+S2=$(mktemp -d "$W/fake.XXXXXX"); printf '#!/usr/bin/env bash\necho 0000000000000000000000000000000000000000000000000000000000000000  x\n' > "$S2/sha256sum"; chmod +x "$S2/sha256sum"
+out=$(PATH="$S2:$PATH" bash "$SCRIPT" answer "$W/exec.json"); H=$(handoff_text "$out")
+[ "$H" = $'REVIEW TEAM RESULT: PASS\nline two' ] && t PASS "answer: a fake sha256sum first on PATH is not used (the scan calls /usr/bin/sha256sum)" || t FAIL "answer: fake sha256sum on PATH: $H"
 out=$(GITLEAKS_BIN="$W/no-such-gitleaks" bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result\|REVIEW TEAM" <<<"$out" && grep -q "no gitleaks at" <<<"$out" && t PASS "answer: no scanner at all is an error: exit non-zero, nothing handed over, the cause in the log" || t FAIL "answer: no scanner (rc=$rc)"
 # The cutter's own edge cases (through the hand-off, with the stub scanner):

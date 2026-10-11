@@ -92,7 +92,9 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-scan-lib.sh` (sourced by the hand-off and by `check-review-post.sh`): `scan_answer <dir>`, the one
   gitleaks call over an agent's text with `.gitleaks.toml`; returns 0 (clean), 3 (looks like a secret: a fixed notice
   replaces the text) or another code (an error: the step fails and nothing is posted).
-- `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
+- `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step, run under `env -i` with a fixed
+  `PATH`): lists blocked tool calls (scanned first; on a hit only the tool names, on a scanner error nothing and the
+  step fails) and hands the
   answer to the post job as a job output: scanned with the pinned gitleaks before it leaves the job (a job output is
   shown in the post job's log header), cut by the pinned `scripts/check-claude-answer-cut.py` to at most 120000 bytes
   (one environment variable; the cut lands on a line break, space or tab and never inside a BEGIN/END block; with nothing

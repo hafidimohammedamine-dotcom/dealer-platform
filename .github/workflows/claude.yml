@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "3af1dc007bdf3726ea0fd86840edae3a037426b49ce5c718c1f160245492b062"
+          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -66,16 +66,16 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          GITLEAKS_BIN: /tmp/gitleaks   # pinned here: a step's own env wins over anything a Claude step wrote to $GITHUB_ENV
-          GITLEAKS_SHA256: "46a05260e7cce527f132cb618de59d22262b8b5eb47f66c288447b95c7a98b7e"
-          BASH_ENV: ""
-          PINS_SHA256: "3af1dc007bdf3726ea0fd86840edae3a037426b49ce5c718c1f160245492b062"
+          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
         run: |
           set -euo pipefail
-          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
-          sha256sum --check --strict --quiet .github/pins.txt
-          bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
-          bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"
+          # Everything after a Claude step runs with a clean environment and fixed paths: nothing Claude could have put on
+          # PATH, in $GITHUB_ENV, BASH_ENV or LD_PRELOAD is used, and the scanner is the pinned one by hash (the pinned
+          # scripts carry the hash). The step fails, with nothing printed, when the scanner or its hash is wrong.
+          echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
+          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" TMPDIR="${RUNNER_TEMP:-/tmp}" GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= BASH_ENV= LD_PRELOAD= /usr/bin/bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" TMPDIR="${RUNNER_TEMP:-/tmp}" GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= BASH_ENV= LD_PRELOAD= /usr/bin/bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"
   post:
     # The only job with a write scope; runs no Claude and reads only the answer (data) and main's post script.
     needs: answer
@@ -94,7 +94,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "3af1dc007bdf3726ea0fd86840edae3a037426b49ce5c718c1f160245492b062"
+          PINS_SHA256: "aaa234fc09a92d889a97c4c906c5d34aeaaf598441568f4f22a72d9dc29a6a30"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
