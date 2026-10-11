@@ -105,16 +105,16 @@ jobs:
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
         with:
           classify_inline_comments: "false"
-          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}
           path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
           path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
           github_token: ${{ github.token }}
-          prompt: "Diagnostic. Run exactly this Bash command once: echo BYPASS-OK; then reply with its output. If the tool call is denied, reply DENIED and quote the denial message."
+          prompt: "Diagnostic. Run these Bash commands one at a time, each as its own tool call, and report each result or the denial message verbatim: (1) echo BYPASS-OK  (2) gh pr list --limit 1 --json number  (3) git fetch origin --prune 2>&1 | tail -1; git branch -r | head -3  (4) gh issue list --label status:todo --json number --limit 2"
           claude_args: |
-            --model haiku
-            --max-turns 4
+            --model opus
+            --max-turns 12
             --permission-mode bypassPermissions
-            --disallowedTools "Skill(payload),Bash(curl:*),Bash(sudo:*),WebFetch,WebSearch"
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(gh workflow:*),Bash(gh run cancel:*),Bash(gh run delete:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: Denials and messages (diagnostic)
         if: always()
         env:
