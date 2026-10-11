@@ -166,6 +166,7 @@
    "egress-lock-claude.yml"
   ],
   "statuses": [
+   "guards.yml",
    "main-guard.yml",
    "pusher-ledger.yml"
   ]
@@ -244,6 +245,7 @@
   "skip_dirs": [".git", ".worktrees", "node_modules"]
  },
  "read_only_workflows": [
-  "agent-manager.yml"
+  "agent-manager.yml",
+  "guards.yml"
  ]
 }

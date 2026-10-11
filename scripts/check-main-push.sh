@@ -16,6 +16,8 @@
 # Usage: scripts/check-main-push.sh <pusher-id> <before-sha> <after-sha> <accounts-file>   (a push event)
 #        scripts/check-main-push.sh schedule - - <accounts-file>                           (the schedule: main's head)
 #        scripts/check-main-push.sh accept <actor-id> <sha> <accounts-file>                (workflow_dispatch by a founder)
+#        scripts/check-main-push.sh heartbeat <actor-id> - <accounts-file>                 (workflow_dispatch by a founder, no sha:
+#                                                                                           the hourly check by hand)
 #   Needs gh with GH_TOKEN (contents: write, actions: write, issues: write, statuses: write) and GH_REPO; git in the checkout
 #   of main with the pushed commits present (no working tree needed: the undo commit is built with commit-tree).
 #   MAIN_GUARD_WAIT (seconds to wait for a main-guard run still going; default 120) and MAIN_GUARD_WORKFLOWS: tests only,
@@ -65,6 +67,16 @@ if [ "$PUSHER" = accept ]; then
   mark_main_guard_passed "$SHA" "accepted by founder $ACTOR (main-guard run ${GITHUB_RUN_ID:-local})" || { echo "ERROR: could not post the $MAIN_GUARD_STATUS status on $SHA."; exit 1; }
   echo "Accepted: commit $SHA now carries the $MAIN_GUARD_STATUS status (founder ID $ACTOR). Re-enable the workflows when the review is done."
   exit 0
+fi
+# A founder runs the hourly check by hand (the heartbeat every Claude job needs; GitHub's cron is not reliable). Anyone with
+# write access can dispatch the workflow, so the dispatcher must be a founder: a run by anyone else fails here and never
+# counts as a heartbeat (main_guard_heartbeat counts only runs that completed with success).
+if [ "$PUSHER" = heartbeat ]; then
+  ACTOR="$BEFORE"
+  [[ "$ACTOR" =~ ^[0-9]+$ ]] || { echo "ERROR: the actor id must be numeric: '$ACTOR'"; exit 2; }
+  [ "$(account_field "$rows" "$ACTOR" 3)" = founder ] || { echo "::error::only a founder may run the hourly check by hand; user ID $ACTOR is not one."; exit 1; }
+  echo "Hourly check run by hand by founder $ACTOR."
+  PUSHER=schedule
 fi
 # The previous push's head (or, on the schedule, main's head) must have passed the main guard itself.
 chain_ok=1; chain_sha=""

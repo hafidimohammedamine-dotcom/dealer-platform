@@ -143,13 +143,13 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
   every job and the workflow level: only the scopes in `permission_scopes` (`actions`, `contents`, `issues`,
   `pull-requests`), plus those in `per_file_permission_scopes` for the files listed there (`id-token` only in
   `egress-lock-claude.yml`, for its `oidc` job; `statuses` only in `main-guard.yml` and `pusher-ledger.yml`, whose
-  pinned scripts post the `guards/main-guard` and ledger commit statuses as github-actions[bot] - no job the agents'
-  code runs in can post a status in that identity), each read, write or none. `id-token: write, so its 'if' must contain
+  pinned scripts post the `guards/main-guard` and ledger commit statuses as github-actions[bot], and read-only in
+  `guards.yml`, which reads the ledger back - no job the agents' code runs in can post a status in that identity), each read, write or none. `id-token: write, so its 'if' must contain
 github.run_attempt == '1'` / `... must run 'bash scripts/check-main-head.sh' before the lock` - a job that can mint an
   OIDC token runs only on a first attempt and only after the main-head check. `id-token: write is not allowed in a workflow that
 runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access. `permission <scope>: write
 is not allowed in <file> (its job token is read-only; the agents act with their own token)` - a workflow in
-  `read_only_workflows` (`agent-manager.yml`) may hold no write scope at any level.
+  `read_only_workflows` (`agent-manager.yml`, `guards.yml`) may hold no write scope at any level.
 - `runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)` - no step may
   mention `/tmp/pr` (other than `/tmp/pr-meta`), the PR head, `head_ref`, `merge_commit_sha`, `refs/pull/`, `pull/<n>`,
   `gh pr checkout` or `event.issue.number`, except the exact prepare command in `pr_data_runs`.

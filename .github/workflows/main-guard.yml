@@ -18,10 +18,13 @@ on:
   schedule:
     - cron: "37 * * * *"   # hourly: main's head must have passed the main guard
   workflow_dispatch:
+    # By a founder: with accept_sha, accepts that commit as checked; without it, runs the hourly check by hand (the
+    # heartbeat: GitHub's cron is delayed or dropped for hours at times, so a founder's PC dispatches this every 30 minutes).
     inputs:
       accept_sha:
-        description: "Commit on main a founder has read and accepts as checked (40-hex sha)"
-        required: true
+        description: "Commit on main a founder has read and accepts as checked (40-hex sha); empty = run the hourly check now"
+        required: false
+        default: ""
         type: string
 permissions:
   contents: write   # the undo commit on main
@@ -45,18 +48,19 @@ jobs:
       - id: pins
         name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "9e233b7cdcfbe805fba8d81bf0b89d1ab2993c51a6e8321e05472f5bac6f9972"
+          PINS_SHA256: "8a2cd29dbfb4874a7d9c757c3136c3f3e4f2b90392bd7e22e4eb2081bcf14c7f"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           bash scripts/check-pins.sh verify
       - id: guard
         name: The pusher must be a founder; otherwise undo, stop the agents, open an issue
-        # Push: <pusher id> <before> <after>. Schedule: schedule - -. Run by hand: accept <actor id> <sha to accept>.
+        # Push: <pusher id> <before> <after>. Schedule: schedule - -. Run by hand: accept <actor id> <sha to accept>,
+        # or heartbeat <actor id> - (the hourly check, dispatched by a founder).
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}
+          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.accept_sha != '') && 'accept' || github.event_name == 'workflow_dispatch' && 'heartbeat' || github.event.sender.id }}
           BEFORE: ${{ github.event_name == 'workflow_dispatch' && github.event.sender.id || github.event.before || '-' }}
           AFTER: ${{ github.event.inputs.accept_sha || github.event.after || '-' }}
         run: bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt
@@ -70,14 +74,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}
+          PUSHER_ID: ${{ github.event_name == 'schedule' && 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.accept_sha != '') && 'accept' || github.event_name == 'workflow_dispatch' && 'heartbeat' || github.event.sender.id }}
           BEFORE: ${{ github.event.before || '-' }}
           AFTER: ${{ github.event.after || '-' }}
           FOUNDER_IDS: "238822878"
           FLOOR: "596905e54f7ae8385c90f6d334db5f18a4427e28"
         run: |
           set -u
-          case "$PUSHER_ID" in accept) echo "::error::the guard could not run on this by-hand run (the checkout or the pin check failed); founders: read this run's log"; exit 1;; esac
+          case "$PUSHER_ID" in accept|heartbeat) echo "::error::the guard could not run on this by-hand run (the checkout or the pin check failed); founders: read this run's log"; exit 1;; esac
           R=$GH_REPO; done=""; checked=""; runs=""; title="SECURITY: push to main changed pinned files or broke the checkout (user ID $PUSHER_ID)"
           tip_checked() { # tip_checked <sha>: sets checked=run|status|floor when that commit passed the main guard (a push run, waiting up to
             # 2 minutes for one still going; the guards/main-guard status posted by github-actions[bot]; or older than the floor), else empty
