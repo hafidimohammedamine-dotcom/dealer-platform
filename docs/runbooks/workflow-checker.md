@@ -128,8 +128,27 @@ Jobs with a claude step
 - `env '<x>' not allowed in a job with a claude step (allowed: ...)` - job env names are limited to `job_env` in the policy.
   `needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"` - every claude job turns on Claude Code's subprocess isolation, so tools it
   runs never see the Claude token (the lock installs bubblewrap for it).
-- `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed` /
-  `'shell' not allowed in a job with a claude step`.
+- `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed
+  in a job with a claude step`; `'shell' not allowed in a job with a claude step` - on any step before the claude step
+  (steps 1-4 are checked by shape, so a shell there fails as `a job with a claude step must start with ...`), and after it
+  for every shell except the one below. `no workflow-level defaults in a workflow with a claude step` - a `defaults:` at
+  the top of the file would set a shell or working directory for every step. `only one claude step per job (found <n>)`.
+- After the claude step (policy keys `post_claude_*`): `'shell' not allowed in a job with a claude step (after the claude
+  step only shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0})` - exactly that string (`post_claude_shell`): an
+  absolute bash, so it is not found through a `PATH` the Claude step may have extended with `$GITHUB_PATH`; `-p`
+  (privileged mode) makes bash ignore `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `GLOBIGNORE` and functions from the
+  environment, whatever the Claude step wrote to `$GITHUB_ENV` (`--noprofile --norc` only skip the profile and rc files).
+  `a step with the hardened shell must start its run with 'export PATH=/usr/bin:/bin'` (`post_claude_run_first`) - the
+  commands inside the step are found through `PATH` too; the first line that is not blank or a comment resets it.
+  `the hand-off step must set shell: ...` / `must set env <X>: ""` / `must set env HOME: /nonexistent` - a step whose
+  `run` names the hand-off script (`post_claude_handoff`, `scripts/check-claude-answer.sh`) must use that shell, set every
+  name in `post_claude_empty_env` (`BASH_ENV`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, `SHELLOPTS`, `BASHOPTS`,
+  `PS4`, `GLOBIGNORE`, `GCONV_PATH`, `ENV`) to the empty string and `post_claude_fixed_env` (`HOME: /nonexistent`) in its
+  own `env:` (a step's env wins over `$GITHUB_ENV`), so the loader, bash and jq read nothing the Claude step planted. The
+  hand-off rule applies when the policy names the script; the shell rule, the PATH line and the other post-claude rules
+  (no local action, the pin check before repo scripts, no PR data, no `git` moves) apply to every step after the claude
+  step, with that shell or without it. Plainly: the Claude step can write `$GITHUB_ENV` and `$GITHUB_PATH` (the lock does
+  not block those files, and the manager runs with bypassPermissions); these rules make both harmless to what follows.
 - `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with
   no `permissions` of its own in a workflow without a workflow-level `permissions` block would run with the repository's
   default job token, which can hold every write scope (`statuses: write` among them: enough to post a `guards/main-guard`

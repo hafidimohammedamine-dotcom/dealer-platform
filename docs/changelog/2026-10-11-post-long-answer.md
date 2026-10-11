@@ -43,11 +43,11 @@ are gone.
   runs Claude with full Bash). A cut that would keep nothing (a line break at index 0) hands over the withheld notice,
   never an empty answer. `scripts/check-claude-answer-cut.test.sh` tests `cut()` directly; the post tests run one case
   with the real pinned gitleaks when it is installed.
-- `check-claude-answer.sh blocked` scans the denied-call lines before printing them: on a hit it prints `BLOCKED <tool>:
-  (withheld: looks like a secret)` per denial; a scanner error fails the step with nothing printed (the post job is then
-  skipped in the jobs that have one).
+- `check-claude-answer.sh blocked` scans the denied-call lines before printing them: on a hit it prints one fixed line
+  with the count of denied calls (`BLOCKED: <n> denied tool call(s); the names and inputs are withheld ...`); a scanner
+  error fails the step with nothing printed (the post job is then skipped in the jobs that have one).
 - Review round 18 (founder decisions): the five post-Claude steps use the one shell the workflow checker now allows
-  after a Claude step (`/usr/bin/bash --noprofile --norc -eo pipefail {0}`, policy key `post_claude_shell`) with
+  after a Claude step (policy key `post_claude_shell`; the exact string is in round 20 below) with
   `BASH_ENV` and `LD_PRELOAD` emptied in the step's own `env:`; the scan hashes and runs a private copy of the scanner
   (so the file that was checked is the file that runs; the directory is still the runner user's, which is the same
   accepted leftover-process risk). Not done, on purpose: a composite action for the hand-off step (the checker forbids
@@ -63,3 +63,16 @@ are gone.
   count. `scripts/check-scan-lib.test.sh` tests the scan library on its own, and checks the pinned hash against the
   installed binary wherever it is installed (CI). The three egress probe jobs keep their own step: they run
   `check-claude-probe.py` on a fixed prompt and hand nothing to a post job (founder decision).
+- Review round 20 (from the review of #48, which carries the checker part of this change): the allowed shell is
+  `/usr/bin/bash --noprofile --norc -p -eo pipefail {0}`. `--noprofile --norc` only skip the profile and rc files; it is
+  `-p` (privileged mode) that makes bash ignore `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `GLOBIGNORE` and functions
+  from the environment, whatever the Claude step wrote to `$GITHUB_ENV` (the step `env:` empties them as well: two
+  locks). The commands inside the step would still be found through a `PATH` the Claude step extended with
+  `$GITHUB_PATH`, so every step with that shell must start its `run:` with `export PATH=/usr/bin:/bin` (policy key
+  `post_claude_run_first`; a comment or blank line may come before it, nothing else). Stated plainly: the Claude step can
+  write `$GITHUB_ENV` and `$GITHUB_PATH` (the manager runs with bypassPermissions; the lock does not block those files);
+  the post-Claude steps are built so that neither matters. The checker also refuses a workflow-level `defaults:` in a
+  workflow with a Claude step (a default shell would apply to every step) and more than one Claude step per job ("after
+  the Claude step" must mean one thing). Tests: near-miss shell strings, the shell as a job or workflow default, with
+  `working-directory`, before the lock, with a missing pin check / PR data / `git checkout`, two Claude steps, a workflow
+  without a Claude step, and the real workflows with and without the hardened hand-off steps.

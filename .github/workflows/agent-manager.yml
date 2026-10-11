@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "3b1dee6b429dd269458a5975d2074bcbe5665c6878ae4825f8fb652d9fec3811"
+          PINS_SHA256: "910fce6b47c204850ebbc896d298f0062949202cfd72bd89d4a90e79216ec9f1"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -94,7 +94,7 @@ jobs:
           # together with its override.
       - name: Show blocked tool calls (names and commands only, pinned script)
         if: always()
-        shell: /usr/bin/bash --noprofile --norc -eo pipefail {0}   # an absolute bash, no profile or rc: not found through a PATH the claude step could change
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # an absolute bash, no profile or rc: not found through a PATH the claude step could change
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
           # A step's own env wins over $GITHUB_ENV: nothing the claude step wrote there reaches this shell or the tools it
@@ -110,8 +110,10 @@ jobs:
           GCONV_PATH: ""
           ENV: ""
           HOME: /nonexistent
-          PINS_SHA256: "3b1dee6b429dd269458a5975d2074bcbe5665c6878ae4825f8fb652d9fec3811"
+          PINS_SHA256: "910fce6b47c204850ebbc896d298f0062949202cfd72bd89d4a90e79216ec9f1"
         run: |
+          # First line (the checker requires it): entries the Claude session could have added through $GITHUB_PATH never apply.
+          export PATH=/usr/bin:/bin
           set -u
           # After a Claude step: this shell is the absolute bash above with BASH_ENV and LD_PRELOAD emptied by the step env,
           # the pins are checked with /usr/bin/sha256sum, then the pinned hand-off runs under `env -i` with a fixed PATH, HOME and TMPDIR
@@ -139,7 +141,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "3b1dee6b429dd269458a5975d2074bcbe5665c6878ae4825f8fb652d9fec3811"
+          PINS_SHA256: "910fce6b47c204850ebbc896d298f0062949202cfd72bd89d4a90e79216ec9f1"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

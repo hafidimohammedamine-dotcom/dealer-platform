@@ -212,6 +212,8 @@ def check_file(path, required, accounts):
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
+    if count and "defaults" in doc:
+        err(f"{name}: no workflow-level defaults in a workflow with a claude step (a default shell or working-directory would apply to every step)")
     for t in sorted(triggers & {"pull_request", "workflow_run", "push"}) if count else []:
         err(f"{name}: a workflow with a claude step must not run on {t} (PR code, its artifacts or a fresh push next to a Claude token)")
     return count
