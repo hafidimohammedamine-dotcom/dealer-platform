@@ -153,7 +153,8 @@ Also `pull_request_target`, also from `main`.
 - **"Review (read-only)"** fails or times out - the post step runs only when the action produced an execution file; when
   it did, it posts `REVIEW TEAM RESULT: FAIL` saying there was no valid result. If no result comment appears and no label
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
-- The `review` job runs Claude with a read-only token; its last step runs the pinned `scripts/check-claude-answer.sh`,
+- The `review` job runs only for a PR whose head is in this repository (a fork's PR gets no Claude run; the repo is
+  public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned `scripts/check-claude-answer.sh`,
   which prints the blocked tool calls and hands the answer (text, at most 60000 bytes) to the job `post` as a job
   output. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
   answer from `ANSWER`, scans it, posts it and sets labels. The daily report and weekly audit do the same with
