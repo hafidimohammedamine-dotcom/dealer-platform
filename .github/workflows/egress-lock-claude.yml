@@ -132,6 +132,55 @@ jobs:
                       if isinstance(c, dict) and c.get("type") == "tool_result":
                           print("tool_result:", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", json.dumps(c.get("content")))[:800])
           PY
+  bypass_scrub_allow:
+    # DIAGNOSTIC (scratch branch): does --permission-mode bypassPermissions take effect under the lock? Prints denial reasons.
+    if: github.actor_id == '238822878' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - run: bash scripts/check-main-head.sh
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        with:
+          classify_inline_comments: "false"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
+          github_token: ${{ github.token }}
+          prompt: "Diagnostic. Run these Bash commands one at a time, each as its own tool call, and report each result or the denial message verbatim: (1) echo BYPASS-OK  (2) gh pr list --limit 1 --json number  (3) git fetch origin --prune 2>&1 | tail -1; git branch -r | head -3  (4) gh issue list --label status:todo --json number --limit 2"
+          claude_args: |
+            --model opus
+            --max-turns 12
+            --permission-mode bypassPermissions
+            --allowedTools "Bash,Read,Edit,MultiEdit,Write,Glob,Grep,TodoWrite,Agent,Task,Skill,NotebookEdit"
+            --disallowedTools "Skill(payload),Bash(npx:*),Bash(npm:*),Bash(yarn dlx:*),Bash(yarn create:*),Bash(node -e:*),Bash(node --eval:*),Bash(node -p:*),Bash(node --print:*),Bash(curl:*),Bash(wget:*),Bash(sudo:*),Bash(env:*),Bash(printenv:*),Bash(git push --force:*),Bash(git push -f:*),Bash(gh pr merge:*),Bash(gh api -X DELETE:*),Bash(gh secret:*),Bash(gh auth:*),Bash(gh api:*),Bash(gh gist:*),Bash(gh repo:*),Bash(gh workflow:*),Bash(gh run cancel:*),Bash(gh run delete:*),Bash(yarn npm publish:*),Bash(yarn npm login:*),WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
+      - name: Denials and messages (diagnostic)
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          python3 -I - "$EXEC_FILE" <<'PY'
+          import json, re, sys
+          msgs = json.load(open(sys.argv[1]))
+          for m in msgs:
+              if m.get("type") == "result":
+                  print("denials:", json.dumps(m.get("permission_denials"))[:1500])
+                  print("result:", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", json.dumps(m.get("result")))[:1500])
+              if m.get("type") == "user":
+                  for c in m.get("message", {}).get("content", []):
+                      if isinstance(c, dict) and c.get("type") == "tool_result":
+                          print("tool_result:", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", json.dumps(c.get("content")))[:800])
+          PY
   bypass_noscrub:
     # DIAGNOSTIC (scratch branch): does --permission-mode bypassPermissions take effect under the lock? Prints denial reasons.
     if: github.actor_id == '238822878' && github.run_attempt == '1'
