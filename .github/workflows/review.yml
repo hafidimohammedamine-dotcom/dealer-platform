@@ -46,7 +46,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "910fce6b47c204850ebbc896d298f0062949202cfd72bd89d4a90e79216ec9f1"
+          PINS_SHA256: "a834dad592432ff3b757285cd42419c791151180071c4ad6368abbd56bea9148"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -84,30 +84,46 @@ jobs:
       - name: Show blocked tool calls and hand the answer to the post job (pinned script)
         id: answer
         if: always()
-        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # an absolute bash, no profile or rc: not found through a PATH the claude step could change
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell): absolute, -p
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          # A step's own env wins over $GITHUB_ENV: nothing the claude step wrote there reaches this shell or the tools it
-          # runs (the checker requires every key below to be empty here, and HOME fixed).
+          # A step's own env wins over $GITHUB_ENV: nothing the Claude session wrote there reaches this shell, the loader
+          # or the tools it runs (the checker requires every name below, policy post_claude_empty_env / post_claude_fixed_env).
           BASH_ENV: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
+          ENV: ""
           SHELLOPTS: ""
           BASHOPTS: ""
           PS4: ""
           GLOBIGNORE: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
           GCONV_PATH: ""
-          ENV: ""
+          GLIBC_TUNABLES: ""
+          LOCPATH: ""
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          ALL_PROXY: ""
+          NO_PROXY: ""
+          http_proxy: ""
+          https_proxy: ""
+          all_proxy: ""
+          no_proxy: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_CONFIG_GLOBAL: ""
+          GIT_CONFIG_SYSTEM: ""
+          GIT_EXEC_PATH: ""
+          GH_CONFIG_DIR: ""
           HOME: /nonexistent
-          PINS_SHA256: "910fce6b47c204850ebbc896d298f0062949202cfd72bd89d4a90e79216ec9f1"
+          TMPDIR: /tmp
+          PINS_SHA256: "a834dad592432ff3b757285cd42419c791151180071c4ad6368abbd56bea9148"
         run: |
           # First line (the checker requires it): entries the Claude session could have added through $GITHUB_PATH never apply.
           export PATH=/usr/bin:/bin
           set -u
-          # After a Claude step: this shell is the absolute bash above with BASH_ENV and LD_PRELOAD emptied by the step env,
-          # the pins are checked with /usr/bin/sha256sum, then the pinned hand-off runs under `env -i` with a fixed PATH, HOME and TMPDIR
-          # and scans with a fresh copy of the scanner checked against the pinned hash (a wrong one fails the step).
+          # After a Claude step the body is an allow-list (checker): the pins checked with /usr/bin/sha256sum, then the pinned
+          # hand-off under `env -i` with a fixed PATH, HOME and TMPDIR; the scan runs a fresh copy of the scanner checked
+          # against the pinned hash (a wrong one fails the step).
           echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
           /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
           /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= /usr/bin/bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
@@ -134,7 +150,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "910fce6b47c204850ebbc896d298f0062949202cfd72bd89d4a90e79216ec9f1"
+          PINS_SHA256: "a834dad592432ff3b757285cd42419c791151180071c4ad6368abbd56bea9148"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

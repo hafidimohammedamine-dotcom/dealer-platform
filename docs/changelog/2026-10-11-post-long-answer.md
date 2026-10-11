@@ -63,16 +63,19 @@ are gone.
   count. `scripts/check-scan-lib.test.sh` tests the scan library on its own, and checks the pinned hash against the
   installed binary wherever it is installed (CI). The three egress probe jobs keep their own step: they run
   `check-claude-probe.py` on a fixed prompt and hand nothing to a post job (founder decision).
-- Review round 20 (from the review of #48, which carries the checker part of this change): the allowed shell is
-  `/usr/bin/bash --noprofile --norc -p -eo pipefail {0}`. `--noprofile --norc` only skip the profile and rc files; it is
-  `-p` (privileged mode) that makes bash ignore `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `GLOBIGNORE` and functions
-  from the environment, whatever the Claude step wrote to `$GITHUB_ENV` (the step `env:` empties them as well: two
-  locks). The commands inside the step would still be found through a `PATH` the Claude step extended with
-  `$GITHUB_PATH`, so every step with that shell must start its `run:` with `export PATH=/usr/bin:/bin` (policy key
-  `post_claude_run_first`; a comment or blank line may come before it, nothing else). Stated plainly: the Claude step can
-  write `$GITHUB_ENV` and `$GITHUB_PATH` (the manager runs with bypassPermissions; the lock does not block those files);
-  the post-Claude steps are built so that neither matters. The checker also refuses a workflow-level `defaults:` in a
-  workflow with a Claude step (a default shell would apply to every step) and more than one Claude step per job ("after
-  the Claude step" must mean one thing). Tests: near-miss shell strings, the shell as a job or workflow default, with
-  `working-directory`, before the lock, with a missing pin check / PR data / `git checkout`, two Claude steps, a workflow
-  without a Claude step, and the real workflows with and without the hardened hand-off steps.
+- Review round 20 (the review of #48, which carries the checker part): the post-Claude steps now have the shape the
+  checker defines in `check_hardened_step` (runbook `docs/runbooks/workflow-checker.md`, "After the claude step"):
+  the shell `/usr/bin/bash --noprofile --norc -p -eo pipefail {0}` (`-p`: bash reads no `BASH_ENV` or `ENV` file,
+  ignores `SHELLOPTS`/`BASHOPTS` from the environment and imports no function from it; `--noprofile --norc` only skip
+  the rc files; `scripts/check-post-claude-shell.test.sh` proves it on the running bash); every loader, bash, locale,
+  proxy and git variable emptied and `HOME`/`TMPDIR` fixed in the step's own `env:` (policy `post_claude_empty_env`,
+  `post_claude_fixed_env`); `export PATH=/usr/bin:/bin` as the first line; and no other line than `set -u`, the two pin
+  lines with `/usr/bin/sha256sum` and pinned scripts under `/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent
+  TMPDIR=/tmp ...` (`post_claude_run_lines`, `post_claude_script_line`). With `post_claude_require_shell: true` every
+  run step after a Claude step must look like that, so the three egress-lock probe steps are hardened too (their
+  `python3 -I` runs under `env -i` as `/usr/bin/python3`), and the hand-off rule of round 19 is gone (the flag covers
+  it). Stated plainly: the Claude step can write `$GITHUB_ENV` and `$GITHUB_PATH` (the lock does not block those files;
+  the manager runs with bypassPermissions); what follows it is built so that neither is read. The checker also refuses
+  a workflow-level `defaults:` in a workflow with a Claude step, more than one Claude step per job, and `shell` or
+  `working-directory` on steps 1-4. The checker tests cover each rule against the fixture and the real workflows
+  (349 pass); the blocked-line text in this changelog was corrected (count-only line).

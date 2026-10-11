@@ -334,10 +334,12 @@ edited `/tmp/gitleaks`, or a gitleaks exit code other than 0 or 3) fails the ste
 review, mention, daily-report and weekly-audit jobs the `post` job is then skipped (the manager posts its own shift log
 from inside the Claude step, so its log is already up). The step runs under `env -i` with a fixed `PATH` and
 `/usr/bin/sha256sum`, in the one shell the workflow checker allows after a Claude step (`/usr/bin/bash --noprofile --norc
--p -eo pipefail {0}`: `-p` makes bash ignore `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS` and `GLOBIGNORE`), with the step's
-first line `export PATH=/usr/bin:/bin` and the injectable variables emptied in the step `env:`, so nothing a Claude step
-put on `PATH` (`$GITHUB_PATH`) or in `$GITHUB_ENV` is used (the Claude step can write both files; see
-`docs/runbooks/workflow-checker.md`, "After the claude step"). Once vendored
+-p -eo pipefail {0}`: with `-p` bash reads no `BASH_ENV` or `ENV` file and ignores `SHELLOPTS`, `BASHOPTS` and functions
+from the environment), with the step's first line `export PATH=/usr/bin:/bin`, the loader, bash, locale, proxy and git
+variables emptied and `HOME`/`TMPDIR` fixed in the step `env:`, and no other line than the pin lines and the pinned
+scripts under `env -i` (the checker enforces the whole shape), so nothing a Claude step put on `PATH` (`$GITHUB_PATH`)
+or in `$GITHUB_ENV` is read (the Claude step can write both files; see `docs/runbooks/workflow-checker.md`, "After the
+claude step"). Once vendored
 skills exist (the Payload skill, #22), a `Skill(payload)` deny must not stop builders from preloading `payload` with
 `payload-dealer-overrides`. If a builder reports it can't see the skill, **do not remove the deny**: open an `area:security`
 issue for the founders.

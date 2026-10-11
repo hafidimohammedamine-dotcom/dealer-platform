@@ -38,7 +38,8 @@ open(p, "w").write(s)
 EOF
 }
 # A small valid workflow; tests edit it with sed.
-mk() { sed "s|^PIN_STEP_HERE$|$(printf '%s' "$PIN_STEP" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//')|" <<'EOF' > "$T/$W/t.yml"
+HARDENED_ENV=$(python3 -c 'import json, sys; P = json.load(open(sys.argv[1])); print("        env:\n" + "".join(f"          {k}: \"\"\n" for k in P["post_claude_empty_env"]) + "".join(f"          {k}: {v}\n" for k, v in P["post_claude_fixed_env"].items()), end="")' "$REPO/scripts/check-workflows-policy.json")
+mk() { sed "s|^PIN_STEP_HERE$|$(printf '%s' "$PIN_STEP" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//')|; s|^ENV_HERE$|$(printf '%s' "$HARDENED_ENV" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//')|" <<'EOF' > "$T/$W/t.yml"
 name: t
 on: workflow_dispatch
 jobs:
@@ -73,7 +74,11 @@ PIN_STEP_HERE
             --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: After
         if: always() && steps.claude.outputs.execution_file != ''
-        run: echo "steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude"
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
+ENV_HERE
+        run: |
+          export PATH=/usr/bin:/bin
+          # steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude
 EOF
 }
 fx() { fresh; mk; }   # fresh copy of the real workflows plus the small fixture

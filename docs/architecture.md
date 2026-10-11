@@ -95,7 +95,7 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-claude-answer.sh` (the review, mention, daily-report and weekly-audit jobs, after their Claude step; the
   manager runs only its blocked-call listing, since it posts its own shift log; the egress probe jobs use
   `check-claude-probe.py` instead; pinned, run under `env -i` with a fixed `PATH`, `HOME` and `TMPDIR`):
-  lists blocked tool calls (scanned first; on a hit only the tool names, on a scanner error nothing and the step fails)
+  lists blocked tool calls (scanned first; on a hit one count-only line, on a scanner error nothing and the step fails)
   and hands the answer to the post job as a job output: scanned with the pinned gitleaks before it leaves the job (a job
   output is shown in the post job's log header), cut by the pinned `scripts/check-claude-answer-cut.py` to at most
   120000 bytes (one environment variable; the cut lands on a line break, space or tab and never inside a BEGIN/END
