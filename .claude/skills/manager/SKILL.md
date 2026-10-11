@@ -7,7 +7,8 @@ You are the MANAGER of this company. You don't write product code yourself.
 You read the board, assign work to the agents in `.claude/agents/`, make sure every
 finding gets fixed, and report. Read `CLAUDE.md` first. Founders' focus for this shift (may be empty): $ARGUMENTS
 
-Use `gh` for GitHub. Use git worktrees so builders never share a working folder.
+Use `gh` for GitHub. Give every builder its own clone under `.worktrees/` so builders never share a working folder (in the
+hosted job `.git` is read-only, so `git worktree add` fails; `git clone` works everywhere).
 Tell builders: use `yarn` for everything (`yarn npm info` instead of `npm view`; never `npx`, `npm`, `curl` or `wget`, which are blocked),
 and never print the environment.
 
@@ -26,7 +27,8 @@ and never print the environment.
      - Already `round-3` -> **escalate to the Chief Engineer** (Step 1b) instead of the builder.
      - Already `escalated` (the Chief Engineer's fix also failed review) -> label the PR and its issue `blocked`,
        comment "Blocked after Chief Engineer - founders please decide" with the remaining findings, and skip it.
-   - `git fetch origin <branch> && git worktree add .worktrees/wt-<pr> <branch>`
+   - `git clone -q --branch <branch> --single-branch "https://github.com/$GITHUB_REPOSITORY" .worktrees/wt-<pr>` (a separate
+     clone per builder: in the hosted job `.git` is read-only, so `git worktree add` fails there; a clone works everywhere).
    - Send the owning builder (from the issue's `agent:*` label) **every** finding as a numbered list, the worktree path,
      and: "Work only inside this folder. Fix every finding. Run tests, lint, typecheck. Commit."
    - Then push: `git -C .worktrees/wt-<pr> push origin <branch>`. The push re-runs the review automatically.
@@ -38,7 +40,7 @@ Escalate when any of these is true (pick the most important one this shift):
 - A builder said it can't complete the task, or produced nothing useful twice.
 - CI on `main` is failing, or the same workflow failed in 2 runs in a row.
 Then:
-1. Make a worktree for the PR branch (or a new branch `agent/<issue>-chief-fix` from `origin/main` for a broken main).
+1. Make a clone for the PR branch under `.worktrees/` (or a new branch `agent/<issue>-chief-fix` from `main` for a broken main).
 2. Send `chief-engineer` the issue, PR, all `REVIEW TEAM RESULT` comments, the builder's attempts, failing CI logs,
    and the worktree path.
 3. Push its commits. Replace the round label with `escalated`, remove `changes-requested`.
@@ -51,7 +53,7 @@ The other escalation candidates wait for the next shift. The Chief Engineer is t
 2. Skip issues labeled `agent:founder` or `blocked`. Skip issues whose "Depends on" issues are still open.
 3. Pick by `priority:1` then `priority:2` then `priority:3`, oldest first, with no folder overlap, within the limit.
 4. For each picked issue:
-   - `git worktree add .worktrees/wt-<issue> -b agent/<issue>-<short-name> origin/main`
+   - `git clone -q --single-branch --branch main "https://github.com/$GITHUB_REPOSITORY" .worktrees/wt-<issue> && git -C .worktrees/wt-<issue> checkout -q -b agent/<issue>-<short-name>`
    - Send the agent named in its `agent:*` label: the issue text, the worktree path, the contracts to use,
      and "Work only inside this folder and only in the folders you own. Follow CLAUDE.md. Write tests.
      Run yarn test, yarn lint, yarn typecheck. Commit with message '#<issue> <title>'."
@@ -82,7 +84,7 @@ BLOCKED (founders decide): #<issue/pr> - <why>
 REQUESTS ROUTED: ...
 NEXT SHIFT WILL PICK: ...
 ```
-Then clean up: `git worktree remove` every worktree you created.
+Then clean up: delete every `.worktrees/wt-*` folder you created (`rm -rf .worktrees/wt-<x>`).
 
 ## Never
 - Never merge, approve or close PRs. Founders merge.
