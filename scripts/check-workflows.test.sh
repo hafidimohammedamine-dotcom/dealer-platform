@@ -128,6 +128,7 @@ fx; hs "${EV/          LD_PRELOAD: \"\"\\n/}$HO"; expect fail "a hand-off step t
 fx; hs "${EV/          HOME: \/nonexistent\\n/}$HO"; expect fail "a hand-off step that does not fix HOME" "must set env HOME: /nonexistent"
 fx; hs "${EV}        run: |\n          printf x | sha256sum --check --strict\n          /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/bash scripts/check-claude-answer.sh answer f\n"; expect fail "a hand-off step without the PATH line" "must start its run with 'export PATH=/usr/bin:/bin'"
 fresh; swap review.yml "shell: $SH" "shell: bash"; expect fail "the real hand-off step without the hardened shell" "review.yml job review step"
+fresh; swap review.yml "shell: $SH" "shell: bash"; swap review.yml $'          export PATH=/usr/bin:/bin\n' ""; expect fail "the real hand-off step with neither the shell nor the PATH line (the hand-off rule)" "the hand-off step must set shell:"
 fresh; swap review.yml "          export PATH=/usr/bin:/bin" "          true"; expect fail "the real hand-off step without the PATH line" "must start its run with 'export PATH=/usr/bin:/bin'"
 fresh; expect ok "the real workflows with the hardened hand-off steps" "Workflow denies OK"
 fx; printf '      - uses: docker://alpine:3\n' >> "$T/$W/t.yml"; expect fail "docker:// action" "not allowed: docker://alpine:3"
