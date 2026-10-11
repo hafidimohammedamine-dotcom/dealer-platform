@@ -10,14 +10,16 @@
 #        GH_BIN / GITLEAKS_BIN may point to stubs.
 set -euo pipefail
 export LC_ALL=C.UTF-8   # ${#text} and ${text:0:60000} count characters, never bytes (a byte cut could split a multibyte character)
+probe=$'\xc3\xa9'   # "é": one character under a UTF-8 locale, two bytes if the runner lacks C.UTF-8 (then the cut could split one)
+[ "${#probe}" = 1 ] || { echo "ERROR: the C.UTF-8 locale is missing on this runner (bash counts bytes)"; exit 1; }
 MODE="${1:?pr, issue or daily-reports}"
 case "$MODE" in
   pr|issue) PR="${2:?number}";;
   daily-reports) PR="";;
   *) echo "ERROR: mode must be pr, issue or daily-reports"; exit 1;;
 esac
-GH="${GH_BIN:-gh}"; GITLEAKS="${GITLEAKS_BIN:-/tmp/gitleaks}"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+GH="${GH_BIN:-gh}"
+. "$(dirname "$0")/check-scan-lib.sh"   # scan_answer (GITLEAKS_BIN)
 [ "$MODE" = daily-reports ] || [[ "$PR" =~ ^[0-9]+$ ]] || { echo "ERROR: bad PR number"; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 
@@ -44,17 +46,13 @@ esac
 # 60000-character cut is caught whole) and the exact text that would be posted (a cut-off start of a long token, or the
 # `(truncated)` marker next to it, could match a rule the whole token does not). The post body is written only on rc=0.
 post="$text"; if [ "${#post}" -gt 60000 ]; then post="${post:0:60000}"$'\n\n(truncated)'; fi
-mkdir -p "$T/scan" "$T/noignore"; printf '%s\n' "$text" > "$T/scan/full.md"; printf '%s\n' "$post" > "$T/scan/post.md"
-set +e
-"$GITLEAKS" detect --no-git --source="$T/scan" --config="$ROOT/.gitleaks.toml" --gitleaks-ignore-path="$T/noignore" \
-  --ignore-gitleaks-allow --exit-code 3 --redact >/dev/null 2>&1
-rc=$?
-set -e
+mkdir -p "$T/scan"; printf '%s\n' "$text" > "$T/scan/full.md"; printf '%s\n' "$post" > "$T/scan/post.md"
+set +e; scan_answer "$T/scan"; rc=$?; set -e
 case $rc in
   0) cp "$T/scan/post.md" "$T/body.md";;
   3) printf '%s\n' "REVIEW TEAM RESULT: FAIL" "The agent's answer contained something that looks like a secret, so it was not posted. A founder should check the job." > "$T/body.md"
      first="REVIEW TEAM RESULT: FAIL";;
-  *) echo "ERROR: gitleaks failed with exit code $rc"; exit 1;;
+  *) echo "ERROR: the secret scan failed with exit code $rc"; exit 1;;
 esac
 
 if [ "$MODE" = issue ]; then

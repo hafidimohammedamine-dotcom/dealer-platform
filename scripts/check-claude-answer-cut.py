@@ -10,8 +10,10 @@ writes the text to hand to the post job on stdout.
   the nearest open BEGIN, markers matched without regard to case), and the kept text stops before the first BEGIN left
   open.
 - When nothing before the cap is safe to keep, the text is withheld and WITHHELD is handed over instead; nothing of
-  the answer is kept, not even its first line, so the post job posts FAIL: a PASS whose findings cannot be shown must
-  never label a PR ready-to-merge (the founders accept losing that result; the review is simply re-run).
+  the answer is kept, not even its first line, so the post job posts FAIL: a result nobody can read must never label a
+  PR ready-to-merge (the founders accept losing that result; the review is simply re-run). A cut answer is different:
+  its verdict line and its start are posted, so a cut PASS keeps its labels (a PASS has no findings to lose; the
+  reviewers' reports are what gets cut), which is the founders' decision.
 - Every cut ends with MARK, a fixed ASCII line, so the reader can see the end is missing.
 """
 import re
@@ -31,8 +33,8 @@ def cut(b: bytes) -> bytes:
     keep = LIMIT - len(MARK)
     at = max(b.rfind(b"\n", 0, keep + 1), b.rfind(b" ", 0, keep + 1), b.rfind(b"\t", 0, keep + 1))
     if at >= 0:
-        # Blocks before the cut, paired like brackets: a BEGIN opens, an END line closes the nearest open BEGIN. The kept
-        # text stops before the first BEGIN left open (an earlier block with no END of its own, a stray END that closed
+        # Blocks before the cut, paired like brackets: a BEGIN opens, an END line closes the nearest open BEGIN. The
+        # kept text stops before the first BEGIN left open (a block with no END of its own, a stray END that closed
         # the wrong block, or the block the cap falls in).
         marks = sorted([(m.start(), 1) for m in BEGIN.finditer(b, 0, at)]
                        + [(m.start(), 0) for m in END_LINE.finditer(b, 0, at)])

@@ -31,6 +31,9 @@ run() { # run <name> <expect-rc 0|1> <posted-first-line> <label-arg-expected>
   if [ $rc = "$2" ] && [ "$posted" = "$3" ] && grep -qF -- "$4" <<<"$labels$([ "$4" = none ] && echo none)"; then t PASS "$1"
   else t FAIL "$1 (rc=$rc posted='$posted' labels='$labels')"; fi
 }
+# The locale probe at the top of the script: under a byte-counting locale "é" is 2 characters and the script must stop.
+LC_ALL=C bash -c 'p=$'"'"'\xc3\xa9'"'"'; [ "${#p}" = 2 ]' && t PASS "locale probe: a byte-counting locale makes the probe fail (what the script checks before cutting)" || t FAIL "locale probe"
+LC_ALL=C.UTF-8 bash -c 'p=$'"'"'\xc3\xa9'"'"'; [ "${#p}" = 1 ]' && t PASS "locale probe: C.UTF-8 counts characters on this runner" || t FAIL "locale probe utf-8"
 answer $'REVIEW TEAM RESULT: PASS\nall good';  run "PASS posts and labels ready-to-merge" 0 "REVIEW TEAM RESULT: PASS" "--add-label ready-to-merge"
 answer $'REVIEW TEAM RESULT: FAIL\n1. x';      run "FAIL posts and labels changes-requested" 0 "REVIEW TEAM RESULT: FAIL" "--add-label changes-requested"
 answer $'Looks fine to me\nREVIEW TEAM RESULT: PASS'; run "wrong first line becomes FAIL" 0 "REVIEW TEAM RESULT: FAIL" "--add-label changes-requested"

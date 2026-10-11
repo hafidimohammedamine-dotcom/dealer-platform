@@ -151,8 +151,8 @@ Also `pull_request_target`, also from `main`.
   fixed notice there. The handed text is all `post` ever sees. `post` is the only job with write scopes and runs no
   Claude: `scripts/check-review-post.sh pr <n>` reads the answer from `ANSWER`, scans it for secrets (the whole handed
   text and the text about to be posted, in one gitleaks run, before anything is posted), then posts it - a longer answer
-  cut to 60000 characters with a `(truncated)` line - and sets labels. The daily report and weekly audit do the same
-  with
+  cut to 60000 characters with a `(truncated)` line - and sets labels (a cut PASS keeps its labels: its verdict line is
+  posted and a PASS has no findings to lose). The daily report and weekly audit do the same with
   `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
   (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
   naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread
@@ -172,7 +172,9 @@ Also `pull_request_target`, also from `main`.
   no `REVIEW TEAM RESULT:` first line, so `post` posts FAIL ("did not produce a valid result") and sets
   `changes-requested` whatever the review said: the review's own result is lost (no job log holds it; the review job
   does not print Claude's output). A founder re-runs the review (re-runs are skipped by design: push a commit, or
-  draft and ready-for-review).
+  draft and ready-for-review). If the hand-off itself fails (jq or the cutter fails, the scanner is missing, or the
+  scanner exits with a code other than 0 or 3), its step fails with the cause in the review job log, the post job is
+  skipped, nothing is posted and no label changes: re-run the review the same way.
 - **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'
   account (user ID 250452267 in `.github/accounts.txt`), on an `agent/` branch. When the PR has the label `changes-requested`
   it starts `agent-manager.yml` and prints `Manager shift started for PR #<n>`; otherwise `Review passed or no result; no fix

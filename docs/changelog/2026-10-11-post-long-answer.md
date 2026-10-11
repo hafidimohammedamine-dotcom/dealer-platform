@@ -19,8 +19,9 @@ are gone.
   the first BEGIN left open), so a token or a key block is never handed over in part; when nothing before the cap is
   safe to keep, the text is withheld and a notice is handed over. Every cut ends with a fixed `(truncated)` line so a
   reader sees the end is missing even when the post job's own cut does not run. Bytes that are not UTF-8 become U+FFFD
-  and NULs are removed before the cap is measured, so the handed text is never over 120000 bytes. The text goes jq ->
-  python -> stdout (no temp file), and the output block is printed only once the whole text is in hand: a failing jq or
+  and NULs are removed before the cap is measured, so the handed text is never over 120000 bytes. The cut uses no temp
+  file (jq -> python -> stdout); the scan writes the cut text to a temporary directory deleted on exit; and the output
+  block is printed only once the whole text is in hand: a failing jq or
   python exits non-zero with no half-written block. End-to-end tests (hand-off, then post): a secret across 60000
   (withheld); 70000 four-byte characters in the answer, about 30000 posted with the marker; a token across the
   120000-byte cap (never handed over); a key block across the cap after multibyte filler (never handed over or posted).
@@ -28,3 +29,9 @@ are gone.
   FAIL and sets `changes-requested` whatever the review said; the review's result is lost (no job log holds it), and a
   founder re-runs the review (`docs/runbooks/ci-guards.md`, "Post the result").
 - The cut is `scripts/check-claude-answer-cut.py` (pinned; its rules are in its docstring), run by the hand-off script.
+- Failure path: if the hand-off fails (jq or the cutter fails, the scanner is missing, or the scanner exits with a code
+  other than 0 or 3), the step fails with the cause in the review job log, the post job is skipped, nothing is posted
+  and no label changes; a founder re-runs the review. A cut PASS keeps its labels (its verdict line is posted; a PASS
+  has no findings to lose); only a withheld answer loses its result.
+- `scripts/check-scan-lib.sh` (pinned): the one gitleaks call (`scan_answer <dir>`) both the hand-off and the post
+  script use; `check-review-post.sh` stops if the runner lacks the C.UTF-8 locale (bash would count bytes).

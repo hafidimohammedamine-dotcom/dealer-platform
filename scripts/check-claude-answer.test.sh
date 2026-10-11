@@ -117,9 +117,16 @@ out=$(bash "$SCRIPT" answer "$W/leak.json" 2>&1); grep -q "LEAKME" <<<"$out" && 
 { rep 100 a; echo; rep 119900 y; echo; echo "key LEAKME here"; } | mk_exec "$W/leak2.json"; handed "$W/leak2.json"   # the secret is past the cut: the scan sees the cut text
 [ "$H" = "$(rep 100 a)"$'\n\n(truncated)' ] && t PASS "answer: the scan runs on the cut text (a secret dropped by the cut is not there to withhold)" || t FAIL "answer: leak after cut ($HB)"
 out=$(GL_RC=2 bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
-[ "$rc" != 0 ] && ! grep -q "answer<<\|has_result" <<<"$out" && grep -q "gitleaks failed" <<<"$out" && t PASS "answer: a scanner error exits non-zero and hands nothing over" || t FAIL "answer: scanner error (rc=$rc)"
-out=$(GITLEAKS_BIN="$W/no-such-gitleaks" bash "$SCRIPT" answer "$W/exec.json"); H=$(handoff_text "$out")
-[ "$H" = "(answer withheld: no secret scanner in this job)" ] && t PASS "answer: no scanner at all: the notice is handed over, never the text" || t FAIL "answer: no scanner: $H"
+[ "$rc" != 0 ] && ! grep -q "answer<<\|has_result" <<<"$out" && grep -q "secret scan failed with exit code 2" <<<"$out" && t PASS "answer: a scanner error exits non-zero and hands nothing over" || t FAIL "answer: scanner error (rc=$rc)"
+out=$(GITLEAKS_BIN="$W/no-such-gitleaks" bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
+[ "$rc" != 0 ] && ! grep -q "answer<<\|has_result\|REVIEW TEAM" <<<"$out" && grep -q "no gitleaks at" <<<"$out" && t PASS "answer: no scanner at all is an error: exit non-zero, nothing handed over, the cause in the log" || t FAIL "answer: no scanner (rc=$rc)"
+# The cutter's own edge cases (through the hand-off, with the stub scanner):
+{ echo "REVIEW TEAM RESULT: PASS"; echo '-----END TEST BLOCK-----'; rep 119900 y; echo; rep 5000 z; } | mk_exec "$W/strayend.json"; handed "$W/strayend.json"
+[ "$H" = "REVIEW TEAM RESULT: PASS"$'\n-----END TEST BLOCK-----\n'"$(rep 119900 y)"$'\n\n(truncated)' ] && t PASS "answer: a stray END line that closes nothing changes nothing" || t FAIL "answer: stray END alone ($HB)"
+{ printf 'REVIEW TEAM RESULT: PASS\r\n'; rep 119950 y; printf '\r\n'; rep 5000 z; } | mk_exec "$W/crlf.json"; handed "$W/crlf.json"
+[ "$H" = $'REVIEW TEAM RESULT: PASS\r\n'"$(rep 119950 y)"$'\r\n\n(truncated)' ] && t PASS "answer: CRLF line breaks: the cut is at the LF (the CR before it is kept, the first line still matches)" || t FAIL "answer: CRLF ($HB)"
+{ rep 119000 y; printf '\t'; rep 5000 z; } | mk_exec "$W/tab.json"; handed "$W/tab.json"
+[ "$H" = "$(rep 119000 y)"$'\n\n(truncated)' ] && t PASS "answer: with no line break or space, the cut is at the last tab" || t FAIL "answer: tab ($HB)"
 # Failures mid-way: exit non-zero, no half-written answer<< block, no temp file.
 S=$(mktemp -d "$W/stub.XXXXXX"); E=$(mktemp -d "$W/tmp.XXXXXX")
 printf '#!/usr/bin/env bash\nexit 1\n' > "$S/python3"; chmod +x "$S/python3"

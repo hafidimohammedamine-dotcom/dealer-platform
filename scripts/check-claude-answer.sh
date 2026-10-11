@@ -27,19 +27,11 @@ if [ "$have" != 1 ]; then echo "has_result=false"; exit 0; fi
 text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC" | python3 -I "$(dirname "$0")/check-claude-answer-cut.py")
 # Secret scan BEFORE the text leaves this job: the post job gets it as a step `env:` value, and GitHub prints those in the
 # step's log header (public logs). Anything that looks like a secret is replaced by a fixed notice (the post job then posts
-# FAIL); no scanner at all is the same notice; a scanner error fails this step (nothing is handed over).
-GITLEAKS="${GITLEAKS_BIN:-/tmp/gitleaks}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -x "$GITLEAKS" ]; then
-  T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan" "$T/noignore"; printf '%s\n' "$text" > "$T/scan/answer.md"
-  set +e
-  "$GITLEAKS" detect --no-git --source="$T/scan" --config="$ROOT/.gitleaks.toml" --gitleaks-ignore-path="$T/noignore" \
-    --ignore-gitleaks-allow --exit-code 3 --redact >/dev/null 2>&1
-  rc=$?
-  set -e
-  case $rc in 0) ;; 3) text="(answer withheld: it contained something that looks like a secret)";; *) echo "ERROR: gitleaks failed with exit code $rc" >&2; exit 1;; esac
-else
-  text="(answer withheld: no secret scanner in this job)"
-fi
+# FAIL); a missing scanner or a scanner error fails this step (nothing is handed over, the post job is skipped).
+. "$(dirname "$0")/check-scan-lib.sh"
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan"; printf '%s\n' "$text" > "$T/scan/answer.md"
+set +e; scan_answer "$T/scan"; rc=$?; set -e
+case $rc in 0) ;; 3) text="(answer withheld: it contained something that looks like a secret)";; *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;; esac
 d="ANSWER_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"   # a delimiter the answer cannot contain by accident
 echo "has_result=true"
 echo "answer<<$d"
