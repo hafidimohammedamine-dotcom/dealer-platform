@@ -6,17 +6,26 @@
 //
 //   local/no-payload-instance-access  outside packages/data: no identifier, key, string or type named
 //                                     payload / getPayload* / Payload / BasePayload (only `payload.logger`),
-//                                     no `Reflect`, and no dynamic key (`obj[k]`) that is called, chained
-//                                     or destructured.
-//   local/no-restricted-modules       outside packages/data: no value import of `payload` (type-only imports
-//                                     are fine), no database client at all, no import()/require() with a
-//                                     computed name, no `require` or `createRequire` used as a value.
+//                                     no `Reflect`, no `Object.values/entries/assign/getOwnProperty*` (and no
+//                                     other use of `Object` than `Object.<fixed name>`), and no computed read
+//                                     whose key is not a fixed string (`obj[k]`), unless it is only assigned to.
+//   local/no-restricted-modules       everywhere but packages/data: no value import of `payload` (type-only
+//                                     imports are fine), no database client at all, no import()/require() with
+//                                     a computed name, no `require` or `createRequire` used as a value.
+//                                     Everywhere (packages/data too, except spawnAllowedPaths): no `vm`,
+//                                     `worker_threads`, `child_process`, `module`, `cluster`, `repl`, and no
+//                                     `Module._load`, `process.getBuiltinModule`, `process.binding`, `dlopen`.
+//                                     Nothing outside services/desking/ imports from services/desking/src/db/.
 //   local/no-override-access          everywhere: `overrideAccess` is only ever the literal `false`. In
 //                                     packages/data every Local API call passes one object literal with
-//                                     `overrideAccess: false`, `depth` and `versions`, no spreads and no
-//                                     computed keys, and a Local API method is only read to call it directly:
+//                                     `overrideAccess: false`, `depth`, `versions` and `user` or `req`, no
+//                                     spreads, no computed keys, `showHiddenFields` only as `false`, and a
+//                                     Local API method is only read to call it directly:
 //                                     no dynamic or numeric keys, no `Reflect`, no `.values()`/`.entries()`/
 //                                     property descriptors, and no `.db` outside payloadDbAllowedPaths.
+//
+// The `overrideAccess: true` system-job allow-list is NOT in code. It is the founder-only file
+// packages/data/override-allowlist.txt, read by eslint-rules/override-allowlist.mjs when the config loads.
 //
 // Inline eslint comments are off (see eslint.config.mjs), so none of these can be disabled in a file.
 // The last locks are Postgres row-level security and the cross-dealer leak tests.
@@ -27,25 +36,36 @@
 import { noOverrideAccess } from './eslint-rules/no-override-access.mjs';
 import { noPayloadInstanceAccess } from './eslint-rules/no-payload-instance-access.mjs';
 import { noRestrictedModules } from './eslint-rules/no-restricted-modules.mjs';
+import { readOverrideAllowlist } from './eslint-rules/override-allowlist.mjs';
 import {
   dbClientAllowedPaths,
-  overrideAccessAllowedPaths,
   payloadDbAllowedPaths,
   payloadNameAllowedPaths,
+  spawnAllowedPaths,
 } from './eslint-rules/payload-lists.mjs';
+
+export {
+  overrideAllowlistFile,
+  parseOverrideAllowlist,
+  readOverrideAllowlist,
+} from './eslint-rules/override-allowlist.mjs';
 
 export {
   allowedPayloadMembers,
   allowedPayloadValueImports,
   dbClientAllowedPaths,
   isDbClientModule,
+  isProcessModule,
+  loaderMembers,
   localApiMethods,
-  overrideAccessAllowedPaths,
+  objectBannedMembers,
   payloadDbAllowedPaths,
   payloadNameAllowedPaths,
   rawDbMember,
   reflectiveMembers,
   requiredLocalApiOptions,
+  requiredOneOfLocalApiOptions,
+  spawnAllowedPaths,
 } from './eslint-rules/payload-lists.mjs';
 
 // ---------------------------------------------------------------------------------------------
@@ -62,14 +82,17 @@ export const localPlugin = {
 
 /**
  * Flat-config blocks for the Payload bans. The options exist so tests can prove each allow-list
- * applies only to its own paths.
- * @param {{ overrideAccessAllowed?: string[], payloadNameAllowed?: string[], dbClientAllowed?: string[], payloadDbAllowed?: string[] }} [lists]
+ * applies only to its own paths. Without `overrideAccessAllowed`, the system-job list is read from the
+ * founder-only file (`allowlist` points tests at a temporary one).
+ * @param {{ overrideAccessAllowed?: string[], payloadNameAllowed?: string[], dbClientAllowed?: string[], payloadDbAllowed?: string[], spawnAllowed?: string[], allowlist?: { file?: string, root?: string } }} [lists]
  */
 export function payloadBanConfigs({
-  overrideAccessAllowed = overrideAccessAllowedPaths,
+  allowlist,
+  overrideAccessAllowed = readOverrideAllowlist(allowlist),
   payloadNameAllowed = payloadNameAllowedPaths,
   dbClientAllowed = dbClientAllowedPaths,
   payloadDbAllowed = payloadDbAllowedPaths,
+  spawnAllowed = spawnAllowedPaths,
 } = {}) {
   /** @type {import('@typescript-eslint/utils').TSESLint.FlatConfig.Config[]} */
   const configs = [
@@ -90,6 +113,12 @@ export function payloadBanConfigs({
     configs.push({
       files: dbClientAllowed,
       rules: { 'local/no-restricted-modules': ['error', { allowDbClients: true }] },
+    });
+  }
+  if (spawnAllowed.length > 0) {
+    configs.push({
+      files: spawnAllowed,
+      rules: { 'local/no-restricted-modules': ['error', { allowSpawn: true }] },
     });
   }
   if (payloadNameAllowed.length > 0) {

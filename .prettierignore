@@ -11,3 +11,7 @@ SETUP.md
 scripts/check-*
 scripts/gitleaks-config*
 .gitleaks.toml
+.gitleaksignore
+.yarnrc.yml
+.mcp.json
+CLAUDE.local.md

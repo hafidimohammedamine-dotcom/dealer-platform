@@ -1,7 +1,13 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { payloadBanConfigs, payloadDbAllowedPaths } from '../../../eslint.payload-ban.mjs';
+import {
+  dbClientAllowedPaths,
+  payloadBanConfigs,
+  payloadDbAllowedPaths,
+  spawnAllowedPaths,
+} from '../../../eslint.payload-ban.mjs';
 import { findFiles, listWorkspaces } from './repo.js';
 import {
   ACCESS,
@@ -56,26 +62,38 @@ describe('the bans cannot be switched off from inside the repo', () => {
       const config = await eslint.calculateConfigForFile(
         join(root, `services/intake/src/x.${ext}`),
       );
-      expect(severity(config?.rules?.[ACCESS]), ext).toBeOneOf([2, 'error']);
+      expect(severity(config?.rules?.['local/no-payload-instance-access']), ext).toBeOneOf([
+        2,
+        'error',
+      ]);
     }
   });
 
   it('turns every ban on with error severity for every workspace', async () => {
     for (const workspace of listWorkspaces(root)) {
       const config = await eslint.calculateConfigForFile(join(root, workspace, 'src/x.ts'));
-      const rules: Record<string, unknown> = config?.rules ?? {};
+      const {
+        'local/no-override-access': override,
+        'local/no-restricted-modules': modules,
+        'local/no-payload-instance-access': access,
+        '@typescript-eslint/consistent-type-assertions': casts,
+        'no-eval': noEval,
+        'no-implied-eval': noImpliedEval,
+        'no-new-func': noNewFunc,
+        'no-with': noWith,
+      } = config?.rules ?? {};
       const isData = workspace === 'packages/data';
       expect(config?.linterOptions?.noInlineConfig, workspace).toBe(true);
-      expect(severity(rules[OVERRIDE]), workspace).toBeOneOf([2, 'error']);
-      expect(severity(rules[MODULES]), workspace).toBeOneOf([2, 'error']);
-      expect(severity(rules[ACCESS]), workspace).toBeOneOf(isData ? [0, 'off'] : [2, 'error']);
-      expect(severity(rules[CASTS]), workspace).toBeOneOf([2, 'error']);
-      for (const rule of ['no-eval', 'no-implied-eval', 'no-new-func', 'no-with']) {
-        expect(severity(rules[rule]), `${workspace} ${rule}`).toBeOneOf([2, 'error']);
+      expect(severity(override), workspace).toBeOneOf([2, 'error']);
+      expect(severity(modules), workspace).toBeOneOf([2, 'error']);
+      expect(severity(access), workspace).toBeOneOf(isData ? [0, 'off'] : [2, 'error']);
+      expect(severity(casts), workspace).toBeOneOf([2, 'error']);
+      for (const rule of [noEval, noImpliedEval, noNewFunc, noWith]) {
+        expect(severity(rule), workspace).toBeOneOf([2, 'error']);
       }
       if (!isData) {
-        expect(options(rules[ACCESS]), workspace).toEqual({});
-        expect(options(rules[MODULES]), workspace).toEqual({});
+        expect(options(access), workspace).toEqual({});
+        expect(options(modules), workspace).toEqual({});
       }
     }
   });
@@ -135,16 +153,19 @@ describe('the tests lint with the same config as `yarn lint`', () => {
 describe('allow-lists apply only to their own paths', () => {
   const blockFor = (glob: string, configs: ReturnType<typeof payloadBanConfigs>) =>
     configs.filter((config) => config.files?.includes(glob));
+  const none = { overrideAccessAllowed: [] };
 
   it('builds one block per non-empty list', () => {
-    expect(payloadBanConfigs({ dbClientAllowed: [], payloadDbAllowed: [] })).toHaveLength(2);
+    expect(payloadBanConfigs({ ...none })).toHaveLength(3);
+    expect(payloadBanConfigs({ ...none, spawnAllowed: [] })).toHaveLength(2);
     const configs = payloadBanConfigs({
       overrideAccessAllowed: ['services/jobs/**'],
       payloadNameAllowed: ['services/messaging/src/telnyx/body.ts'],
       dbClientAllowed: ['services/desking/src/db/**'],
       payloadDbAllowed: ['packages/data/src/tenant-transaction.ts'],
+      spawnAllowed: ['infra/checks/src/x.test.ts'],
     });
-    expect(configs).toHaveLength(6);
+    expect(configs).toHaveLength(7);
     expect(blockFor('packages/data/src/tenant-transaction.ts', configs)[0]?.rules).toEqual({
       [OVERRIDE]: ['error', { requireOptions: true, allowDb: true }],
     });
@@ -154,6 +175,9 @@ describe('allow-lists apply only to their own paths', () => {
     });
     expect(blockFor('services/desking/src/db/**', configs)[0]?.rules).toEqual({
       [MODULES]: ['error', { allowDbClients: true }],
+    });
+    expect(blockFor('infra/checks/src/x.test.ts', configs)[0]?.rules).toEqual({
+      [MODULES]: ['error', { allowSpawn: true }],
     });
   });
 
@@ -166,8 +190,17 @@ describe('allow-lists apply only to their own paths', () => {
     });
   });
 
-  it('allows payload.db in one reviewed file inside packages/data only', () => {
-    expect(payloadDbAllowedPaths).toEqual(['packages/data/src/tenant-transaction.ts']);
+  it('allows payload.db and database clients nowhere until a reviewed file is added', () => {
+    expect(payloadDbAllowedPaths).toEqual([]);
+    expect(dbClientAllowedPaths).toEqual([]);
+  });
+
+  it('lets only two exact test files start processes', () => {
+    expect(spawnAllowedPaths).toEqual([
+      'infra/checks/src/config.test.ts',
+      'infra/checks/src/payload-ban-config.test.ts',
+    ]);
+    for (const file of spawnAllowedPaths) expect(existsSync(join(root, file)), file).toBe(true);
   });
 });
 

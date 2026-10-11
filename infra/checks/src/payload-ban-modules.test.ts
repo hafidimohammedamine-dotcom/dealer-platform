@@ -3,8 +3,11 @@ import {
   allowedPayloadValueImports,
   dbClientAllowedPaths,
   isDbClientModule,
+  isProcessModule,
+  loaderMembers,
+  payloadBanConfigs,
 } from '../../../eslint.payload-ban.mjs';
-import { MODULES, errors, inside, outside } from './test-helpers/lint.js';
+import { MODULES, errors, errorsWith, eslintWith, inside, outside } from './test-helpers/lint.js';
 
 const desking = 'services/desking/src/db/credit.ts';
 
@@ -40,6 +43,12 @@ const dbClients = [
   'mongoose',
   '@libsql/client',
   '@supabase/supabase-js',
+  'massive',
+  '@sequelize/core',
+  '@sequelize/postgres',
+  '@effect/sql',
+  '@effect/sql-pg',
+  '@effect/sql-drizzle',
 ];
 
 describe('database clients', () => {
@@ -55,6 +64,9 @@ describe('database clients', () => {
       'bullmq',
       'node:fs',
       'payload/shared',
+      'massively',
+      '@effect/platform',
+      '@sequelizer/core',
     ]) {
       expect(isDbClientModule(name), name).toBe(false);
     }
@@ -75,12 +87,21 @@ describe('database clients', () => {
     for (const code of forms) expect(await errors(code, outside), code).toEqual([MODULES]);
   });
 
-  it('allows them in packages/data and the reviewed desking path only', async () => {
-    expect(dbClientAllowedPaths).toEqual(['services/desking/src/db/**']);
+  it('allows them in packages/data only, until a reviewed file is listed', async () => {
+    expect(dbClientAllowedPaths).toEqual([]);
     const code = "import x from 'pg';\nvoid x;\nawait import('kysely');\n";
     expect(await errors(code, inside)).toEqual([]);
-    expect(await errors(code, desking)).toEqual([]);
+    expect(await errors(code, desking)).toEqual([MODULES, MODULES]);
     expect(await errors(code, 'services/desking/src/deals.ts')).toEqual([MODULES, MODULES]);
+  });
+
+  it('allows them in a listed file only', async () => {
+    const listed = eslintWith(
+      payloadBanConfigs({ overrideAccessAllowed: [], dbClientAllowed: [desking] }),
+    );
+    const code = "import x from 'pg';\nvoid x;\n";
+    expect(await errorsWith(listed, code, desking)).toEqual([]);
+    expect(await errorsWith(listed, code, 'services/desking/src/db/other.ts')).toEqual([MODULES]);
   });
 });
 
@@ -159,5 +180,150 @@ describe('dynamic module loading', () => {
 
   it('allows dynamic loading inside packages/data', async () => {
     expect(await errors('await import(name);\nrequire(name);\n', inside)).toEqual([]);
+  });
+});
+
+describe('process, thread and VM modules and hand-made module loaders', () => {
+  const modules = [
+    'vm',
+    'node:vm',
+    'worker_threads',
+    'node:worker_threads',
+    'child_process',
+    'node:child_process',
+    'module',
+    'node:module',
+    'cluster',
+    'node:cluster',
+    'repl',
+    'node:repl',
+  ];
+
+  it.each(modules)('recognizes %s', (name) => {
+    expect(isProcessModule(name)).toBe(true);
+  });
+
+  it('does not match lookalike names', () => {
+    for (const name of ['node:fs', 'vmware', 'modules', 'node:modules', 'my-child_process']) {
+      expect(isProcessModule(name), name).toBe(false);
+    }
+  });
+
+  it.each(modules)('bans every way to load %s, in packages/data too', async (name) => {
+    const forms = [
+      `import x from '${name}';\nvoid x;\n`,
+      `import { y } from '${name}';\nvoid y;\n`,
+      `import type { T } from '${name}';\n`,
+      `import '${name}';\n`,
+      `export * from '${name}';\n`,
+      `import z = require('${name}');\nvoid z;\n`,
+      `await import('${name}');\n`,
+      `require('${name}');\n`,
+    ];
+    for (const file of [outside, inside, 'apps/admin/src/x.ts']) {
+      for (const code of forms)
+        expect(await errors(code, file), `${file} ${code}`).toEqual([MODULES]);
+    }
+  });
+
+  it('bans the members that load modules by hand, in packages/data too', async () => {
+    const forms = [
+      "process.getBuiltinModule('node:vm');\n",
+      "process['getBuiltinModule']('node:vm');\n",
+      "globalThis.process.getBuiltinModule('node:vm');\n",
+      "const { getBuiltinModule } = process;\nvoid getBuiltinModule('node:vm');\n",
+      'const { getBuiltinModule: g } = process;\nvoid g;\n',
+      "Module._load('pg');\n",
+      "Module['_load']('pg');\n",
+      'const { _load } = Module;\nvoid _load;\n',
+      "process.binding('natives');\n",
+      'const { binding } = process;\nvoid binding;\n',
+      'process[name]();\n',
+      'const { [name]: f } = process;\nvoid f;\n',
+      "process.dlopen(m, 'x');\n",
+      "process._linkedBinding('x');\n",
+      "module.require('pg');\n",
+      "process.mainModule.require('pg');\n",
+    ];
+    for (const file of [outside, inside]) {
+      for (const code of forms)
+        expect(await errors(code, file), `${file} ${code}`).toContain(MODULES);
+    }
+    expect(loaderMembers).toEqual([
+      'getBuiltinModule',
+      '_load',
+      '_linkedBinding',
+      'dlopen',
+      'require',
+    ]);
+  });
+
+  it('leaves ordinary members and destructuring alone', async () => {
+    const code = [
+      'void process.env;',
+      'void process.cwd();',
+      "void process['argv'];",
+      'void other.binding;',
+      'const { env, cwd } = process;',
+      'const { binding } = other;',
+      'void env; void cwd; void binding;',
+      '',
+    ].join('\n');
+    expect(await errors(code, outside)).toEqual([]);
+  });
+
+  it('allows them in the two listed test files only', async () => {
+    const code = "import { spawnSync } from 'node:child_process';\nvoid spawnSync;\n";
+    const [first] = ['infra/checks/src/config.test.ts'];
+    expect(await errors(code, first ?? '')).toEqual([]);
+    expect(await errors(code, 'infra/checks/src/other.test.ts')).toEqual([MODULES]);
+    expect(await errors("process.getBuiltinModule('node:vm');\n", first ?? '')).toEqual([]);
+  });
+});
+
+describe('nothing outside services/desking imports from services/desking/src/db', () => {
+  const imports = [
+    "import { creditApp } from '../../desking/src/db/credit.js';",
+    "import { creditApp } from '../../desking/src/db';",
+    "import '../../desking/src/db/credit.js';",
+    "export { x } from '../../desking/src/db/credit.js';",
+    "export * from '../../desking/src/db/credit.js';",
+    "import type { T } from '../../desking/src/db/credit.js';",
+    "import x = require('../../desking/src/db/credit.js');",
+    "await import('../../desking/src/db/credit.js');",
+    "require('../../desking/src/db/credit.js');",
+    "import x from 'services/desking/src/db/credit';",
+    "import x from '../services/desking/src/db/credit';",
+    "import x from '@dealer/desking/src/db/credit';",
+    "import x from '@dealer/desking/dist/db/credit.js';",
+    "import x from '@dealer/desking/db';",
+  ];
+
+  it.each(imports)('flags %s from another service', async (code) => {
+    expect(await errors(`${code}\n`, 'services/lenders/src/x.ts'), code).toContain(MODULES);
+  });
+
+  it('flags the import from apps and packages too', async () => {
+    const code = "import x from '../../../services/desking/src/db/credit.js';\nvoid x;\n";
+    expect(await errors(code, 'apps/admin/src/deep/x.ts')).toEqual([MODULES]);
+    expect(await errors(code, 'packages/platform/src/x.ts')).toEqual([MODULES]);
+  });
+
+  it('allows imports inside services/desking and other desking paths', async () => {
+    const code = "import { creditApp } from './db/credit.js';\nvoid creditApp;\n";
+    expect(await errors(code, 'services/desking/src/deals.ts')).toEqual([]);
+    expect(await errors("import x from './credit.js';\nvoid x;\n", desking)).toEqual([]);
+    expect(
+      await errors(
+        "import x from '../../desking/src/deals.js';\nvoid x;\n",
+        'services/lenders/src/x.ts',
+      ),
+    ).toEqual([]);
+    expect(
+      await errors("import x from '@dealer/desking';\nvoid x;\n", 'services/lenders/src/x.ts'),
+    ).toEqual([]);
+    expect(
+      await errors("import x from '../desking-db/x.js';\nvoid x;\n", 'services/lenders/src/x.ts'),
+    ).toEqual([]);
   });
 });

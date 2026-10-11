@@ -28,6 +28,23 @@ export const eslint = new ESLint({
   overrideConfig: repoConfig,
 });
 
+/** Like `eslint`, with extra flat-config blocks added after the repo's own (for allow-list tests). */
+export const eslintWith = (extra: unknown): ESLint =>
+  new ESLint({
+    cwd: root,
+    overrideConfigFile: true,
+    overrideConfig: [...repoConfig, ...flatConfigOf({ default: extra })],
+  });
+
+/** Error rule ids of the bans for `code` linted as `file` with a given ESLint instance. */
+export async function errorsWith(linter: ESLint, code: string, file: string): Promise<string[]> {
+  const [result] = await linter.lintText(code, { filePath: join(root, file) });
+  return (result?.messages ?? [])
+    .filter((message) => message.severity === 2)
+    .map((message) => message.ruleId ?? 'parse-error')
+    .filter((id) => id === 'parse-error' || ours.has(id));
+}
+
 export const ACCESS = 'local/no-payload-instance-access';
 export const MODULES = 'local/no-restricted-modules';
 export const OVERRIDE = 'local/no-override-access';

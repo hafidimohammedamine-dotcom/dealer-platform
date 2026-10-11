@@ -1,19 +1,21 @@
 import { parse } from 'yaml';
-import { isRecord } from './repo.js';
+import { isMap, toMaps } from './repo.js';
 
 /**
  * The settings `.yarnrc.yml` must hold, with their required values. The file is founder-owned and pinned
  * (`.github/pins.txt`), so this check follows it, not the other way round.
  */
-export const requiredYarnrc: Readonly<Record<string, unknown>> = {
-  nodeLinker: 'node-modules',
-  enableScripts: false,
-};
+const requiredEntries: readonly (readonly [string, unknown])[] = [
+  ['nodeLinker', 'node-modules'],
+  ['enableScripts', false],
+];
+const optionalEntries: readonly (readonly [string, unknown])[] = [['enableTelemetry', false]];
+export const requiredYarnrc: Readonly<Record<string, unknown>> =
+  Object.fromEntries(requiredEntries);
 
 /** Settings `.yarnrc.yml` may hold, with the only value allowed for each. */
-export const optionalYarnrc: Readonly<Record<string, unknown>> = {
-  enableTelemetry: false,
-};
+export const optionalYarnrc: Readonly<Record<string, unknown>> =
+  Object.fromEntries(optionalEntries);
 
 /** `dependenciesMeta` keys: one exact package version (`name@1.2.3`, scoped or not). */
 const builtEntryKey = /^(@[^@/\s]+\/)?[^@/\s]+@\d+\.\d+\.\d+$/;
@@ -24,16 +26,16 @@ const builtEntryKey = /^(@[^@/\s]+\/)?[^@/\s]+@\d+\.\d+\.\d+$/;
  * Anything else (a range, another key, `built: false` as noise) fails.
  */
 function yarnrcDependenciesMetaProblems(meta: unknown): string[] {
-  if (!isRecord(meta)) return ['.yarnrc.yml: dependenciesMeta must be an object'];
+  if (!isMap(meta)) return ['.yarnrc.yml: dependenciesMeta must be an object'];
   const problems: string[] = [];
-  for (const [key, value] of Object.entries(meta)) {
-    if (!builtEntryKey.test(key)) {
-      problems.push(`.yarnrc.yml: dependenciesMeta key must be an exact package version: ${key}`);
+  for (const [key, value] of meta) {
+    const name = String(key);
+    if (!builtEntryKey.test(name)) {
+      problems.push(`.yarnrc.yml: dependenciesMeta key must be an exact package version: ${name}`);
       continue;
     }
-    const keys = isRecord(value) ? Object.keys(value) : [];
-    if (!isRecord(value) || keys.length !== 1 || value['built'] !== true) {
-      problems.push(`.yarnrc.yml: dependenciesMeta entry must be exactly { built: true }: ${key}`);
+    if (!isMap(value) || value.size !== 1 || value.get('built') !== true) {
+      problems.push(`.yarnrc.yml: dependenciesMeta entry must be exactly { built: true }: ${name}`);
     }
   }
   return problems;
@@ -44,24 +46,27 @@ export function yarnrcProblems(text: string): string[] {
   let doc: unknown;
   try {
     // Duplicate keys are an error, so a later `enableScripts: true` cannot hide behind an earlier line.
-    doc = parse(text, { uniqueKeys: true });
+    doc = parse(text, { uniqueKeys: true, mapAsMap: true });
   } catch {
     return ['.yarnrc.yml: not valid YAML (or a key appears twice)'];
   }
-  if (!isRecord(doc)) return ['.yarnrc.yml: must be a mapping of settings'];
+  if (!isMap(doc)) return ['.yarnrc.yml: must be a mapping of settings'];
   const problems: string[] = [];
-  for (const key of Object.keys(doc)) {
-    if (key === 'dependenciesMeta') problems.push(...yarnrcDependenciesMetaProblems(doc[key]));
-    else if (!(key in requiredYarnrc) && !(key in optionalYarnrc)) {
-      problems.push(`.yarnrc.yml: setting not allowed: ${key}`);
+  const required = new Map(requiredEntries);
+  const optional = new Map(optionalEntries);
+  for (const key of doc.keys()) {
+    if (key === 'dependenciesMeta') problems.push(...yarnrcDependenciesMetaProblems(doc.get(key)));
+    else if (!required.has(String(key)) && !optional.has(String(key))) {
+      problems.push(`.yarnrc.yml: setting not allowed: ${String(key)}`);
     }
   }
-  for (const [key, value] of Object.entries(requiredYarnrc)) {
-    if (doc[key] !== value) problems.push(`.yarnrc.yml: ${key} must be ${String(value)}`);
+  for (const [key, value] of required) {
+    if (doc.get(key) !== value) problems.push(`.yarnrc.yml: ${key} must be ${String(value)}`);
   }
-  for (const [key, value] of Object.entries(optionalYarnrc)) {
-    if (key in doc && doc[key] !== value)
+  for (const [key, value] of optional) {
+    if (doc.has(key) && doc.get(key) !== value) {
       problems.push(`.yarnrc.yml: ${key} must be ${String(value)}`);
+    }
   }
   return problems;
 }
@@ -71,17 +76,40 @@ export function yarnrcProblems(text: string): string[] {
  * (that would let its install scripts run).
  */
 export function dependenciesMetaProblems(manifest: unknown, where: string): string[] {
-  if (!isRecord(manifest)) return [`${where}: not a JSON object`];
-  const meta = manifest['dependenciesMeta'];
+  const doc = toMaps(manifest);
+  if (!isMap(doc)) return [`${where}: not a JSON object`];
+  const meta = doc.get('dependenciesMeta');
   if (meta === undefined) return [];
-  if (!isRecord(meta)) return [`${where}: dependenciesMeta must be an object`];
+  if (!isMap(meta)) return [`${where}: dependenciesMeta must be an object`];
   const problems: string[] = [];
-  for (const [name, settings] of Object.entries(meta)) {
-    if (isRecord(settings) && settings['built'] === true) {
-      problems.push(`${where}: dependenciesMeta.${name}.built must not be true`);
+  for (const [name, settings] of meta) {
+    if (isMap(settings) && settings.get('built') === true) {
+      problems.push(`${where}: dependenciesMeta.${String(name)}.built must not be true`);
     }
   }
   return problems;
+}
+
+/** Script names that run on their own during install or pack. A workspace's own are not stopped by `enableScripts: false`. */
+export const lifecycleScripts: readonly string[] = [
+  'preinstall',
+  'install',
+  'postinstall',
+  'prepare',
+  'prepack',
+  'postpack',
+];
+
+/** Problems with one package.json: it must not define an install or pack lifecycle script. */
+export function lifecycleScriptProblems(manifest: unknown, where: string): string[] {
+  const doc = toMaps(manifest);
+  if (!isMap(doc)) return [`${where}: not a JSON object`];
+  const scripts = doc.get('scripts');
+  if (scripts === undefined) return [];
+  if (!isMap(scripts)) return [`${where}: scripts must be an object`];
+  return lifecycleScripts
+    .filter((name) => scripts.has(name))
+    .map((name) => `${where}: scripts.${name} must not exist (lifecycle scripts stay off)`);
 }
 
 /** Problems with one URL value of an env template. Never repeats the value itself. */

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 
 export const packageName = '@dealer/infra-checks';
 
@@ -32,6 +33,17 @@ export function readJson<T>(
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+export const isMap = (value: unknown): value is Map<unknown, unknown> => value instanceof Map;
+
+/**
+ * Copies a JSON-like value with every plain object turned into a Map (a round trip through the YAML parser, which
+ * reads JSON and can return Maps), so it can be read with `.get()` and iterated without a dynamic key.
+ */
+export function toMaps(value: unknown): unknown {
+  const text = JSON.stringify(value);
+  return text === undefined ? undefined : parse(text, { mapAsMap: true });
+}
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');

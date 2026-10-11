@@ -5,6 +5,7 @@ import {
   reflectionName,
   reflectiveMembers,
   requiredLocalApiOptions,
+  requiredOneOfLocalApiOptions,
 } from './payload-lists.mjs';
 import { memberName, outermostWrapper, propertyName, staticString, unwrap } from './ast.mjs';
 
@@ -12,13 +13,18 @@ import { memberName, outermostWrapper, propertyName, staticString, unwrap } from
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
  * @typedef {import('@typescript-eslint/utils').TSESTree.CallExpression} CallExpression
  * @typedef {{ requireOptions?: boolean, allowDb?: boolean }} OverrideOptions
- * @typedef {'notFalse' | 'notLiteral' | 'spread' | 'computedKey' | 'missing' | 'notCalled' | 'dynamicKey' | 'reflection' | 'rawDb'} OverrideMessage
+ * @typedef {'notFalse' | 'notLiteral' | 'spread' | 'computedKey' | 'missing' | 'missingOneOf' | 'showHidden' | 'notCalled' | 'dynamicKey' | 'reflection' | 'rawDb'} OverrideMessage
  */
 
 // ---------------------------------------------------------------------------------------------
 // local/no-override-access
 //
-// Everywhere: `overrideAccess` is only the literal `false`.
+// Everywhere: `overrideAccess` is only the literal `false`. Only a static `overrideAccess` key is looked for
+// outside packages/data. A dynamic key or a spread there (`{ [k]: true }`, `{ ...opts }`) is left alone on
+// purpose: `overrideAccess` only means something to a Local API call, and outside packages/data nothing can
+// get hold of the Payload instance (local/no-payload-instance-access bans its names, `Reflect`, `Object.values`
+// and friends and every non-fixed key read, and local/no-restricted-modules bans the `payload` value import,
+// DB clients and hand-made module loaders). A test proves each of those forms is flagged by those rules.
 // With `requireOptions` (packages/data): every Local API call passes one object literal with the
 // required options, and a Local API method is only ever read to call it directly (`x.find({...})`
 // or `x.find.call(x, {...})`). So no destructured `find`, no `[x.find][0](...)`, no `.apply`/`.bind`,
@@ -88,6 +94,17 @@ function isDynamicKey(key) {
 }
 
 /**
+ * `null` or `undefined`: a `user` or `req` set to that is no user at all.
+ * @param {Node} value
+ */
+function isEmptyValue(value) {
+  return (
+    (value.type === 'Literal' && value.value === null) ||
+    (value.type === 'Identifier' && value.name === 'undefined')
+  );
+}
+
+/**
  * Problems with the options object of one Local API call.
  * @param {import('@typescript-eslint/utils').TSESLint.RuleContext<OverrideMessage, [OverrideOptions?]>} context
  * @param {CallExpression} call
@@ -109,9 +126,18 @@ function checkLocalApiOptions(context, call, options) {
     const isFalse = property.value.type === 'Literal' && property.value.value === false;
     if (name === undefined && !isFalse)
       context.report({ node: property, messageId: 'computedKey' });
+    if (name === 'showHiddenFields' && !isFalse) {
+      context.report({ node: property, messageId: 'showHidden' });
+    }
+    if (name !== undefined && requiredOneOfLocalApiOptions.includes(name)) {
+      if (isEmptyValue(property.value)) keys.delete(name);
+    }
   }
   for (const name of requiredLocalApiOptions) {
     if (!keys.has(name)) context.report({ node: options, messageId: 'missing', data: { name } });
+  }
+  if (!requiredOneOfLocalApiOptions.some((name) => keys.has(name))) {
+    context.report({ node: options, messageId: 'missingOneOf' });
   }
 }
 
@@ -150,6 +176,10 @@ export const noOverrideAccess = {
       computedKey:
         'No computed keys in Local API options unless the value is the literal `false` (CLAUDE.md, Payload rule 1).',
       missing: 'Local API options must set `{{name}}` explicitly (CLAUDE.md, Payload rule 4).',
+      missingOneOf:
+        'Local API options must pass the logged-in `user` (or the `req` that carries it), not null or undefined (CLAUDE.md, Payload rule 1).',
+      showHidden:
+        '`showHiddenFields` must be the literal `false` or left out: `true` returns fields access rules hide (CLAUDE.md, Payload rule 1).',
       notCalled:
         'In packages/data a Local API method is only read to call it directly (`x.find({...})` or `x.find.call(x, {...})`), so its options can be checked (CLAUDE.md, Payload rules 1 and 4).',
       dynamicKey:

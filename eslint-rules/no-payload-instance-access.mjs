@@ -3,15 +3,17 @@ import {
   allowedPayloadMembers,
   instanceName,
   memberOwnerName,
+  objectBannedMembers,
+  objectName,
   reflectionName,
 } from './payload-lists.mjs';
-import { moduleNameParents, outermostWrapper, staticString, unwrap } from './ast.mjs';
+import { memberName, moduleNameParents, outermostWrapper, staticString, unwrap } from './ast.mjs';
 
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
  * @typedef {import('@typescript-eslint/utils').TSESTree.MemberExpression} MemberExpression
  * @typedef {{ allowNames?: boolean }} InstanceOptions
- * @typedef {'named' | 'dynamic'} InstanceMessage
+ * @typedef {'named' | 'dynamic' | 'reflective'} InstanceMessage
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -54,22 +56,33 @@ function isModuleName(node) {
 }
 
 /**
- * A dynamic key read (`obj[k]`) whose result is then called, read from again or destructured.
+ * A computed read whose key is not a fixed string (`obj[k]`), in any use: called, chained, destructured,
+ * or saved to a variable (`const p = req[k]; p.find()`). A plain write (`obj[k] = 1`, `delete obj[k]`) is not a read.
  * @param {MemberExpression} node
  */
-function isUsedDynamicMember(node) {
+function isDynamicRead(node) {
   if (!node.computed || staticString(node.property) !== undefined) return false;
   const outer = outermostWrapper(node);
   const { parent } = outer;
-  if (!parent) return false;
-  if (parent.type === 'CallExpression' || parent.type === 'NewExpression') {
-    return parent.callee === outer;
+  if (parent?.type === 'AssignmentExpression') {
+    return !(parent.left === outer && parent.operator === '=');
   }
-  if (parent.type === 'TaggedTemplateExpression') return parent.tag === outer;
-  if (parent.type === 'MemberExpression') return parent.object === outer;
-  if (parent.type === 'VariableDeclarator') return parent.id.type === 'ObjectPattern';
-  if (parent.type === 'AssignmentExpression') return parent.left.type === 'ObjectPattern';
-  return false;
+  return !(parent?.type === 'UnaryExpression' && parent.operator === 'delete');
+}
+
+/**
+ * Is this `Object` anything other than `Object.<fixed name that is not a reflective helper>`?
+ * `Object.values(req)`, `Object.assign`, `const O = Object` and `globalThis.Object` all hand out properties unnamed.
+ * @param {Node} node an Identifier or literal named `Object`
+ */
+function isUnsafeObjectUse(node) {
+  const { parent } = node;
+  if (parent?.type === 'Property' && parent.key === node && !parent.computed && !parent.shorthand) {
+    return false;
+  }
+  if (parent?.type !== 'MemberExpression' || parent.object !== node) return true;
+  const name = memberName(parent);
+  return name === undefined || objectBannedMembers.includes(name);
 }
 
 /** @type {import('@typescript-eslint/utils').TSESLint.RuleModule<InstanceMessage, [InstanceOptions?]>} */
@@ -88,6 +101,8 @@ export const noPayloadInstanceAccess = {
         '`{{name}}` is not allowed outside packages/data (only `payload.logger`). Use the tenant-safe helper in packages/data, or rename an unrelated value (for example `body`). See CLAUDE.md, Payload rule 1.',
       dynamic:
         'A dynamic key or reflection here could reach the Payload instance. Use a fixed property name, `.at()` or a Map. See CLAUDE.md, Payload rule 1.',
+      reflective:
+        '`Object.values`, `entries`, `assign`, `getOwnProperty*` and any other use of `Object` than `Object.<fixed name>` could reach the Payload instance. Use `Object.keys` with fixed names, or a Map. See CLAUDE.md, Payload rule 1.',
     },
   },
   defaultOptions: [{}],
@@ -106,6 +121,11 @@ export const noPayloadInstanceAccess = {
         context.report({ node, messageId: 'dynamic' });
         return;
       }
+      if (objectName.test(name) && isUnsafeObjectUse(node)) {
+        reported.add(node.range[0]);
+        context.report({ node, messageId: 'reflective' });
+        return;
+      }
       if (allowNames || !instanceName.test(name)) return;
       if (memberOwnerName.test(name) && isAllowedMemberUse(node)) return;
       reported.add(node.range[0]);
@@ -122,7 +142,7 @@ export const noPayloadInstanceAccess = {
         if (!isModuleName(node)) checkName(node, staticString(node));
       },
       MemberExpression: (node) => {
-        if (isUsedDynamicMember(node)) context.report({ node, messageId: 'dynamic' });
+        if (isDynamicRead(node)) context.report({ node, messageId: 'dynamic' });
       },
       Property: (node) => {
         // `const { [k]: value } = obj` is the destructuring form of `obj[k]`.

@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import rootVitestConfig, { lintRuleFiles } from '../../../vitest.config.js';
-import { dependenciesMetaProblems, envValueProblems, yarnrcProblems } from './checks.js';
+import {
+  dependenciesMetaProblems,
+  envValueProblems,
+  lifecycleScriptProblems,
+  yarnrcProblems,
+} from './checks.js';
 import {
   findFiles,
   findRepoRoot,
@@ -140,13 +145,17 @@ describe('shared vitest config', () => {
   });
 });
 
+const coverageRunTimeout = 150_000;
+
 describe('shared vitest config, failure case', () => {
   const temps: string[] = [];
   afterEach(() => {
     for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  // Runs the real shared config on a throw-away workspace in the temp folder.
+  // Runs the real shared config on a throw-away workspace in the temp folder. A run that is killed by the
+  // timeout has no exit status (null), so the tests below compare with exact exit codes: a slow runner
+  // makes the test fail loudly, and can never make the "below 90%" case pass by accident.
   function runCoverage(source: string, testCode: string): number | null {
     const dir = mkdtempSync(join(tmpdir(), 'coverage-gate-'));
     temps.push(dir);
@@ -160,7 +169,7 @@ describe('shared vitest config, failure case', () => {
     return spawnSync(
       process.execPath,
       [vitestBin, 'run', '--coverage', '--config', join(root, 'vitest.config.ts')],
-      { cwd: dir, env, encoding: 'utf8' },
+      { cwd: dir, env, encoding: 'utf8', timeout: coverageRunTimeout },
     ).status;
   }
 
@@ -176,13 +185,13 @@ describe('shared vitest config, failure case', () => {
 
   it('exits non-zero when coverage is below 90%', () => {
     const status = runCoverage(unit, `${imports}it('one', () => expect(pick(1)).toBe('one'));\n`);
-    expect(status).not.toBe(0);
-  }, 60_000);
+    expect(status).toBe(1);
+  }, 180_000);
 
   it('exits zero when coverage is full (control)', () => {
     const all = [1, 2, 3, 4, 5].map((n) => `expect(pick(${n})).toBeTypeOf('string');`).join('\n');
     expect(runCoverage(unit, `${imports}it('all', () => {\n${all}\n});\n`)).toBe(0);
-  }, 60_000);
+  }, 180_000);
 });
 
 describe('.yarnrc.yml and install scripts', () => {
@@ -194,10 +203,20 @@ describe('.yarnrc.yml and install scripts', () => {
     expect(findFiles(root, (name) => name === '.yarnrc.yml')).toEqual(['.yarnrc.yml']);
   });
 
+  const manifests = ['package.json', ...listWorkspaces(root).map((ws) => `${ws}/package.json`)];
+
   it('lets no package build a dependency (dependenciesMeta built: true)', () => {
-    const manifests = ['package.json', ...listWorkspaces(root).map((ws) => `${ws}/package.json`)];
     for (const file of manifests) {
       expect(dependenciesMetaProblems(readJson(root, file, isRecord), file)).toEqual([]);
+    }
+  });
+
+  // Yarn's `enableScripts: false` stops dependencies' scripts, not a workspace's own (Yarn docs), so no
+  // package.json in the repo may define one.
+  it('has no install or pack lifecycle script in the root or any workspace package.json', () => {
+    expect(manifests.length).toBeGreaterThan(15);
+    for (const file of manifests) {
+      expect(lifecycleScriptProblems(readJson(root, file, isRecord), file)).toEqual([]);
     }
   });
 });
@@ -212,10 +231,23 @@ describe('.env.example', () => {
   it('has no real-looking secret values', () => {
     expect(envValueProblems(vars)).toEqual([]);
   });
+});
 
-  it('leaves every key, token and secret empty', () => {
-    for (const [key, value] of vars) {
-      if (/(SECRET|KEY|TOKEN)/.test(key)) expect(value, key).toBe('');
-    }
+describe('.prettierignore', () => {
+  const lines = readText(root, '.prettierignore').split('\n');
+
+  // `yarn format` (prettier --write .) must never rewrite a founder-only file.
+  it.each([
+    '.github',
+    '.claude',
+    'CLAUDE.md',
+    'scripts/check-*',
+    '.gitleaks.toml',
+    '.gitleaksignore',
+    '.yarnrc.yml',
+    '.mcp.json',
+    'CLAUDE.local.md',
+  ])('skips the founder-only file %s', (entry) => {
+    expect(lines).toContain(entry);
   });
 });

@@ -2,6 +2,7 @@ export { findRepoRoot, listWorkspaces, parseEnvTemplate, packageName } from './r
 export {
   dependenciesMetaProblems,
   envValueProblems,
+  lifecycleScriptProblems,
   requiredYarnrc,
   yarnrcProblems,
 } from './checks.js';

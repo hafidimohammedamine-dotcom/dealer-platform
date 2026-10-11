@@ -20,24 +20,36 @@ export const allowedPayloadValueImports = [];
  */
 export const payloadNameAllowedPaths = [];
 
-/** Files (globs) besides packages/data that may import a database client: the desking credit schema. */
-export const dbClientAllowedPaths = ['services/desking/src/db/**'];
-
 /**
- * Files (globs) where `overrideAccess` may be something other than literal false (system jobs).
- * Empty on purpose.
+ * Files (globs) besides packages/data that may import a database client. Empty on purpose: add the exact file
+ * in the PR that adds the reviewed file (the desking credit schema, `services/desking/src/db/`, is the first).
  * @type {string[]}
  */
-export const overrideAccessAllowedPaths = [];
+export const dbClientAllowedPaths = [];
 
 /**
- * The one reviewed file in packages/data that may use the raw database adapter (`payload.db`): it sets the dealer for
- * each transaction (CLAUDE.md, Payload rule 2). Everywhere else in packages/data, `.db` is banned.
+ * The one reviewed file in packages/data that may use the raw database adapter (`payload.db`): it will set the dealer
+ * for each transaction (CLAUDE.md, Payload rule 2). Empty on purpose: the PR that adds that file adds its path here.
+ * Everywhere else in packages/data, `.db` is banned.
+ * @type {string[]}
  */
-export const payloadDbAllowedPaths = ['packages/data/src/tenant-transaction.ts'];
+export const payloadDbAllowedPaths = [];
+
+/**
+ * Exact files that may load process, thread and VM modules (`child_process` and friends). Only the tests that start
+ * a real vitest or eslint process. Nothing else may.
+ * @type {string[]}
+ */
+export const spawnAllowedPaths = [
+  'infra/checks/src/config.test.ts',
+  'infra/checks/src/payload-ban-config.test.ts',
+];
 
 /** Options every Local API call in packages/data must spell out (CLAUDE.md, Payload rules 1 and 4). */
 export const requiredLocalApiOptions = ['overrideAccess', 'depth', 'versions'];
+
+/** Every Local API call in packages/data must also pass at least one of these (the logged-in user, directly or in `req`). */
+export const requiredOneOfLocalApiOptions = ['user', 'req'];
 
 /** Payload Local API methods. In packages/data each call must pass the required options. */
 export const localApiMethods = [
@@ -82,12 +94,29 @@ export const reflectiveMembers = [
   'getOwnPropertyDescriptor',
   'getOwnPropertyDescriptors',
 ];
+/** Members of `Object` that hand out or copy an object's properties without naming them. Banned outside packages/data. */
+export const objectBannedMembers = [...reflectiveMembers, 'getOwnPropertyNames', 'assign'];
+/** The global `Object`. Only `Object.<fixed safe member>` may be written outside packages/data. */
+export const objectName = /^Object$/;
 /** The raw database adapter member of the Payload instance (`payload.db`). */
 export const rawDbMember = 'db';
 /** Reflection reaches any property by a computed name. */
 export const reflectionName = /^Reflect$/;
 /** The `payload` package and its subpaths. */
 export const payloadModule = /^payload(?:\/.*)?$/;
+/** Modules that start processes, threads or VMs, or load other modules by hand. Banned except in spawnAllowedPaths. */
+const processModule =
+  /^(?:node:)?(?:vm|worker_threads|child_process|module|cluster|repl)(?:\/.*)?$/;
+/** @param {string} source */
+export const isProcessModule = (source) => processModule.test(source);
+/** Members that load a module or native code by hand (`Module._load`, `process.getBuiltinModule`, `module.require`). */
+export const loaderMembers = ['getBuiltinModule', '_load', '_linkedBinding', 'dlopen', 'require'];
+/** `process.binding` loads internal modules. Only banned on `process`. */
+export const processBindingMember = 'binding';
+/** The desking credit schema: nothing outside services/desking/ may import from it. */
+export const deskingDbDir = 'services/desking/src/db';
+/** The desking package, imported by name: its `src`/`dist` `db` folder. */
+export const deskingDbPackage = /^@dealer\/desking\/(?:(?:src|dist)\/)?db(?:\/|$)/;
 /** Database clients, query builders, ORMs and Payload database adapters. */
 const dbClientModule = new RegExp(
   `^(?:${[
@@ -96,6 +125,9 @@ const dbClientModule = new RegExp(
     'pg-[^/]+',
     'postgres',
     'postgresql',
+    'massive',
+    '@sequelize/[^/]+',
+    '@effect/sql(?:-[^/]+)?',
     'knex',
     'kysely',
     'kysely-[^/]+',

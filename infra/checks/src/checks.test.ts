@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseEnvTemplate } from './repo.js';
 import {
   dependenciesMetaProblems,
+  lifecycleScriptProblems,
+  lifecycleScripts,
   envValueProblems,
   optionalYarnrc,
   requiredYarnrc,
@@ -129,6 +131,43 @@ describe('dependenciesMetaProblems', () => {
     expect(dependenciesMetaProblems({ dependenciesMeta: [] }, 'p')).toEqual([
       'p: dependenciesMeta must be an object',
     ]);
+  });
+});
+
+describe('lifecycleScriptProblems', () => {
+  it('lists the install and pack scripts', () => {
+    expect(lifecycleScripts).toEqual([
+      'preinstall',
+      'install',
+      'postinstall',
+      'prepare',
+      'prepack',
+      'postpack',
+    ]);
+  });
+
+  it('accepts no scripts, and ordinary scripts', () => {
+    expect(lifecycleScriptProblems({ name: 'x' }, 'package.json')).toEqual([]);
+    const scripts = { build: 'tsc', test: 'vitest run', postinstallation: 'x' };
+    expect(lifecycleScriptProblems({ scripts }, 'package.json')).toEqual([]);
+  });
+
+  it.each(lifecycleScripts)('flags %s', (name) => {
+    const manifest = { scripts: { build: 'tsc', [name]: 'node evil.js' } };
+    expect(lifecycleScriptProblems(manifest, 'a/package.json')).toEqual([
+      `a/package.json: scripts.${name} must not exist (lifecycle scripts stay off)`,
+    ]);
+  });
+
+  it('flags every lifecycle script in one file', () => {
+    const scripts = { postinstall: 'a', prepare: 'b' };
+    expect(lifecycleScriptProblems({ scripts }, 'p')).toHaveLength(2);
+  });
+
+  it('flags a bad shape', () => {
+    expect(lifecycleScriptProblems([], 'p')).toEqual(['p: not a JSON object']);
+    expect(lifecycleScriptProblems(undefined, 'p')).toEqual(['p: not a JSON object']);
+    expect(lifecycleScriptProblems({ scripts: [] }, 'p')).toEqual(['p: scripts must be an object']);
   });
 });
 
