@@ -178,14 +178,28 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
             check_pre_claude_step(sw, step)
         if uses.startswith("actions/checkout@"):
             check_checkout(sw, step, ok_refs)
+        after = bool(claude_at) and i > claude_at
+        shell_hint = f" (after the claude step only shell: {P['post_claude_shell']})" if after else ""
         for key in ("working-directory", "shell"):
             if key in step:
                 # After the claude step one shell is allowed: the hardened one from the policy (an absolute bash that reads
                 # no profile or rc file), so a step's own shell is not found through a PATH the claude step could prepend.
-                if key == "shell" and claude_at and i > claude_at and step.get("shell") == P["post_claude_shell"]:
+                if key == "shell" and after and step.get("shell") == P["post_claude_shell"]:
                     continue
-                core.err(f"{sw}: '{key}' not allowed in a job with a claude step"
-                         + (f" (after the claude step only shell: {P['post_claude_shell']})" if key == "shell" and claude_at and i > claude_at else ""))
+                core.err(f"{sw}: '{key}' not allowed in a job with a claude step" + (shell_hint if key == "shell" else ""))
+        if after and P["post_claude_handoff"] in str(step.get("run", "")):
+            # The hand-off step runs pinned scripts right after Claude: its shell must be the hardened one, every variable
+            # the claude step could have set through $GITHUB_ENV to run code in that shell must be emptied in the step's
+            # own env (which wins), and HOME fixed, so nothing of the claude step's doing reaches it.
+            env = step.get("env") if isinstance(step.get("env"), dict) else {}
+            if step.get("shell") != P["post_claude_shell"]:
+                core.err(f"{sw}: the hand-off step must set shell: {P['post_claude_shell']}")
+            for k in P["post_claude_empty_env"]:
+                if env.get(k, None) != "":
+                    core.err(f"{sw}: the hand-off step must set env {k}: \"\" (a step's own env wins over $GITHUB_ENV)")
+            for k, v in P["post_claude_fixed_env"].items():
+                if env.get(k) != v:
+                    core.err(f"{sw}: the hand-off step must set env {k}: {v}")
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
         reviewed = str(step.get("run", "")).strip() in P["pr_data_runs"]
         if PR_DATA.search(body) and not reviewed:

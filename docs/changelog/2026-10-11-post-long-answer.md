@@ -48,8 +48,18 @@ are gone.
   skipped in the jobs that have one).
 - Review round 18 (founder decisions): the five post-Claude steps use the one shell the workflow checker now allows
   after a Claude step (`/usr/bin/bash --noprofile --norc -eo pipefail {0}`, policy key `post_claude_shell`) with
-  `BASH_ENV` and `LD_PRELOAD` emptied in the step's own `env:`; the scan hashes and runs a private copy of the scanner.
-  Not done, on purpose: a composite action for the hand-off step (the checker forbids local actions after a Claude step,
-  since their files could have changed; nine near-identical lines are the price of that rule), and copying the pinned
-  scripts themselves before running them (the pins check and the run are in one step, and a process left over from the
-  sandboxed Claude step would also have to own the checkout; accepted as a residual risk).
+  `BASH_ENV` and `LD_PRELOAD` emptied in the step's own `env:`; the scan hashes and runs a private copy of the scanner
+  (so the file that was checked is the file that runs; the directory is still the runner user's, which is the same
+  accepted leftover-process risk). Not done, on purpose: a composite action for the hand-off step (the checker forbids
+  local actions after a Claude step, since their files could have changed; nine near-identical lines are the price of
+  that rule), and copying the pinned scripts themselves before running them (the pins check and the run are in one step,
+  and a process left over from the sandboxed Claude step would also have to own the checkout; accepted as a residual
+  risk).
+- Review round 19: the hand-off steps also empty `LD_LIBRARY_PATH`, `LD_AUDIT`, `SHELLOPTS`, `BASHOPTS`, `PS4`,
+  `GLOBIGNORE`, `GCONV_PATH` and `ENV` and fix `HOME` in their own `env:`; the inner run uses `HOME=/nonexistent` and
+  `TMPDIR=/tmp`; the workflow checker requires all of that on any step that runs the hand-off script (policy keys
+  `post_claude_empty_env`, `post_claude_fixed_env`, `post_claude_handoff`). `check-claude-answer.sh` fixes `HOME` itself
+  (jq never loads a planted `~/.jq`) and, when the blocked-call lines look like a secret, prints one fixed line with the
+  count. `scripts/check-scan-lib.test.sh` tests the scan library on its own, and checks the pinned hash against the
+  installed binary wherever it is installed (CI). The three egress probe jobs keep their own step: they run
+  `check-claude-probe.py` on a fixed prompt and hand nothing to a post job (founder decision).

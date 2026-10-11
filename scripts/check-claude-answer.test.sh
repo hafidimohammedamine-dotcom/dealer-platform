@@ -15,7 +15,9 @@ run ok "blocked: every denial, by tool, command/path/url, 300 chars" "BLOCKED Ba
 check "blocked: all four denials in order, the Skill one with an empty input" bash -c 'bash "$1" blocked "$2" | tr "\n" "|" | grep -q "^BLOCKED Bash: curl https://x|BLOCKED Read: /etc/passwd|BLOCKED WebFetch: https://e.com|BLOCKED Skill: |$"' _ "$SCRIPT" "$W/exec.json"
 jq -n '[{"type":"result","result":"x","permission_denials":[{"tool_name":"WebFetch","tool_input":{"url":"https://e.com/?k=LEAKME"}},{"tool_name":"Bash","tool_input":{"command":"ls"}}]}]' > "$W/leakdeny.json"
 out=$(bash "$SCRIPT" blocked "$W/leakdeny.json"); rc=$?
-[ "$rc" = 0 ] && ! grep -q "LEAKME\|e.com\|ls" <<<"$out" && [ "$out" = $'BLOCKED WebFetch: (withheld: looks like a secret)\nBLOCKED Bash: (withheld: looks like a secret)' ] && t PASS "blocked: a denied input that looks like a secret is withheld (tool names only), the lines never reach the log" || { t FAIL "blocked: leak ($rc)"; echo "$out"; }
+[ "$rc" = 0 ] && ! grep -q "LEAKME\|e.com\|ls\|WebFetch" <<<"$out" && [ "$out" = "BLOCKED: 2 denied tool call(s); the names and inputs are withheld (something looks like a secret)" ] && t PASS "blocked: a denied input that looks like a secret withholds every line (one fixed line with the count), nothing reaches the log" || { t FAIL "blocked: leak ($rc)"; echo "$out"; }
+HJ=$(mktemp -d "$W/home.XXXXXX"); printf 'def x: "LEAKME-from-home";\n' > "$HJ/.jq"
+out=$(HOME="$HJ" bash "$SCRIPT" blocked "$W/exec.json"); grep -q "from-home" <<<"$out" && t FAIL "blocked: a planted ~/.jq was loaded" || t PASS "blocked: a planted ~/.jq is never loaded (HOME is fixed inside the script)"
 out=$(GL_RC=2 bash "$SCRIPT" blocked "$W/exec.json" 2>&1); rc=$?; [ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner error prints nothing and exits non-zero" || t FAIL "blocked: scanner error ($rc)"
 run ok "blocked: no execution file" "no execution file" blocked "$W/none.json"
 run ok "blocked: empty file name" "no execution file" blocked ""

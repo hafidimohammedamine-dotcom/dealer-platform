@@ -329,7 +329,7 @@ the script's.
 ## After changing agent permissions (founder, manual)
 Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only, pinned script)" step.
 The step scans the denied-call lines with the pinned gitleaks before printing them (the job log is public): on a hit it
-prints `BLOCKED <tool>: (withheld: looks like a secret)` per denial and no input; a scanner error (a missing, swapped or
+prints one fixed line with the count of denied calls and nothing else; a scanner error (a missing, swapped or
 edited `/tmp/gitleaks`, or a gitleaks exit code other than 0 or 3) fails the step with nothing printed, and in the
 review, mention, daily-report and weekly-audit jobs the `post` job is then skipped (the manager posts its own shift log
 from inside the Claude step, so its log is already up). The step runs under `env -i` with a fixed `PATH` and

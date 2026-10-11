@@ -2,7 +2,7 @@
 # Reads the claude-code-action execution file after a Claude step (founder-owned; runs in every Claude job, pinned):
 #   blocked <execution-file>   print "BLOCKED <tool>: <command or path>" for every denied tool call (names and commands
 #                              only, 300 characters each), so the job log shows what the deny lists stopped; the lines
-#                              are scanned with the pinned gitleaks first, and on a hit only the tool names are printed
+#                              are scanned with the pinned gitleaks first; on a hit one fixed line with the count is printed
 #   answer  <execution-file>   print GitHub job outputs: has_result=true|false and, when there is an answer, `answer` as a
 #                              multi-line output for the post job: the last result's text, cut to at most 120000 bytes of
 #                              UTF-8 by scripts/check-claude-answer-cut.py (rules in its docstring), then scanned with the
@@ -14,6 +14,7 @@
 set -euo pipefail
 CMD="${1:-}"; EXEC="${2:-}"
 case "$CMD" in blocked|answer) ;; *) echo "usage: check-claude-answer.sh blocked|answer <execution-file>" >&2; exit 2;; esac
+export HOME=/nonexistent   # jq would load $HOME/.jq; nothing of the caller's home is used here
 have=0; [ -n "$EXEC" ] && [ -f "$EXEC" ] && jq -e 'type == "array"' "$EXEC" >/dev/null 2>&1 && have=1
 . "$(dirname "$0")/check-scan-lib.sh"   # scan_answer: the pinned gitleaks (GITLEAKS_BIN); the job log is public
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan"
@@ -25,7 +26,7 @@ if [ "$CMD" = blocked ]; then
   set +e; scan_answer "$T/scan"; rc=$?; set -e
   case $rc in
     0) cat "$T/scan/blocked.md";;
-    3) jq -r "$denials"' | "BLOCKED " + (.tool_name // "?") + ": (withheld: looks like a secret)"' "$EXEC";;
+    3) echo "BLOCKED: $(wc -l < "$T/scan/blocked.md" | tr -d ' ') denied tool call(s); the names and inputs are withheld (something looks like a secret)";;
     *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;;
   esac
   exit 0
