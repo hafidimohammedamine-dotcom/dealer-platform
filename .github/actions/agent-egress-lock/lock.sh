@@ -217,7 +217,10 @@ selftest_privileges() {
 
 # 5b. Only allowed names, only through the proxy; DNS forwards nothing; user namespaces as designed.
 selftest_network() {
-  curl -fsS -o /dev/null --max-time 20 https://api.github.com/zen || bad "allowed host api.github.com not reachable"
+  # With the job's token when there is one: an anonymous call shares GitHub's 60-an-hour limit with every other job on the
+  # runner's address and gets a 403 now and then (a Claude job then died before it started, 2026-10-11).
+  local -a auth=(); [ -z "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ] || auth=(-H "Authorization: Bearer ${GH_TOKEN:-${GITHUB_TOKEN:-}}")
+  curl -fsS -o /dev/null --max-time 20 "${auth[@]}" https://api.github.com/zen || bad "allowed host api.github.com not reachable"
   blocked https://example.com || bad "blocked host example.com reachable"
   blocked https://gist.github.com || bad "gist.github.com reachable"
   blocked https://uploads.github.com || bad "uploads.github.com reachable"

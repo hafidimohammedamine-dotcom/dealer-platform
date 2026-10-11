@@ -21,7 +21,7 @@ c8de29b2df92ef4b1bf99604e07dbe04da582922c7a06a9ffcbe988f7a259bb5  .github/accoun
 7a8724de3984bfc0b09c3b972d69a0ca4b3ca44961f6c7ba44036467074fc133  .github/actions/agent-egress-lock/action.yml
 abd7110e5eaf341c1d381790a8ad198daaf421a9333fe23fb225ddbe0b2be925  .github/actions/agent-egress-lock/agent-bwrap.apparmor
 f274d11389c97748db11bd341893455671717a222ec7d3785e60a5e011c1d4e4  .github/actions/agent-egress-lock/allow-domains.txt
-2c9042139ff6550bbbe592dea560bac3a5da4217ab09a719be2ed88f8ed71b6e  .github/actions/agent-egress-lock/lock.sh
+ecfb794d564769a40d30a67454b70376ab14c6ccd1612e58c4f0cb21a27c20ed  .github/actions/agent-egress-lock/lock.sh
 e41cef69eccd2be0bc8bc29aaa2da0a9898f3b1b62e4c8b910e7a4f806849dd7  .github/actions/install-gitleaks/action.yml
 10d0f9fed0c788cf460cee92cb1d55fb1339dbbbcdb6bc4ab02223237fff5ba4  .gitleaks.toml
 92a34a2a25210137d85bb8daa415cee972faffa018821714376993016d4426a3  .yarnrc.yml
