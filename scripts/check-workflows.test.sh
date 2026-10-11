@@ -158,6 +158,7 @@ fx; require_on; python3 - "$T/$W/t.yml" "$SH" "$EV" <<'PYEOF2'
 import sys; p, sh, ev = sys.argv[1:4]; s = open(p).read(); a = s.index("      - name: After\n"); s = s[:a] + f"      - name: After\n        shell: {sh}\n{ev}\n        run: |\n          export PATH=/usr/bin:/bin\n"; open(p, "w").write(s)
 PYEOF2
 out=$(bash "$T/scripts/check-workflows.sh" "$T" 2>&1); if grep -q "^ERROR: t.yml" <<<"$out"; then t FAIL "require_shell on: a hardened After step passes (only the real, not yet hardened, workflows may fail)"; echo "$out"; else t PASS "require_shell on: a hardened After step passes (only the real, not yet hardened, workflows fail)"; fi; rm -rf "$T"
+fx; printf '      - uses: docker://alpine:3\n' >> "$T/$W/t.yml"; expect fail "docker:// action" "not allowed: docker://alpine:3"
 fx; printf '  r:\n    uses: org/repo/.github/workflows/w.yml@v1\n' >> "$T/$W/t.yml"; expect fail "reusable workflow job" "reusable workflow not allowed"
 fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    container: node:20|' "$T/$W/t.yml"; expect fail "container job" "'container' not allowed"
 # Files and the manager
