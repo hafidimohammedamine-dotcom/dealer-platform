@@ -16,7 +16,11 @@ jobs:
   review:
     # Claude reads untrusted PR data with a read-only token; posting and labels happen in the `post` job below, which has
     # the write scopes and runs no Claude.
-    if: (github.event.pull_request.draft == false) && github.run_attempt == '1'
+    # Only PRs from this repository: the repo is public, and a fork's PR must never start a Claude run (it would spend
+    # the founders' Claude usage on a stranger's PR). Agents and founders push branches here, never from forks.
+    if: >-
+      (github.event.pull_request.draft == false) && github.run_attempt == '1' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
