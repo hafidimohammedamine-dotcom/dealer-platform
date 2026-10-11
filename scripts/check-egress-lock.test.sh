@@ -141,6 +141,10 @@ fresh; run fail "Docker still reachable"    "self-test: Docker still reachable" 
 # Unix socket paths are limited to 108 bytes, so the sockets live in a short folder under /tmp.
 fresh; SK=$(mktemp -d /tmp/s.XXXXXX); python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$SK/sock"; run fail "Docker socket still there" "self-test: Docker still reachable" AGENT_LOCK_TEST_DOCKER_SOCK="$SK/sock"; rm -rf "$SK"
 fresh; run fail "allowed host unreachable"  "self-test: allowed host api.github.com not reachable" STUB_ALLOWED_RC=7
+fresh; L=$(mktemp); run ok "the allowed-host probe uses the job token when there is one" "Agent egress lock on:" STUB_CURL_LOG="$L" GH_TOKEN=tok-for-the-test
+grep -q -- "-H Authorization: Bearer tok-for-the-test https://api.github.com/zen" "$L" && t PASS "the probe sends Authorization: Bearer <token>" || { t FAIL "the probe sent no token"; grep zen "$L"; }
+fresh; L=$(mktemp); run ok "the allowed-host probe without a token is anonymous" "Agent egress lock on:" STUB_CURL_LOG="$L" GH_TOKEN= GITHUB_TOKEN=
+grep "zen" "$L" | grep -q "Authorization" && t FAIL "an empty token still sent a header" || t PASS "no token, no Authorization header"
 fresh; run fail "blocked host reachable"    "self-test: blocked host example.com reachable" STUB_REACHABLE=https://example.com
 fresh; run fail "gist reachable"            "self-test: gist.github.com reachable" STUB_REACHABLE=https://gist.github.com
 fresh; run fail "uploads reachable"         "self-test: uploads.github.com reachable" STUB_REACHABLE=https://uploads.github.com
