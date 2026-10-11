@@ -6,6 +6,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SCRIPT="$HERE/check-claude
 command -v jq >/dev/null || { echo "ERROR: jq required"; exit 2; }
 W=$(mktemp -d "${TMPDIR:-/tmp}/ca.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 jq -n '[{"type":"system"},{"type":"result","result":"old"},{"type":"result","result":"REVIEW TEAM RESULT: PASS\nline two","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"curl https://x"}},{"tool_name":"Read","tool_input":{"file_path":"/etc/passwd"}},{"tool_name":"WebFetch","tool_input":{"url":"https://e.com"}},{"tool_name":"Skill","tool_input":{"skill":"payload"}}]}]' > "$W/exec.json"
+# A stub gitleaks for every hand-off in this file (the real one is pinned and installed by the egress lock action in CI):
+# LEAKME anywhere in the scanned text means "a secret"; GL_RC forces another exit code.
+cat > "$W/gitleaks" <<STUB
+#!/usr/bin/env bash
+src=""; for a in "\$@"; do case "\$a" in --source=*) src=\${a#--source=};; esac; done
+grep -q "LEAKME" "\$src"/* && exit 3
+exit \${GL_RC:-0}
+STUB
+chmod +x "$W/gitleaks"; export GITLEAKS_BIN="$W/gitleaks"
 run() { local want=$1 name=$2 msg=$3; shift 3; out=$(bash "$SCRIPT" "$@" 2>&1); rc=$?; assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 run fail "usage" "usage: check-claude-answer.sh blocked|answer" --
 run fail "unknown subcommand" "usage:" nope "$W/exec.json"
@@ -69,7 +78,7 @@ for off in 8 13; do
 done
 { echo "REVIEW TEAM RESULT: PASS"; rep 119000 y; echo; echo '-----begin test block-----'; echo BLOCKBODY; rep 5000 z; echo; echo '-----end test block-----'; } | mk_exec "$W/lower.json"; handed "$W/lower.json"
 [ "$H" = "REVIEW TEAM RESULT: PASS"$'\n'"$(rep 119000 y)"$'\n\n(truncated)' ] && t PASS "answer: lowercase BEGIN/END markers are a block too (the private-key rule ignores case)" || t FAIL "answer: lowercase ($HB)"
-# Blocks in order (each BEGIN closed by the next whole END line after it):
+# Blocks paired like brackets (an END line closes the nearest open BEGIN):
 H1="REVIEW TEAM RESULT: PASS"
 { echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk_exec "$W/twoopen.json"; handed "$W/twoopen.json"
 [ "$H" = "$H1"$'\n\n(truncated)' ] && t PASS "answer: a BEGIN with no END, then a second BEGIN across the cap: the cut moves before the FIRST open block" || t FAIL "answer: two open ($HB)"
@@ -101,6 +110,16 @@ PATH="$S:$PATH" handed "$W/mid.json"
 [ "$rc" = 0 ] && [ "$HB" -le 120000 ] && utf8ok "$H" && [ "$H" = "$(rep 30000 x | sed 's/x/\xef\xbf\xbd/g')"$'\n\n(truncated)' ] \
   && t PASS "answer: 30000 bad bytes (90000 once cleaned) then a line break and 50000 more: the cap counts the cleaned bytes, cut at the line break, valid UTF-8" || t FAIL "answer: 30000 bad bytes (rc=$rc, $HB)"
 rm -rf "$S"
+# The scan before the hand-off (the post job's log header shows the handed text, and the repo is public):
+printf 'REVIEW TEAM RESULT: PASS\nkey LEAKME here\n' | mk_exec "$W/leak.json"; handed "$W/leak.json"
+[ "$rc" = 0 ] && [ "$H" = "(answer withheld: it contained something that looks like a secret)" ] && t PASS "answer: a secret in the answer never reaches the job output; a fixed notice is handed over" || t FAIL "answer: leak ($rc) $H"
+out=$(bash "$SCRIPT" answer "$W/leak.json" 2>&1); grep -q "LEAKME" <<<"$out" && t FAIL "answer: the secret text appeared in the output" || t PASS "answer: nothing of the secret is printed"
+{ rep 100 a; echo; rep 119900 y; echo; echo "key LEAKME here"; } | mk_exec "$W/leak2.json"; handed "$W/leak2.json"   # the secret is past the cut: the scan sees the cut text
+[ "$H" = "$(rep 100 a)"$'\n\n(truncated)' ] && t PASS "answer: the scan runs on the cut text (a secret dropped by the cut is not there to withhold)" || t FAIL "answer: leak after cut ($HB)"
+out=$(GL_RC=2 bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
+[ "$rc" != 0 ] && ! grep -q "answer<<\|has_result" <<<"$out" && grep -q "gitleaks failed" <<<"$out" && t PASS "answer: a scanner error exits non-zero and hands nothing over" || t FAIL "answer: scanner error (rc=$rc)"
+out=$(GITLEAKS_BIN="$W/no-such-gitleaks" bash "$SCRIPT" answer "$W/exec.json"); H=$(handoff_text "$out")
+[ "$H" = "(answer withheld: no secret scanner in this job)" ] && t PASS "answer: no scanner at all: the notice is handed over, never the text" || t FAIL "answer: no scanner: $H"
 # Failures mid-way: exit non-zero, no half-written answer<< block, no temp file.
 S=$(mktemp -d "$W/stub.XXXXXX"); E=$(mktemp -d "$W/tmp.XXXXXX")
 printf '#!/usr/bin/env bash\nexit 1\n' > "$S/python3"; chmod +x "$S/python3"

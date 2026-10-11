@@ -141,16 +141,18 @@ Also `pull_request_target`, also from `main`.
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
 - The `review` job runs only for a PR whose head is in this repository (a fork's PR gets no Claude run; the repo is
   public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned
-  `scripts/check-claude-answer.sh`,
-  which prints the blocked tool calls and hands the answer to the job `post` as a job output: text, at most 120000 bytes
-  of UTF-8 (the post job gets it as one environment variable, which Linux caps at 128 KiB). A longer answer is cut at the
-  last line break, space or tab before the cap and never inside a `-----BEGIN ... -----END` block, so a token or a key block
-  is never handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed
-  over instead; every cut ends with a `(truncated)` line. The handed text is all `post` ever sees.
-  `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
-  answer from `ANSWER`, scans it for secrets (the whole handed text and the text about to be posted, in one gitleaks
-  run, before anything is posted), then posts it - a longer answer cut to 60000 characters with a `(truncated)` line -
-  and sets labels. The daily report and weekly audit do the same with
+  `scripts/check-claude-answer.sh`, which prints the blocked tool calls and hands the answer to the job `post` as a job
+  output: text, at most 120000 bytes of UTF-8 (the post job gets it as one environment variable, which Linux caps at 128
+  KiB). A longer answer is cut at the last line break, space or tab before the cap and never inside a `-----BEGIN ...
+  -----END` block, so a token or a key block is never handed over in part; when nothing before the cap is safe to keep,
+  the text is withheld and a notice is handed over instead; every cut ends with a `(truncated)` line. Before it leaves
+  the review job the text is scanned with the pinned gitleaks (installed by the egress lock action): a job output is
+  printed in the post job's log header, and the repo is public, so anything that looks like a secret is replaced by a
+  fixed notice there. The handed text is all `post` ever sees. `post` is the only job with write scopes and runs no
+  Claude: `scripts/check-review-post.sh pr <n>` reads the answer from `ANSWER`, scans it for secrets (the whole handed
+  text and the text about to be posted, in one gitleaks run, before anything is posted), then posts it - a longer answer
+  cut to 60000 characters with a `(truncated)` line - and sets labels. The daily report and weekly audit do the same
+  with
   `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
   (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
   naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread
@@ -162,7 +164,9 @@ Also `pull_request_target`, also from `main`.
   `main` was never checked (a `[skip ci]` head commit, a cancelled run): a founder looks before any Claude job runs again
   (see "Main guard"); `the main-guard run for <sha> has not finished after 120s` - right after a merge, start a fresh run.
 - **"Post the result (secret-scanned) and set labels"** (job `post`): if the answer looked like it contained a secret, it
-  posts FAIL without the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
+  posts FAIL without the text (the hand-off's own scan withholds such an answer before it leaves the review job, so no
+  log holds it either); a founder re-runs the review and, if a real secret could have been read by the agent, follows
+  "Real key" above.
   If the hand-off withheld the answer (nothing before its 120000-byte cap was safe to keep: a huge run of text with no
   line break, space or tab, or a BEGIN/END block from the first line), `ANSWER` is the notice `(answer withheld: ...)` with
   no `REVIEW TEAM RESULT:` first line, so `post` posts FAIL ("did not produce a valid result") and sets

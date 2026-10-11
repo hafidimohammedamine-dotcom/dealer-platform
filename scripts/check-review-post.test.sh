@@ -94,12 +94,12 @@ answer "DAILY REPORT"$'\n'"$(rep 90000 x)"; export GL_RC=2; issue_run; rc=$?; un
 # End to end: the hand-off script (check-claude-answer.sh) then this script.
 HANDOFF="$(cd "$(dirname "$0")" && pwd)/check-claude-answer.sh"
 e2e() { # e2e <exec.json>: hand off, then post what was handed (A = the handed text)
-  A=$(handoff_text "$(bash "$HANDOFF" answer "$1")"); rm -f "$W/gh.log" "$W/posted.md"
+  A=$(handoff_text "$(GITLEAKS_BIN="$W/gitleaks" bash "$HANDOFF" answer "$1")"); rm -f "$W/gh.log" "$W/posted.md"
   ANSWER="$A" GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?; }
 python3 -c 'print("REVIEW TEAM RESULT: FAIL\n"+"x"*59972+"LEAKME"+"y"*30000, end="")' | mk_exec "$W/e2e.json"
 e2e "$W/e2e.json"
-[ $rc = 0 ] && [ "${#A}" = 90003 ] && ! grep -q "LEAK\|xxxxxxxxxx" "$W/posted.md" && grep -q "looks like a secret" "$W/posted.md" && grep -q "add-label changes-requested" "$W/gh.log" \
-  && t PASS "end to end: the hand-off passes 90003 characters whole and the post script catches the secret straddling 60000" || t FAIL "end to end (rc=$rc, handed ${#A} characters)"
+[ $rc = 0 ] && [ "$A" = "(answer withheld: it contained something that looks like a secret)" ] && ! grep -q "LEAK\|xxxxxxxxxx" "$W/posted.md" && grep -q "did not produce a valid result" "$W/posted.md" && grep -q "add-label changes-requested" "$W/gh.log" \
+  && t PASS "end to end: the hand-off's own scan withholds the whole answer with a secret; the post job posts the invalid-result FAIL (its own straddle scan is tested above)" || t FAIL "end to end (rc=$rc, handed ${#A} characters)"
 # 70000 four-byte characters (280000 bytes) in blank-separated runs: the hand-off keeps under 120000 bytes, which is under
 # 60000 characters, so this script's own cut never runs; the hand-off's (truncated) line tells the reader the end is missing.
 python3 -c 'print("REVIEW TEAM RESULT: PASS\n"+("\U0001F600"*100+" ")*700, end="")' | mk_exec "$W/wide.json"

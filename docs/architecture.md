@@ -67,7 +67,8 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
 - `scripts/check-review-prepare.sh` (review and guards): fetches the PR as data into `/tmp/pr` with no credentials stored,
   no git filters or hooks, no symlinks, the agent-instruction files removed, and its history written as plain files.
 - `scripts/check-review-post.sh` (every `post` job): computes the 60000-character cut of the handed answer, scans the whole
-  handed text and that cut with `.gitleaks.toml` in one gitleaks run, and only then posts the cut; sets the review labels. `scripts/check-pr-ci-status.sh` (review): waits for CI and guards on the PR head and reports their status.
+  handed text and that cut with `.gitleaks.toml` in one gitleaks run, and only then posts the cut; sets the review labels.
+  `scripts/check-pr-ci-status.sh` (review): waits for CI and guards on the PR head and reports their status.
 - `scripts/check-skill-deletions.py` (`check-skills-upstream-all.sh`): a third-party skill may differ from its upstream only
   by whole deleted units, with the founder-reviewed ones listed.
 - `scripts/check-founder-files.sh` (guards): founder-only files change only if the PR author and pusher IDs are `founder` IDs
@@ -89,7 +90,8 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere) and the `PINS_SHA256` every workflow checks before running any of them; `verify`
   fails a job whose tree holds such a file that is not listed.
 - `scripts/check-claude-answer.sh` (every Claude job, pinned, after the Claude step): lists blocked tool calls and hands the
-  answer to the post job as a job output, cut by the pinned `scripts/check-claude-answer-cut.py` to at most 120000 bytes
+  answer to the post job as a job output: scanned with the pinned gitleaks before it leaves the job (a job output is
+  shown in the post job's log header), cut by the pinned `scripts/check-claude-answer-cut.py` to at most 120000 bytes
   (one environment variable; the cut lands on a line break, space or tab and never inside a BEGIN/END block; with nothing
   safe to keep, a withheld notice is handed over instead, which the post job posts as FAIL).
 - `scripts/check-accounts-lib.sh` (sourced by the guards that read `.github/accounts.txt`): the one parser of that file and

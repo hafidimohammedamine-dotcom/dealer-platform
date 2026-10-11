@@ -4,9 +4,11 @@
 #                              only, 300 characters each), so the job log shows what the deny lists stopped
 #   answer  <execution-file>   print GitHub job outputs: has_result=true|false and, when there is an answer, `answer` as a
 #                              multi-line output for the post job: the last result's text, cut to at most 120000 bytes of
-#                              UTF-8 by scripts/check-claude-answer-cut.py (rules in its docstring), with the output block
-#                              printed only once the whole text is in hand (a failure prints no half block and exits
-#                              non-zero)
+#                              UTF-8 by scripts/check-claude-answer-cut.py (rules in its docstring), then scanned with the
+#                              pinned gitleaks (GITLEAKS_BIN, default /tmp/gitleaks, installed by the egress lock action) so
+#                              nothing that looks like a secret ever leaves the job (a job output shows up in the post
+#                              job's log header); the output block is printed only once the whole text is in hand (a
+#                              failure prints no half block and exits non-zero)
 # Usage: scripts/check-claude-answer.sh blocked|answer <execution-file>   (an empty or missing file is "no result")
 set -euo pipefail
 CMD="${1:-}"; EXEC="${2:-}"
@@ -23,6 +25,21 @@ if [ "$have" != 1 ]; then echo "has_result=false"; exit 0; fi
 # kill jq with SIGPIPE on a long answer and, under pipefail, fail this script (a review over 60000 characters then posted
 # nothing). The cutter reads all of stdin, so jq is never cut off.
 text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC" | python3 -I "$(dirname "$0")/check-claude-answer-cut.py")
+# Secret scan BEFORE the text leaves this job: the post job gets it as a step `env:` value, and GitHub prints those in the
+# step's log header (public logs). Anything that looks like a secret is replaced by a fixed notice (the post job then posts
+# FAIL); no scanner at all is the same notice; a scanner error fails this step (nothing is handed over).
+GITLEAKS="${GITLEAKS_BIN:-/tmp/gitleaks}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -x "$GITLEAKS" ]; then
+  T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan" "$T/noignore"; printf '%s\n' "$text" > "$T/scan/answer.md"
+  set +e
+  "$GITLEAKS" detect --no-git --source="$T/scan" --config="$ROOT/.gitleaks.toml" --gitleaks-ignore-path="$T/noignore" \
+    --ignore-gitleaks-allow --exit-code 3 --redact >/dev/null 2>&1
+  rc=$?
+  set -e
+  case $rc in 0) ;; 3) text="(answer withheld: it contained something that looks like a secret)";; *) echo "ERROR: gitleaks failed with exit code $rc" >&2; exit 1;; esac
+else
+  text="(answer withheld: no secret scanner in this job)"
+fi
 d="ANSWER_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"   # a delimiter the answer cannot contain by accident
 echo "has_result=true"
 echo "answer<<$d"
