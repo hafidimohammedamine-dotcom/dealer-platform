@@ -103,7 +103,7 @@ This one is harder. Data encrypted under the old key stays readable to anyone wh
 
 A new value signs everyone out, and every Payload API key stored under the old value can no longer be read: re-issue all
 Payload API keys; treat stored API keys as exposed (the old value may still exist somewhere you cannot see). Customer
-records are not lost. Follow the steps in "Leak: PAYLOAD_SECRET", including step 7, without the note in step 10. Keep the backup in the same password manager entry as the rest of the secrets.
+records are not lost. Follow the steps in "Leak: PAYLOAD_SECRET", including step 7, without the note in step 10. Keep a separate backup of `PAYLOAD_SECRET`, not in the same password manager entry as the other secrets (see [Environment variables](../dev/env-vars.md)).
 
 ## What not to do
 

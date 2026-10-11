@@ -214,7 +214,7 @@ another site. The self-test now repeats five of these Host values on every allow
 
 **AppArmor policy sources (2026-10-10).** The lock unloads every loaded profile whose source grants `userns`, searching
 `/etc/apparmor.d` and snapd's `/var/lib/snapd/apparmor/profiles` recursively; on GitHub's image the snapd folder is empty
-and the grants (1password, Discord, chrome, podman, rootlesskit, lxc-_, sbuild-_, ...) all sit in `/etc/apparmor.d`. The
+and the grants (1password, Discord, chrome, podman, rootlesskit, `lxc-*`, `sbuild-*`, ...) all sit in `/etc/apparmor.d`. The
 self-test fails if any of those profiles is still loaded.
 
 **Removed after the test:**

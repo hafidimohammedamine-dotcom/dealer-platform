@@ -58,7 +58,8 @@ Notes:
 
 - `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file not in `.prettierignore`, including Markdown in `docs/`.
 - ESLint also enforces the Payload data rules. All data access goes through `packages/data`. `eslint.payload-ban.mjs`
-  wires them up; the rules are in `eslint-rules/`, and the reviewed allow-lists in `eslint-rules/payload-lists.mjs`.
+  wires them up; the rules are in `eslint-rules/`, and the reviewed allow-lists in `eslint-rules/payload-lists.mjs`. The system-job allow-list is a separate file,
+  `packages/data/override-allowlist.txt`.
   The rules ban where the Payload instance comes from and every name it goes by, instead of listing bad uses. Expect
   false positives; rename the value or ask security to review an allow-list entry.
   - `local/no-payload-instance-access`, outside `packages/data`: no identifier, object key, string, JSX prop or type named
@@ -68,24 +69,33 @@ Notes:
     `payloadNameAllowedPaths`.
   - `local/no-restricted-modules`, outside `packages/data`: only type imports from `payload`. No database client at all
     (`pg` and `pg-*`, `postgres`, `kysely`, `knex`, `drizzle-orm`, `drizzle-kit`, Prisma, Neon, `@vercel/postgres`,
-    `node:sqlite`, every `@payloadcms/db-*` adapter and more). The one reviewed exception is `services/desking/src/db/`,
-    for the encrypted credit schema. `import()` and `require()` take fixed names only.
-  - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`. In `packages/data`, every
-    Local API call passes one object literal with `overrideAccess: false`, `depth` and `versions`, with no spreads and no
-    computed keys. The system-job allow-list is empty. Also in `packages/data`: a Local API method (`find`, `create`, ...)
+    `node:sqlite`, every `@payloadcms/db-*` adapter and more). The reviewed exception list is empty, so no file outside
+    `packages/data` may import one yet. A separate rule stops code outside `services/desking/` from importing
+    `services/desking/src/db/`. `import()` and `require()` take fixed names only.
+  - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`, except in a system job
+    listed in `packages/data/override-allowlist.txt`. That file is founder-only and empty for now, so no file may use
+    `true` yet. The rule reads it as exact repo-relative paths, one per line; `#` comments and blank lines are skipped;
+    a missing file counts as an empty list. A listed path that does not exist fails lint, and so does an unlisted file
+    that uses `true`. In `packages/data`, every Local API call passes one object literal with `overrideAccess: false`,
+    `depth` and `versions`, with no spreads and no computed keys. Also in `packages/data`: a Local API method (`find`, `create`, ...)
     may only be read to call it directly (`payload.find({...})` or `payload.find.call(payload, {...})`), so no destructured
     `find`, no `[payload.find][0](...)`, no `.apply` or `.bind`. No dynamic or numeric key (`obj[k]`, `rows[0]`; use a fixed
     name, `.at()` or a Map), no `Reflect`, and no `.values()`, `.entries()`, `.getOwnPropertyDescriptor()` or
-    `.getOwnPropertyDescriptors()` (use `for...of` on a Map instead). Raw database access through `payload.db` is allowed
-    in one reviewed file only, `packages/data/src/tenant-transaction.ts` (`payloadDbAllowedPaths`), where the dealer is
-    set for each transaction (Payload rule 2).
-  - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on, so code cannot be built from strings.
+    `.getOwnPropertyDescriptors()` (use `for...of` on a Map instead). Raw database access through `payload.db` has no
+    reviewed file yet: `payloadDbAllowedPaths` in `eslint-rules/payload-lists.mjs` is empty. Its entry comes with the
+    PR that adds the reviewed file, which must set the dealer for each transaction (Payload rule 2).
+  - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on. Modules and members that run code from a string are
+    banned too: `node:vm`, `worker_threads`, `child_process`, `Module._load` and `process.getBuiltinModule`. Lint bans
+    these names; it cannot prove that no other route exists, so it is not a sandbox.
   - Inline `eslint-disable` comments are off, so a file cannot switch these rules off.
   - Limit: a lint rule without type information cannot follow a value read by a dynamic key into a variable, or a value
     found with `Object.values(req)`. The type-aware rule is issue
     [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36); it blocks the PR that adds `payload`,
     which may not merge before #36 is done. Until then, and after,
     Postgres row-level security and the cross-dealer leak tests are the locks that hold (`CLAUDE.md`, Payload rules 2-3).
+- `eslint-rules/`, `eslint.payload-ban.mjs` and `eslint.config.mjs` become founder-only once #19 merges. A follow-up
+  founder PR adds them to the founder-only list (CLAUDE.md, `scripts/check-founder-files.sh`, CODEOWNERS and
+  `.prettierignore`). Until that PR merges, they are not founder-only yet.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
 - `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
 

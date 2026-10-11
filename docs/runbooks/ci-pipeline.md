@@ -15,19 +15,20 @@ GitHub runs the steps in this order. When a step fails, GitHub stops the job, so
 Steps marked "Push to `main` only" are skipped on pull requests. Steps marked "If `package.json`" are skipped when the
 repo has no `package.json`.
 
-| #   | Step               | Command or action                                                                                        | Runs                |
-| --- | ------------------ | -------------------------------------------------------------------------------------------------------- | ------------------- |
-| 1   | Checkout           | `actions/checkout`, full history (`fetch-depth: 0`), no persisted token                                  | Always              |
-| 2   | Install gitleaks   | `./.github/actions/install-gitleaks`: gitleaks 8.18.4 from its GitHub release, sha256 checked, no Docker | Always              |
-| 3   | Secret scan        | `gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose` on the full history              | Push to `main` only |
-| 4   | Guard script tests | The five `scripts/check-*.test.sh` tests, then `scripts/gitleaks-config.test.sh`                         | Always              |
-| 5   | Set up Node        | `actions/setup-node`, Node 20                                                                            | If `package.json`   |
-| 6   | Install            | `corepack enable && yarn install --immutable`                                                            | If `package.json`   |
-| 7   | Lint               | `yarn lint` (ESLint, then Prettier check)                                                                | If `package.json`   |
-| 8   | Type check         | `yarn typecheck`                                                                                         | If `package.json`   |
-| 9   | Tests              | `yarn test` (Vitest, 90% coverage gate, config tests)                                                    | If `package.json`   |
-| 10  | Build              | `yarn build`                                                                                             | If `package.json`   |
-| 11  | Dependency audit   | `yarn npm audit --severity moderate --all --recursive`                                                   | If `package.json`   |
+| #   | Step                                         | Command or action                                                                                                                                                        | Runs                |
+| --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
+| 1   | Checkout                                     | `actions/checkout`, full history (`fetch-depth: 0`), no persisted token                                                                                                  | Always              |
+| 2   | Install gitleaks                             | `./.github/actions/install-gitleaks`: gitleaks 8.18.4 from its GitHub release, sha256 checked, no Docker                                                                 | Always              |
+| 3   | Secret scan                                  | `gitleaks detect --source=. --config=.gitleaks.toml --redact --verbose` on the full history                                                                              | Push to `main` only |
+| 4   | Pinned Python packages for the guard scripts | `bash scripts/check-python-deps.sh`: hash-checked packages in a private venv; its `bin` folder is added to `PATH`                                                        | Always              |
+| 5   | Guard script tests and coverage              | `bash scripts/check-workflows.sh`, then `bash scripts/check-coverage.sh 90`: runs every `scripts/*.test.sh`, then requires every guard script to reach 90% line coverage | Always              |
+| 6   | Set up Node                                  | `actions/setup-node`, Node 20                                                                                                                                            | If `package.json`   |
+| 7   | Install                                      | `corepack enable && yarn install --immutable`                                                                                                                            | If `package.json`   |
+| 8   | Lint                                         | `yarn lint` (ESLint, then Prettier check)                                                                                                                                | If `package.json`   |
+| 9   | Type check                                   | `yarn typecheck`                                                                                                                                                         | If `package.json`   |
+| 10  | Tests                                        | `yarn test` (Vitest, 90% coverage gate, config tests)                                                                                                                    | If `package.json`   |
+| 11  | Build                                        | `yarn build`                                                                                                                                                             | If `package.json`   |
+| 12  | Dependency audit                             | `yarn npm audit --severity moderate --all --recursive`                                                                                                                   | If `package.json`   |
 
 Two things to know about the order:
 
@@ -89,7 +90,9 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 
 ### Guard script tests fail
 
-- The log names the test script. Run it locally, for example `bash scripts/check-skills.test.sh`, and read the failing case.
+- Step 5 runs `bash scripts/check-coverage.sh 90`. It prints `== <name>` before each `scripts/<name>.test.sh`, and
+  `ERROR: <name> tests failed` when one fails. A coverage failure marks the guard script under 90% (`<-- below minimum` in the report, or an `ERROR:` line for a Python script).
+  Run the failing test locally, for example `bash scripts/check-skills.test.sh`, and read the failing case.
 - For the secret config test, set `GITLEAKS` to your local binary: `GITLEAKS=/path/to/gitleaks bash scripts/gitleaks-config.test.sh`.
 - The `scripts/check-*` files and `.gitleaks.toml` are founder-owned. Do not change them to make a test pass. Follow
   [Guards and review](ci-guards.md) and send a `REQUEST:`.
@@ -110,10 +113,12 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
     `Payload` or `BasePayload` (only `payload.logger` is allowed), and no `Reflect` or dynamic key that is then called.
     If the name is unrelated (a webhook body), rename the value, or ask security to add the file to
     `payloadNameAllowedPaths`.
-  - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients only in
-    `packages/data` and `services/desking/src/db/`; `import()` and `require()` with fixed names only.
-  - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file. In `packages/data`, Local API
-    calls need one object literal with `overrideAccess: false`, `depth` and `versions`, without spreads.
+  - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients are banned
+    outside `packages/data` (the reviewed exception list is empty); `import()` and `require()` with fixed names only. The
+    modules that run code from a string (`vm`, `worker_threads`, `child_process`) are banned too.
+  - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file, except in a system job listed
+    in `packages/data/override-allowlist.txt` (founder-only; empty for now). In `packages/data`, Local API calls need one
+    object literal with `overrideAccess: false`, `depth` and `versions`, without spreads.
   - `no-eval`, `no-implied-eval`, `no-new-func`, `no-with`: code built from strings.
   - `@typescript-eslint/consistent-type-assertions`: no `as` casts. Narrow with a type guard.
 
