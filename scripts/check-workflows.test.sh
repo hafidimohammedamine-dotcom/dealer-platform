@@ -96,6 +96,33 @@ fx; sed -i 's|,WebFetch,||' "$T/$W/t.yml"; expect fail "a claude step without on
 # Actions and jobs
 fx; printf '      - uses: "./.github/actions/evil"\n' >> "$T/$W/t.yml"; expect fail "quoted local action not on the allow-list" "local action not on the allow-list: ./.github/actions/evil"
 fx; printf '      - uses: ./.github/actions/install-gitleaks\n' >> "$T/$W/t.yml"; expect fail "local action after the claude step" "no local action after the claude step"
+# The one shell allowed after the claude step (policy post_claude_shell). The hand-off rule (post_claude_handoff) and its
+# tests come with the hardened hand-off steps (#44).
+SH='/usr/bin/bash --noprofile --norc -p -eo pipefail {0}'
+hs() { printf '%b' "      - shell: $SH\n$1" >> "$T/$W/t.yml"; }   # a step with the hardened shell after the claude step, then the given keys
+fx; hs '        run: |\n          export PATH=/usr/bin:/bin\n          echo hi\n'; expect ok "the hardened shell after the claude step" "Workflow denies OK"
+fx; hs '        run: |\n          # a comment and a blank line come first\n\n          export PATH=/usr/bin:/bin\n          echo hi\n'; expect ok "the PATH line after a comment and a blank line" "Workflow denies OK"
+fx; hs '        run: echo hi\n'; expect fail "the hardened shell without the PATH line" "must start its run with 'export PATH=/usr/bin:/bin'"
+fx; hs '        run: |\n          echo hi\n          export PATH=/usr/bin:/bin\n'; expect fail "the PATH line not first" "must start its run with 'export PATH=/usr/bin:/bin'"
+fx; hs '        run: |\n          export PATH=/usr/bin:/bin:/tmp/x\n          echo hi\n'; expect fail "a wider PATH line" "must start its run with 'export PATH=/usr/bin:/bin'"
+fx; printf '      - shell: bash\n        run: echo hi\n' >> "$T/$W/t.yml"; expect fail "another shell after the claude step" "after the claude step only shell: $SH"
+for bad in "$SH " '/usr/bin/bash --noprofile --norc -p -eo pipefail' '/usr/bin/bash --noprofile --norc -eo pipefail {0}' '/usr/bin/bash -p -eo pipefail {0}' '/usr/bin/bash --noprofile --norc -p {0}' '/bin/bash --noprofile --norc -p -eo pipefail {0}' sh pwsh python; do
+  fx; printf '      - shell: "%s"\n        run: |\n          export PATH=/usr/bin:/bin\n          echo hi\n' "$bad" >> "$T/$W/t.yml"; expect fail "near-miss shell after the claude step: '$bad'" "'shell' not allowed in a job with a claude step"
+done
+fx; before "      - shell: $SH\n        run: bash scripts/check-x.sh"; expect fail "the hardened shell before the claude step" "not allowed in a job with a claude step"
+fx; sed -i "s|      - id: lock|      - shell: $SH\n        run: bash scripts/check-x.sh\n      - id: lock|" "$T/$W/t.yml"; expect fail "the hardened shell on a step before the lock (steps 1-4 are checked by shape)" "a job with a claude step must start with actions/checkout, the pin step"
+fx; hs '        working-directory: /tmp\n        run: |\n          export PATH=/usr/bin:/bin\n          echo hi\n'; expect fail "the hardened shell with working-directory" "'working-directory' not allowed in a job with a claude step"
+fx; sed -i "s|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: $SH|" "$T/$W/t.yml"; expect fail "the hardened shell as a job default" "'defaults' not allowed in a job with a claude step"
+fx; sed -i "s|^jobs:|defaults:\n  run:\n    shell: bash\njobs:|" "$T/$W/t.yml"; expect fail "a workflow-level default shell in a workflow with a claude step" "no workflow-level defaults in a workflow with a claude step"
+fx; sed -i "s|^jobs:|defaults:\n  run:\n    shell: $SH\njobs:|" "$T/$W/t.yml"; expect fail "the hardened shell as a workflow-level default" "no workflow-level defaults in a workflow with a claude step"
+fresh; plain p.yml; sed -i 's|^jobs:|defaults:\n  run:\n    shell: bash\njobs:|' "$T/$W/p.yml"; expect ok "a workflow-level default shell in a workflow without a claude step" "Workflow denies OK"
+fresh; plain p.yml; sed -i 's|      - run: echo|      - run: echo\n        shell: bash|' "$T/$W/p.yml"; expect ok "a shell on a step in a job without a claude step" "Workflow denies OK"
+fx; hs '        run: |\n          export PATH=/usr/bin:/bin\n          bash scripts/check-x.sh\n'; expect fail "the hardened shell does not excuse a missing pin check" "must check its pinned files"
+fx; hs '        run: |\n          export PATH=/usr/bin:/bin\n          cat /tmp/pr/x\n'; expect fail "the hardened shell does not excuse PR data" "runs or checks out PR code"
+fx; hs '        run: |\n          export PATH=/usr/bin:/bin\n          git checkout x\n'; expect fail "the hardened shell does not excuse git checkout" "'git checkout' not allowed"
+fresh; swap review.yml $'        id: answer\n' $'        id: answer\n        shell: '"$SH"$'\n'; swap review.yml $'          set -euo pipefail\n          echo "$PINS_SHA256' $'          export PATH=/usr/bin:/bin\n          set -euo pipefail\n          echo "$PINS_SHA256'; expect ok "the hardened shell on the real review hand-off step" "Workflow denies OK"
+fresh; swap review.yml $'        id: answer\n' $'        id: answer\n        shell: '"$SH"$'\n'; expect fail "the hardened shell on the real review hand-off step without the PATH line" "review.yml job review step 8: a step with the hardened shell must start its run with 'export PATH=/usr/bin:/bin'"
+fx; before "      - id: claude2\n        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b\n        with:\n          claude_code_oauth_token: \${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}\n          path_to_claude_code_executable: \${{ steps.lock.outputs.claude-path }}\n          path_to_bun_executable: \${{ steps.lock.outputs.bun-path }}\n          github_token: \${{ github.token }}\n          classify_inline_comments: \"false\"\n          prompt: \"Do the task.\"\n          claude_args: |\n            --model haiku\n            --disallowedTools \"Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)\"\n      - shell: $SH\n        run: |\n          export PATH=/usr/bin:/bin\n          echo hi"; expect fail "two claude steps in one job" "only one claude step per job (found 2)"
 fx; printf '      - uses: docker://alpine:3\n' >> "$T/$W/t.yml"; expect fail "docker:// action" "not allowed: docker://alpine:3"
 fx; printf '  r:\n    uses: org/repo/.github/workflows/w.yml@v1\n' >> "$T/$W/t.yml"; expect fail "reusable workflow job" "reusable workflow not allowed"
 fx; sed -i 's|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    container: node:20|' "$T/$W/t.yml"; expect fail "container job" "'container' not allowed"
