@@ -23,6 +23,6 @@ are gone.
   posted with the marker; a token across the 120000-byte cap (never handed over); a key block across the cap after
   multibyte filler (never handed over or posted).
 - A withheld hand-off (the notice instead of the text) has no `REVIEW TEAM RESULT:` first line, so the post job posts
-  FAIL and sets `changes-requested` whatever the review said; the review's result is only in the review job log, and a
+  FAIL and sets `changes-requested` whatever the review said; the review's result is lost (no job log holds it), and a
   founder re-runs the review (`docs/runbooks/ci-guards.md`, "Post the result").
 - The cut is `scripts/check-claude-answer-cut.py` (pinned; its rules are in its docstring), run by the hand-off script.

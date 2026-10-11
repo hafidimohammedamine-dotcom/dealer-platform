@@ -166,8 +166,9 @@ Also `pull_request_target`, also from `main`.
   If the hand-off withheld the answer (nothing before its 120000-byte cap was safe to keep: a huge run of text with no
   line break or blank, or a BEGIN/END block from the first line), `ANSWER` is the notice `(answer withheld: ...)` with
   no `REVIEW TEAM RESULT:` first line, so `post` posts FAIL ("did not produce a valid result") and sets
-  `changes-requested` whatever the review said: the review's own result is lost. A founder reads the review job log
-  for the result and re-runs the review (re-runs are skipped by design: push a commit, or draft and ready-for-review).
+  `changes-requested` whatever the review said: the review's own result is lost (no job log holds it; the review job
+  does not print Claude's output). A founder re-runs the review (re-runs are skipped by design: push a commit, or
+  draft and ready-for-review).
 - **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'
   account (user ID 250452267 in `.github/accounts.txt`), on an `agent/` branch. When the PR has the label `changes-requested`
   it starts `agent-manager.yml` and prints `Manager shift started for PR #<n>`; otherwise `Review passed or no result; no fix
