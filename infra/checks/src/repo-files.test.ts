@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { envValueProblems } from './checks.js';
-import { findRepoRoot, parseEnvTemplate, readText } from './repo.js';
-
-const root = findRepoRoot();
+import { parseEnvTemplate, readText } from './repo.js';
+import { root } from './test-helpers/lint.js';
 
 // Add a name here (and to .env.example) whenever a service needs a new variable.
 const expectedEnvKeys = [

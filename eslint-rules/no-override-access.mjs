@@ -7,7 +7,15 @@ import {
   requiredLocalApiOptions,
   requiredOneOfLocalApiOptions,
 } from './payload-lists.mjs';
-import { memberName, outermostWrapper, propertyName, staticString, unwrap } from './ast.mjs';
+import {
+  isCallee,
+  localApiCallParts,
+  memberName,
+  outermostWrapper,
+  propertyName,
+  staticString,
+  unwrap,
+} from './ast.mjs';
 
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
@@ -41,33 +49,15 @@ import { memberName, outermostWrapper, propertyName, staticString, unwrap } from
  * @returns {Node | null | undefined}
  */
 function localApiOptionsArgument(node) {
-  const callee = unwrap(node.callee);
-  if (callee.type !== 'MemberExpression') return undefined;
-  const name = memberName(callee);
+  if (unwrap(node.callee).type !== 'MemberExpression') return undefined;
+  const { name, options } = localApiCallParts(node);
   if (name === undefined) return null;
-  if (localApiMethods.includes(name)) {
-    const [first] = node.arguments;
-    // Array#find, Map#delete with a callback are not Local API calls.
-    if (first?.type === 'ArrowFunctionExpression' || first?.type === 'FunctionExpression') {
-      return undefined;
-    }
-    return first ?? null;
+  if (!localApiMethods.includes(name)) return undefined;
+  // Array#find, Map#delete with a callback are not Local API calls.
+  if (options?.type === 'ArrowFunctionExpression' || options?.type === 'FunctionExpression') {
+    return undefined;
   }
-  const target = unwrap(callee.object);
-  const targetName = target.type === 'MemberExpression' ? memberName(target) : undefined;
-  if (name === 'call' && targetName !== undefined && localApiMethods.includes(targetName)) {
-    return node.arguments[1] ?? null;
-  }
-  return undefined;
-}
-
-/**
- * Is `node` the callee of a call, ignoring wrappers (`x!`, `x?.()`, `await`)?
- * @param {Node} node
- */
-function isCallee(node) {
-  const outer = outermostWrapper(node);
-  return outer.parent?.type === 'CallExpression' && outer.parent.callee === outer;
+  return options ?? null;
 }
 
 /**

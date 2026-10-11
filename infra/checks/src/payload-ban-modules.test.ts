@@ -1,13 +1,25 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { payloadBanConfigs } from '../../../eslint.payload-ban.mjs';
 import {
   allowedPayloadValueImports,
   dbClientAllowedPaths,
   isDbClientModule,
   isProcessModule,
+  isUrlImport,
   loaderMembers,
-  payloadBanConfigs,
-} from '../../../eslint.payload-ban.mjs';
-import { MODULES, errors, errorsWith, eslintWith, inside, outside } from './test-helpers/lint.js';
+} from '../../../eslint-rules/payload-lists.mjs';
+import {
+  CODE,
+  MODULES,
+  errors,
+  errorsWith,
+  eslint,
+  eslintWith,
+  inside,
+  outside,
+  root,
+} from './test-helpers/lint.js';
 
 const desking = 'services/desking/src/db/credit.ts';
 
@@ -168,7 +180,7 @@ describe('dynamic module loading', () => {
   it('bans eval, the Function constructor and with', async () => {
     expect(await errors('with (req) { find({}); }\n', outside)).toEqual(['no-with']);
     expect(await errors("eval('x');\n", outside)).toEqual(['no-eval']);
-    expect(await errors("new Function('return 1');\n", outside)).toEqual(['no-new-func']);
+    expect(await errors("new Function('return 1');\n", outside)).toEqual(['no-new-func', CODE]);
     expect(await errors("setTimeout('x()', 1);\n", outside)).toEqual(['no-implied-eval']);
   });
 
@@ -197,6 +209,12 @@ describe('process, thread and VM modules and hand-made module loaders', () => {
     'node:cluster',
     'repl',
     'node:repl',
+    'inspector',
+    'node:inspector',
+    'inspector/promises',
+    'node:inspector/promises',
+    'wasi',
+    'node:wasi',
   ];
 
   it.each(modules)('recognizes %s', (name) => {
@@ -278,5 +296,53 @@ describe('process, thread and VM modules and hand-made module loaders', () => {
     expect(await errors(code, listed)).toEqual([]);
     expect(await errors(code, 'infra/checks/src/other.test.ts')).toEqual([MODULES]);
     expect(await errors("process.getBuiltinModule('node:vm');\n", listed)).toEqual([]);
+  });
+});
+
+describe('module names with a URL scheme', () => {
+  const specifiers = [
+    'data:text/javascript,export default 1',
+    'http://example.test/x.js',
+    'https://example.test/x.js',
+    'file:///tmp/x.js',
+    'blob:nodedata:1234',
+    'HTTPS://example.test/x.js',
+    'custom+scheme://x',
+  ];
+
+  it.each(specifiers)('bans %s in every way to load it, in packages/data too', async (name) => {
+    const forms = [
+      `import x from '${name}';\nvoid x;\n`,
+      `import type { T } from '${name}';\n`,
+      `import '${name}';\n`,
+      `export * from '${name}';\n`,
+      `import z = require('${name}');\nvoid z;\n`,
+      `await import('${name}');\n`,
+      `await import(\`${name}\`);\n`,
+      `require('${name}');\n`,
+    ];
+    for (const file of [outside, inside]) {
+      for (const code of forms) {
+        expect(await errors(code, file), `${file} ${code}`).toEqual([MODULES]);
+      }
+    }
+  });
+
+  it('still allows node: built-ins and plain names', async () => {
+    const code =
+      "import a from 'node:fs';\nimport b from 'bullmq';\nimport c from './x.js';\nvoid [a, b, c];\n";
+    expect(await errors(code, outside)).toEqual([]);
+    expect(isUrlImport('node:fs')).toBe(false);
+    expect(isUrlImport('./c:/x.js')).toBe(false);
+    expect(isUrlImport('data:x')).toBe(true);
+  });
+
+  it('reports the URL message, not the process-module one, for a node: lookalike scheme', async () => {
+    const results = await eslint.lintText("import x from 'NODE:child_process';\nvoid x;\n", {
+      filePath: join(root, outside),
+    });
+    expect(results.flatMap((result) => result.messages.map((m) => m.messageId))).toEqual([
+      'urlImport',
+    ]);
   });
 });

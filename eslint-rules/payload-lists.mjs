@@ -9,8 +9,10 @@
 /** Members of the Payload instance that may be used outside packages/data. */
 export const allowedPayloadMembers = ['logger'];
 
-/** Named value imports from the `payload` module allowed outside packages/data. Empty on purpose. */
-/** @type {string[]} */
+/**
+ * Named value imports from the `payload` module allowed outside packages/data. Empty on purpose.
+ * @type {string[]}
+ */
 export const allowedPayloadValueImports = [];
 
 /**
@@ -108,13 +110,25 @@ export const jsonMembers = ['stringify', 'parse'];
 export const globalObjectName = /^(?:global|globalThis)$/;
 /** Option keys that only a Payload Local API call has (`find({ collection })`, `findGlobal({ slug })`). */
 export const localApiTargetKeys = ['collection', 'global'];
+/** Members that reach a constructor or a prototype accessor: `x.constructor`, `x.__proto__`, `x.__lookupGetter__`. */
+export const codeConstructorMember =
+  /^(?:constructor|__proto__|__(?:lookup|define)(?:Getter|Setter)__)$/;
+/** The function constructors, however they are reached: by name, as a string, or as a `global` member. */
+export const codeConstructorName = /^(?:Async|Generator|AsyncGenerator)?Function$/;
 /** Reflection reaches any property by a computed name. */
 export const reflectionName = /^Reflect$/;
 /** The `payload` package and its subpaths. */
 export const payloadModule = /^payload(?:\/.*)?$/;
-/** Modules that start processes, threads or VMs, or load other modules by hand. Banned except in spawnAllowedPaths. */
+/**
+ * Modules that start processes, threads or VMs, load other modules by hand, or reach the debugger or WebAssembly
+ * system interface. Banned except in spawnAllowedPaths.
+ */
 const processModule =
-  /^(?:node:)?(?:vm|worker_threads|child_process|module|cluster|repl)(?:\/.*)?$/;
+  /^(?:node:)?(?:vm|worker_threads|child_process|module|cluster|repl|inspector|wasi)(?:\/.*)?$/;
+/** A module specifier with a URL scheme (`data:`, `http:`, `https:`, `file:`, `blob:`). Only `node:` is allowed. */
+const urlScheme = /^[a-z][a-z0-9+.-]*:/i;
+/** @param {string} source */
+export const isUrlImport = (source) => urlScheme.test(source) && !source.startsWith('node:');
 /** @param {string} source */
 export const isProcessModule = (source) => processModule.test(source);
 /** Members that load a module or native code by hand (`Module._load`, `process.getBuiltinModule`, `module.require`). */

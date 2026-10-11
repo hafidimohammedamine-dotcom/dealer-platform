@@ -48,7 +48,7 @@ exactly the policy's pins_step_run_default_branch` / `may only have name, run an
   `claude_github_token`) - every Claude step passes the job's own token; without one, claude-code-action trades the job's
   OIDC token for an app token that the job's `permissions:` block does not limit. With it, `id-token: write` is needed
   nowhere but the probe workflow's `oidc` job (`per_file_permission_scopes`).
-- `needs a job 'after' that runs the after-shift checks on a fresh runner`, `must have needs: shift and if: always()`,
+- `needs a job 'after' that runs the after-shift checks on a fresh runner`, `must have needs: shift and if: always() && needs.shift.result != 'skipped' && github.run_attempt == '1'`,
   `must run exactly '<script>'`, `after Claude ran, the event check belongs in job 'after' only`, `the event check before
 the shift must run exactly '...'` (policy `after_shift`) - the manager's checks that run after Claude
   (`scripts/check-agent-token.sh`, `scripts/check-agent-events.sh`) live in their own job, which the shift's Claude
@@ -163,7 +163,7 @@ files (sha256sum --check --strict) before running repo scripts` - steps after Cl
 Claude steps
 
 - `claude action must be one of [...], got <x>` - use the pinned `anthropics/claude-code-action@<sha>`.
-- `key '<x>' not allowed on a claude step` - only id, name, uses, with, if and timeout-minutes (no `continue-on-error`).
+- `key '<x>' not allowed on a claude step` - only id, name, uses, with, if, env and timeout-minutes (no `continue-on-error`).
   `env not allowed on a claude step (job env names: ...)` - put allowed names in the job's env.
 - `a claude step may not run after a failure (no always()/failure()/cancelled() in its if)`.
 - `input '<x>' not allowed (allowed: ...)` - only `claude_code_oauth_token`, `github_token`, `prompt`, `claude_args`,

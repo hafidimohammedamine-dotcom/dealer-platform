@@ -1,7 +1,6 @@
 // @ts-check
 import {
   allowedPayloadMembers,
-  globalObjectName,
   instanceName,
   jsonMembers,
   jsonName,
@@ -13,6 +12,8 @@ import {
   reflectionName,
 } from './payload-lists.mjs';
 import {
+  isGlobalObject,
+  localApiCallParts,
   memberName,
   moduleNameParents,
   outermostWrapper,
@@ -83,17 +84,29 @@ function isDynamicRead(node) {
 }
 
 /**
+ * How a global such as `Object` or `JSON` is read: `'key'` for a harmless fixed object key (`{ Object: 1 }`), the
+ * member read when `node` is the object of one (`Object.values`), undefined for any other use (`const O = Object`).
+ * @param {Node} node an Identifier or literal
+ * @returns {'key' | MemberExpression | undefined}
+ */
+function memberReadOf(node) {
+  const { parent } = node;
+  if (parent?.type === 'Property' && parent.key === node && !parent.computed && !parent.shorthand) {
+    return 'key';
+  }
+  return parent?.type === 'MemberExpression' && parent.object === node ? parent : undefined;
+}
+
+/**
  * Is this `Object` anything other than `Object.<fixed name that is not a reflective helper>`?
  * `Object.values(req)`, `Object.assign`, `const O = Object` and `globalThis.Object` all hand out properties unnamed.
  * @param {Node} node an Identifier or literal named `Object`
  */
 function isUnsafeObjectUse(node) {
-  const { parent } = node;
-  if (parent?.type === 'Property' && parent.key === node && !parent.computed && !parent.shorthand) {
-    return false;
-  }
-  if (parent?.type !== 'MemberExpression' || parent.object !== node) return true;
-  const name = memberName(parent);
+  const read = memberReadOf(node);
+  if (read === 'key') return false;
+  if (read === undefined) return true;
+  const name = memberName(read);
   return name === undefined || objectBannedMembers.includes(name);
 }
 
@@ -104,15 +117,13 @@ function isUnsafeObjectUse(node) {
  * @param {Node} node an Identifier or literal named `JSON`
  */
 function isUnsafeJsonUse(node) {
-  const { parent } = node;
-  if (parent?.type === 'Property' && parent.key === node && !parent.computed && !parent.shorthand) {
-    return false;
-  }
-  if (parent?.type !== 'MemberExpression' || parent.object !== node) return true;
-  const name = memberName(parent);
+  const read = memberReadOf(node);
+  if (read === 'key') return false;
+  if (read === undefined) return true;
+  const name = memberName(read);
   if (name === undefined || !jsonMembers.includes(name)) return true;
-  const call = outermostWrapper(parent).parent;
-  if (call?.type !== 'CallExpression' || unwrap(call.callee) !== parent) return true;
+  const call = outermostWrapper(read).parent;
+  if (call?.type !== 'CallExpression' || unwrap(call.callee) !== read) return true;
   if (call.arguments.some((argument) => argument.type === 'SpreadElement')) return true;
   const second = call.arguments[1];
   if (second === undefined) return false;
@@ -121,19 +132,6 @@ function isUnsafeJsonUse(node) {
     second.type === 'ArrayExpression' &&
     second.elements.every((element) => element !== null && staticString(element) !== undefined)
   );
-}
-
-/**
- * Is this the global object (`global`, `globalThis`, `globalThis.global`)?
- * @param {Node} node
- * @returns {boolean}
- */
-function isGlobalObject(node) {
-  const inner = unwrap(node);
-  if (inner.type === 'Identifier') return globalObjectName.test(inner.name);
-  if (inner.type !== 'MemberExpression') return false;
-  const name = memberName(inner);
-  return name !== undefined && globalObjectName.test(name) && isGlobalObject(inner.object);
 }
 
 /** @param {string | undefined} name */
@@ -145,19 +143,7 @@ const isPrivateName = (name) => name !== undefined && name.startsWith('_');
  * @param {import('@typescript-eslint/utils').TSESTree.CallExpression} node
  */
 function hasLocalApiTarget(node) {
-  const callee = unwrap(node.callee);
-  let name;
-  let options = node.arguments[0];
-  if (callee.type === 'Identifier') name = callee.name;
-  else if (callee.type === 'MemberExpression') {
-    name = memberName(callee);
-    const target = unwrap(callee.object);
-    const targetName = target.type === 'MemberExpression' ? memberName(target) : undefined;
-    if (name === 'call' && targetName !== undefined) {
-      name = targetName;
-      options = node.arguments[1];
-    }
-  }
+  const { name, options } = localApiCallParts(node);
   if (name === undefined || !localApiMethods.includes(name)) return false;
   if (options?.type !== 'ObjectExpression') return false;
   return options.properties.some((property) => {
@@ -165,6 +151,46 @@ function hasLocalApiTarget(node) {
     const key = propertyName(property);
     return key !== undefined && localApiTargetKeys.includes(key);
   });
+}
+
+/**
+ * A destructured key that reaches the global object's `_`-prefixed cache (`const { _payload } = globalThis`) or
+ * is a computed key that is not a fixed string (`const { [k]: v } = obj`, the destructuring form of `obj[k]`).
+ * @param {import('@typescript-eslint/utils').TSESLint.RuleContext<InstanceMessage, [InstanceOptions?]>} context
+ * @param {import('@typescript-eslint/utils').TSESTree.Property} node
+ */
+function checkPatternProperty(context, node) {
+  if (node.parent.type !== 'ObjectPattern') return;
+  if (isPrivateName(propertyName(node))) {
+    const owner = node.parent.parent;
+    const source =
+      owner.type === 'VariableDeclarator'
+        ? owner.init
+        : owner.type === 'AssignmentExpression'
+          ? owner.right
+          : null;
+    if (source && isGlobalObject(source)) context.report({ node, messageId: 'globalMember' });
+  }
+  if (node.computed && staticString(node.key) === undefined) {
+    context.report({ node, messageId: 'dynamic' });
+  }
+}
+
+/**
+ * Which problem, if any, a name used by `node` has: a reflection name, an unsafe `Object` or `JSON` use, or a Payload
+ * instance name (unless `allowNames`, or it is only `payload.logger`).
+ * @param {Node} node
+ * @param {string} name
+ * @param {boolean} allowNames
+ * @returns {InstanceMessage | undefined}
+ */
+function nameProblem(node, name, allowNames) {
+  if (reflectionName.test(name)) return 'dynamic';
+  if (objectName.test(name) && isUnsafeObjectUse(node)) return 'reflective';
+  if (jsonName.test(name) && isUnsafeJsonUse(node)) return 'json';
+  if (allowNames || !instanceName.test(name)) return undefined;
+  if (memberOwnerName.test(name) && isAllowedMemberUse(node)) return undefined;
+  return 'named';
 }
 
 /** @type {import('@typescript-eslint/utils').TSESLint.RuleModule<InstanceMessage, [InstanceOptions?]>} */
@@ -203,25 +229,10 @@ export const noPayloadInstanceAccess = {
      */
     const checkName = (node, name) => {
       if (name === undefined || reported.has(node.range[0])) return;
-      if (reflectionName.test(name)) {
-        reported.add(node.range[0]);
-        context.report({ node, messageId: 'dynamic' });
-        return;
-      }
-      if (objectName.test(name) && isUnsafeObjectUse(node)) {
-        reported.add(node.range[0]);
-        context.report({ node, messageId: 'reflective' });
-        return;
-      }
-      if (jsonName.test(name) && isUnsafeJsonUse(node)) {
-        reported.add(node.range[0]);
-        context.report({ node, messageId: 'json' });
-        return;
-      }
-      if (allowNames || !instanceName.test(name)) return;
-      if (memberOwnerName.test(name) && isAllowedMemberUse(node)) return;
+      const messageId = nameProblem(node, name, allowNames);
+      if (messageId === undefined) return;
       reported.add(node.range[0]);
-      context.report({ node, messageId: 'named', data: { name } });
+      context.report({ node, messageId, data: { name } });
     };
     return {
       Identifier: (node) => checkName(node, node.name),
@@ -242,23 +253,7 @@ export const noPayloadInstanceAccess = {
       CallExpression: (node) => {
         if (hasLocalApiTarget(node)) context.report({ node, messageId: 'localApiCall' });
       },
-      Property: (node) => {
-        if (node.parent.type === 'ObjectPattern' && isPrivateName(propertyName(node))) {
-          const owner = node.parent.parent;
-          const source =
-            owner.type === 'VariableDeclarator'
-              ? owner.init
-              : owner.type === 'AssignmentExpression'
-                ? owner.right
-                : null;
-          if (source && isGlobalObject(source)) context.report({ node, messageId: 'globalMember' });
-        }
-        // `const { [k]: value } = obj` is the destructuring form of `obj[k]`.
-        const isDynamicKey = node.computed && staticString(node.key) === undefined;
-        if (isDynamicKey && node.parent.type === 'ObjectPattern') {
-          context.report({ node, messageId: 'dynamic' });
-        }
-      },
+      Property: (node) => checkPatternProperty(context, node),
     };
   },
 };

@@ -9,12 +9,10 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { repoRoot } from './ast.mjs';
 
 /** Repo-relative path of the list. */
 export const overrideAllowlistFile = 'packages/data/override-allowlist.txt';
-
-const defaultRoot = fileURLToPath(new URL('..', import.meta.url));
 
 /** Letters, digits and `_ @ . -` in each segment, separated by single slashes. No globs, no spaces. */
 const exactPath = /^[A-Za-z0-9_@.-]+(?:\/[A-Za-z0-9_@.-]+)*$/;
@@ -56,7 +54,7 @@ function isFile(path) {
  * @param {{ file?: string, root?: string }} [where] `file` is the list (absolute), `root` is what its paths are relative to. Tests pass temporary ones.
  * @returns {string[]}
  */
-export function readOverrideAllowlist({ root = defaultRoot, file } = {}) {
+export function readOverrideAllowlist({ root = repoRoot, file } = {}) {
   const listFile = file ?? join(root, overrideAllowlistFile);
   /** @type {string} */
   let text;

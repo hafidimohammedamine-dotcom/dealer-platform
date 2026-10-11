@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as lists from '../../../eslint-rules/payload-lists.mjs';
+import { payloadBanConfigs } from '../../../eslint.payload-ban.mjs';
 import {
   overrideAllowlistFile,
   parseOverrideAllowlist,
-  payloadBanConfigs,
   readOverrideAllowlist,
-} from '../../../eslint.payload-ban.mjs';
+} from '../../../eslint-rules/override-allowlist.mjs';
 import { OVERRIDE, errorsWith, eslintWith, inside, outside, root } from './test-helpers/lint.js';
 
 const temps: string[] = [];

@@ -3,8 +3,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
-export const packageName = '@dealer/infra-checks';
-
 /** Repo root, found by walking up from this file to the folder with `.yarnrc.yml`. */
 export function findRepoRoot(start: string = dirname(fileURLToPath(import.meta.url))): string {
   let dir = resolve(start);
@@ -45,6 +43,10 @@ export function toMaps(value: unknown): unknown {
   return text === undefined ? undefined : parse(text, { mapAsMap: true });
 }
 
+/** Does this parsed package.json have a `scripts` object? */
+export const hasScripts = (value: unknown): value is { scripts: Record<string, string> } =>
+  isRecord(value) && isRecord(value['scripts']);
+
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
@@ -80,15 +82,19 @@ export const walkSkip: ReadonlySet<string> = new Set([
 
 /**
  * Repo-relative paths (with `/`) of every file under `root` whose name matches, skipping the
- * folders in `walkSkip`. Sorted.
+ * folders in `skip` (default `walkSkip`). Sorted.
  */
-export function findFiles(root: string, match: (name: string) => boolean): string[] {
+export function findFiles(
+  root: string,
+  match: (name: string) => boolean,
+  skip: ReadonlySet<string> = walkSkip,
+): string[] {
   const found: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
       const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
-        if (!walkSkip.has(entry.name)) walk(relative);
+        if (!skip.has(entry.name)) walk(relative);
       } else if (match(entry.name)) {
         found.push(relative);
       }

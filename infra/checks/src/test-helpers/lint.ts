@@ -36,6 +36,10 @@ export const eslintWith = (extra: unknown): ESLint =>
     overrideConfig: [...repoConfig, ...flatConfigOf({ default: extra })],
   });
 
+/** Like `eslint`, but run from another folder (`cwd`), as an editor or `yarn eslint` in a subfolder would. */
+export const eslintFrom = (cwd: string): ESLint =>
+  new ESLint({ cwd, overrideConfigFile: true, overrideConfig: repoConfig });
+
 /** Error rule ids of the bans for `code` linted as `file` with a given ESLint instance. */
 export async function errorsWith(linter: ESLint, code: string, file: string): Promise<string[]> {
   const results = await linter.lintText(code, { filePath: join(root, file) });
@@ -49,12 +53,14 @@ export async function errorsWith(linter: ESLint, code: string, file: string): Pr
 export const ACCESS = 'local/no-payload-instance-access';
 export const MODULES = 'local/no-restricted-modules';
 export const OVERRIDE = 'local/no-override-access';
+export const CODE = 'local/no-code-constructors';
 export const CASTS = '@typescript-eslint/consistent-type-assertions';
 
 const ours = new Set([
   ACCESS,
   MODULES,
   OVERRIDE,
+  CODE,
   'no-eval',
   'no-implied-eval',
   'no-new-func',

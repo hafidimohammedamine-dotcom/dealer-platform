@@ -2,12 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { payloadBanConfigs } from '../../../eslint.payload-ban.mjs';
 import {
   dbClientAllowedPaths,
-  payloadBanConfigs,
   payloadDbAllowedPaths,
   spawnAllowedPaths,
-} from '../../../eslint.payload-ban.mjs';
+} from '../../../eslint-rules/payload-lists.mjs';
 import { findFiles, listWorkspaces } from './repo.js';
 import {
   ACCESS,

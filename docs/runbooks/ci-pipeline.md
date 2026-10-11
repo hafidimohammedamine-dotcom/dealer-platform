@@ -26,7 +26,7 @@ repo has no `package.json`.
 | 7   | Install                                      | `corepack enable && yarn install --immutable`                                                                                                                            | If `package.json`   |
 | 8   | Lint                                         | `yarn lint` (ESLint, then Prettier check)                                                                                                                                | If `package.json`   |
 | 9   | Type check                                   | `yarn typecheck`                                                                                                                                                         | If `package.json`   |
-| 10  | Tests                                        | `yarn test` (Vitest, 90% coverage gate, config tests)                                                                                                                    | If `package.json`   |
+| 10  | Tests                                        | `yarn test` (Vitest, 90% coverage gate per file, config tests)                                                                                                           | If `package.json`   |
 | 11  | Build                                        | `yarn build`                                                                                                                                                             | If `package.json`   |
 | 12  | Dependency audit                             | `yarn npm audit --severity moderate --all --recursive`                                                                                                                   | If `package.json`   |
 
@@ -119,10 +119,14 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
     `payloadNameAllowedPaths`.
   - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients are banned
     outside `packages/data` (the reviewed exception list is empty); `import()` and `require()` with fixed names only. Process, thread,
-    VM and module-loader modules (`vm`, `worker_threads`, `child_process`, `module`, `cluster`, `repl`) are banned too;
-    only two `infra/checks` config tests may start processes.
+    VM, debugger and module-loader modules (`vm`, `worker_threads`, `child_process`, `module`, `cluster`, `repl`,
+    `inspector`, `wasi`) are banned too; only two `infra/checks` config tests may start processes. A module name with a URL
+    scheme (`data:`, `http:`, `https:`, `file:`, `blob:`) is banned everywhere.
+  - `local/no-code-constructors`: in every file, `packages/data` included, no `constructor`, `__proto__`,
+    `__lookupGetter__`-style member (dotted, `x['constructor']` or destructured) and no `Function`, `AsyncFunction` or
+    `GeneratorFunction` as identifier, string or `globalThis` member. They build code without `eval`.
   - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file, except in a system job listed
-    in `packages/data/override-allowlist.txt` (created by founder PR #43; empty for now). In `packages/data`, Local API
+    in `packages/data/override-allowlist.txt` (not in this tree yet; a missing file counts as empty). In `packages/data`, Local API
     calls need one object literal with `overrideAccess: false`, `depth`, `versions` and `user` or `req`, without spreads.
     `showHiddenFields` may only be `false`.
   - `no-eval`, `no-implied-eval`, `no-new-func`, `no-with`: code built from strings.
@@ -142,7 +146,8 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 ### Tests fail
 
 - Run `yarn test` locally. The log names the failing test file, or the coverage line that is under 90%.
-- Add tests for new code. Do not lower the threshold in `vitest.config.ts`. That is a founder decision.
+- Add tests for new code. Do not lower the threshold in `vitest.config.ts`. That is a founder decision. The threshold is per file, so a
+  single file under 90% fails the run.
 - Config tests in `infra/checks` also run here. They check `tsconfig.base.json`, every workspace's scripts, the
   `.env.example` keys, and `.yarnrc.yml`. The `.yarnrc.yml` check parses the file as YAML. It requires `nodeLinker: node-modules`
   and `enableScripts: false`, allows `enableTelemetry: false`, and allows `dependenciesMeta` only in the founder-approved

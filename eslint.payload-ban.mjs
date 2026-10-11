@@ -23,6 +23,10 @@
 //                                     Local API method is only read to call it directly:
 //                                     no dynamic or numeric keys, no `Reflect`, no `.values()`/`.entries()`/
 //                                     property descriptors, and no `.db` outside payloadDbAllowedPaths.
+//   local/no-code-constructors        everywhere, packages/data too: no `.constructor`, `__proto__`,
+//                                     `__lookupGetter__`-style members (dotted, `['x']` or destructured) and no
+//                                     `Function`, `AsyncFunction`, `GeneratorFunction` as identifier, string or
+//                                     `globalThis` member: they build code at run time without `eval`.
 //
 // The `overrideAccess: true` system-job allow-list is NOT in code. It is the founder-only file
 // packages/data/override-allowlist.txt, read by eslint-rules/override-allowlist.mjs when the config loads.
@@ -33,6 +37,7 @@
 // Files: eslint-rules/payload-lists.mjs (reviewed allow-lists and banned names), one file per rule
 // in eslint-rules/, and eslint-rules/ast.mjs (shared helpers).
 
+import { noCodeConstructors } from './eslint-rules/no-code-constructors.mjs';
 import { noOverrideAccess } from './eslint-rules/no-override-access.mjs';
 import { noPayloadInstanceAccess } from './eslint-rules/no-payload-instance-access.mjs';
 import { noRestrictedModules } from './eslint-rules/no-restricted-modules.mjs';
@@ -41,30 +46,6 @@ import {
   dbClientAllowedPaths,
   payloadDbAllowedPaths,
   payloadNameAllowedPaths,
-  spawnAllowedPaths,
-} from './eslint-rules/payload-lists.mjs';
-
-export {
-  overrideAllowlistFile,
-  parseOverrideAllowlist,
-  readOverrideAllowlist,
-} from './eslint-rules/override-allowlist.mjs';
-
-export {
-  allowedPayloadMembers,
-  allowedPayloadValueImports,
-  dbClientAllowedPaths,
-  isDbClientModule,
-  isProcessModule,
-  loaderMembers,
-  localApiMethods,
-  objectBannedMembers,
-  payloadDbAllowedPaths,
-  payloadNameAllowedPaths,
-  rawDbMember,
-  reflectiveMembers,
-  requiredLocalApiOptions,
-  requiredOneOfLocalApiOptions,
   spawnAllowedPaths,
 } from './eslint-rules/payload-lists.mjs';
 
@@ -77,6 +58,7 @@ export const localPlugin = {
     'no-payload-instance-access': noPayloadInstanceAccess,
     'no-restricted-modules': noRestrictedModules,
     'no-override-access': noOverrideAccess,
+    'no-code-constructors': noCodeConstructors,
   },
 };
 
@@ -84,6 +66,7 @@ export const localPlugin = {
  * Flat-config blocks for the Payload bans. The options exist so tests can prove each allow-list
  * applies only to its own paths. Without `overrideAccessAllowed`, the system-job list is read from the
  * founder-only file (`allowlist` points tests at a temporary one).
+ * @returns {import('eslint').Linter.Config[]}
  * @param {{ overrideAccessAllowed?: string[], payloadNameAllowed?: string[], dbClientAllowed?: string[], payloadDbAllowed?: string[], spawnAllowed?: string[], allowlist?: { file?: string, root?: string } }} [lists]
  */
 export function payloadBanConfigs({
@@ -102,6 +85,7 @@ export function payloadBanConfigs({
         'local/no-payload-instance-access': ['error', {}],
         'local/no-restricted-modules': ['error', {}],
         'local/no-override-access': ['error', {}],
+        'local/no-code-constructors': 'error',
         'no-eval': 'error',
         'no-implied-eval': 'error',
         'no-new-func': 'error',
@@ -150,5 +134,6 @@ export function payloadBanConfigs({
       },
     });
   }
-  return configs;
+  // The rules are typescript-eslint rule modules, which ESLint runs as they are. Only the declared types differ.
+  return /** @type {import('eslint').Linter.Config[]} */ (/** @type {unknown} */ (configs));
 }

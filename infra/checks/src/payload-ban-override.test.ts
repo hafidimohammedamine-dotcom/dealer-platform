@@ -1,14 +1,14 @@
 import { join } from 'node:path';
 import type { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
+import { payloadBanConfigs } from '../../../eslint.payload-ban.mjs';
 import {
   localApiMethods,
-  payloadBanConfigs,
   payloadDbAllowedPaths,
   reflectiveMembers,
   requiredLocalApiOptions,
   requiredOneOfLocalApiOptions,
-} from '../../../eslint.payload-ban.mjs';
+} from '../../../eslint-rules/payload-lists.mjs';
 import {
   ACCESS,
   MODULES,

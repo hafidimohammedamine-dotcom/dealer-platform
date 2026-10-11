@@ -80,12 +80,15 @@ Notes:
     (`pg` and `pg-*`, `postgres`, `kysely`, `knex`, `drizzle-orm`, `drizzle-kit`, Prisma, Neon, `@vercel/postgres`,
     `node:sqlite`, every `@payloadcms/db-*` adapter and more). The reviewed exception list is empty, so no file outside
     `packages/data` may import one yet. The `deskingDb` message of the same rule stops code outside `services/desking/` from importing
-    `services/desking/src/db/`. `import()` and `require()` take fixed names only.
+    `services/desking/src/db/`. The rule finds the importing file's path from the rule's own location, not from the
+    folder ESLint runs in, so the check holds when you run ESLint from a subfolder. `import()` and `require()` take
+    fixed names only. A module name with a URL scheme (`data:`, `http:`, `https:`, `file:`, `blob:`) is banned in every
+    form, `packages/data` included; only `node:` names may use a scheme.
   - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`, except in a system job
     listed in `packages/data/override-allowlist.txt`. A listed file may also skip the `user`/`req` requirement, but every
-    other check stays on for it (`depth`, `versions`, `showHiddenFields`, spreads, computed keys, `.db`). That file is created by founder PR #43, is founder-only and is
-    empty, so no file may use `true` yet. It is not in the branch that adds this page; it reaches `main` only when
-    PR #43 merges. The rule reads it as exact repo-relative paths, one per line. `#` comment lines and blank lines are
+    other check stays on for it (`depth`, `versions`, `showHiddenFields`, spreads, computed keys, `.db`). That file is
+    founder-only. It is not in this tree yet, and a missing file counts as empty, so no file may use `true` yet.
+    The rule reads it as exact repo-relative paths, one per line. `#` comment lines and blank lines are
     skipped. No globs, no trailing comments, no `..` and no leading `/`. A missing file counts as an empty list. A
     malformed line, or a listed file that does not exist, breaks lint when the config loads. An unlisted file that uses
     `true` fails lint. In `packages/data`, every Local API call passes one object literal with `overrideAccess: false`,
@@ -101,8 +104,18 @@ Notes:
     (`{ [k]: true }`) and spreads (`{ ...opts }`) in `apps/` and `services/` are not flagged by it, because the Payload
     instance cannot be reached there: the other two rules ban every way to reach it. The reasoning is in the header of
     `eslint-rules/no-override-access.mjs`.
-  - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on. Process, thread, VM and module-loading modules are
-    banned, with or without `node:`: `vm`, `worker_threads`, `child_process`, `module`, `cluster` and `repl`. So are the
+  - `local/no-code-constructors`, in every file, `packages/data` included: code can be built at run time without
+    `eval`, because any function's `.constructor` is the `Function` constructor
+    (`({}).constructor.constructor('...')()`, `(async () => {}).constructor('...')()`). So `constructor`, `__proto__`,
+    `__lookupGetter__`, `__lookupSetter__`, `__defineGetter__` and `__defineSetter__` are banned as a member
+    (`x.constructor`), as a computed string member (`x['constructor']`) and as a destructured key
+    (`const { constructor } = x`). `Function`, `AsyncFunction`, `GeneratorFunction` and `AsyncGeneratorFunction` are
+    banned as identifiers, as exact strings and as `global`/`globalThis` members. A class's own `constructor() {}` is
+    not a read and is fine. The rule is in `eslint-rules/no-code-constructors.mjs`; its tests are in
+    `infra/checks/src/payload-ban-code.test.ts`.
+  - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on. Process, thread, VM, debugger and module-loading
+    modules are banned, with or without `node:` and with any subpath: `vm`, `worker_threads`, `child_process`, `module`,
+    `cluster`, `repl`, `inspector` and `wasi`. So are the
     members that load code or modules by hand: `getBuiltinModule`, `_load`, `_linkedBinding`, `dlopen`, `.require`,
     `process.binding` and `process[k]`. These bans apply everywhere, `packages/data` included. Only exactly two files may
     start processes (`spawnAllowedPaths`): `infra/checks/src/config.test.ts` and
@@ -119,6 +132,10 @@ Notes:
   founder PR adds them to the founder-only list (CLAUDE.md, `scripts/check-founder-files.sh`, CODEOWNERS and
   `.prettierignore`). Until that PR merges, they are not founder-only yet.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
+- CI runs `yarn install --immutable`, `yarn lint`, `yarn typecheck`, `yarn test`, `yarn build` and the audit as separate
+  steps (`.github/workflows/ci.yml`, lines 39 to 54). Config tests in `infra/checks` check that these root scripts have
+  the expected commands, that `ci.yml` runs them in that order, and that `yarn.lock` lists every workspace and no other,
+  so `yarn install --immutable` does not fail on a fresh checkout.
 - `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
 
 ## What `nx run-many` does
@@ -139,11 +156,13 @@ Notes:
 ## Coverage gate
 
 - Every workspace's `test` script runs:
-  `vitest run --coverage --config ../../vitest.config.ts`
+  `vitest run --coverage --config ../../vitest.config.ts`. The one exception is `infra/checks`, which runs
+  `vitest run --coverage --config vitest.config.ts`: its own config merges the shared one and adds the lint rule files.
 - The shared `vitest.config.ts` sets a **90%** minimum for lines, functions, branches and statements (v8 provider).
-  Below 90%, `yarn test` fails.
+  The minimum applies **per file** (`perFile: true`), not to the total, so one weak file cannot hide behind the others.
+  Below 90% in any file, `yarn test` fails.
 - Tests live in `src/**/*.test.ts`. A workspace with no test file fails the config tests in `infra/checks`.
-- `infra/checks` also counts the Payload lint rules (`eslint.payload-ban.mjs` and `eslint-rules/*.mjs`) toward its gate.
+- `infra/checks/vitest.config.ts` also counts the Payload lint rules (`eslint.payload-ban.mjs` and `eslint-rules/*.mjs`) toward its gate.
   Its tests lint with the repo's `eslint.config.mjs` loaded through Vitest, and one test checks in a separate process that
   ESLint loading the file from disk (as `yarn lint` does) gives the same result.
 

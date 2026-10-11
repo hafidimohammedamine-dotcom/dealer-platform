@@ -7,7 +7,6 @@ import {
   findRepoRoot,
   isRecord,
   listWorkspaces,
-  packageName,
   parseEnvTemplate,
   readJson,
 } from './repo.js';
@@ -27,10 +26,6 @@ afterEach(() => {
 });
 
 describe('repo helpers', () => {
-  it('exposes its package name', () => {
-    expect(packageName).toBe('@dealer/infra-checks');
-  });
-
   it('finds the repo root from this folder', () => {
     expect(readJson(findRepoRoot(), 'package.json', hasName).name).toBe('dealer-platform');
   });

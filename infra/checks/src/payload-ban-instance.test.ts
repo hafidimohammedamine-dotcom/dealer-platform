@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allowedPayloadMembers } from '../../../eslint.payload-ban.mjs';
+import { allowedPayloadMembers } from '../../../eslint-rules/payload-lists.mjs';
 import { ACCESS, errors, inside, listOutside, messageIds, outside } from './test-helpers/lint.js';
 
 // Every bypass any review round has found, plus close variants. Each must be flagged outside

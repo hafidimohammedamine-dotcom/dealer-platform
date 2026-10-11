@@ -9,16 +9,10 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 1. Both founders, right away, in a private channel. Not in an issue, a PR comment or a chat with an agent.
 2. Devops, who owns environment variables and hosting.
 3. The security reviewer, for the fix and the review of how it leaked.
-4. Compliance and your lawyer, **the same day** the leak is found. Legal notice clocks may start on the day of discovery
-   (lawyer to confirm):
-   - **FTC Safeguards Rule**, 16 CFR 314.4(h) (written incident response plan) and 314.4(j) (notice to the FTC as soon as
-     possible and no later than 30 days after discovery, when the information of 500 or more consumers is involved).
-   - **Ohio Revised Code 1349.19**: notice to affected Ohio residents after a breach of personal information.
-   - **Each dealer's own deadlines.** Dealers are the financial institutions, with their own notice duties and contract
-     terms, so they may need to hear from us well before their own deadline.
-
-   Compliance and the lawyer decide whether any dealer or customer must be told. Do not contact dealers yourself before
-   the founders decide.
+4. Compliance and your lawyer, **the same day** the leak is found. Legal notice duties and deadlines are decided by the
+   founders with the lawyer, with compliance's help. This runbook gives no legal deadlines until a lawyer confirms them.
+   Dealers have their own notice duties and contract terms, so they may need to hear from us early. Compliance and the
+   lawyer decide whether any dealer or customer must be told. Do not contact dealers yourself before the founders decide.
 
 ## What the two keys protect
 
@@ -51,8 +45,8 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 ## Leak: PAYLOAD_SECRET
 
 1. Write down the date and time the leak was found, and the exposure window: from the first moment the key could have
-   been seen until the moment the rotation is live. Keep this in the private incident note. The legal notice deadlines
-   are counted from discovery (lawyer to confirm).
+   been seen until the moment the rotation is live. Keep this in the private incident note. The lawyer needs these times
+   to decide on any notice duty.
 2. Tell both founders now. Do not wait for a reply before rotating: a leaked login key is fixed by rotating it.
 3. Make a new value with `openssl rand -base64 32`. Write it straight into the Railway variable and the founders' password
    manager. Do not paste it anywhere else.
@@ -65,8 +59,8 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 8. Look at the admin log for logins and API-key use from the time of the leak until the rotation. This is a manual check
    for now.
 9. Count the customer records that were read during the exposure window, per dealer, from the admin and database logs.
-   Note how many consumers that is and in which states. Compliance and the lawyer need the count to decide on notice,
-   for example the FTC's 500-consumer line (lawyer to confirm). There is no tool for this yet (not built).
+   Note how many consumers that is and in which states. Compliance and the lawyer need the count to decide on notice.
+   There is no tool for this yet (not built).
 10. Write a short note for the founders: what leaked, where, when, and who could see it. Do not include the key value.
     The security reviewer checks the note before the incident is closed.
 
@@ -75,8 +69,8 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 This one is harder. Data encrypted under the old key stays readable to anyone who has both the old key and a database copy.
 
 1. Write down the date and time the leak was found, and the exposure window: from the first moment the key could have
-   been seen until access to it is cut and re-encryption is done. Keep this in the private incident note. The legal notice
-   deadlines are counted from discovery (lawyer to confirm).
+   been seen until access to it is cut and re-encryption is done. Keep this in the private incident note. The lawyer needs
+   these times to decide on any notice duty.
 2. Tell both founders now, the same day.
 3. Limit who can read the Railway variables and the password manager entry for the key.
 4. **Do not just replace the value.** Data encrypted under the old key will not decrypt with the new key.

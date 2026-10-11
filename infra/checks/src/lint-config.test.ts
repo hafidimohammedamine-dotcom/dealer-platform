@@ -1,30 +1,21 @@
-import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readOverrideAllowlist } from '../../../eslint.payload-ban.mjs';
-import { isRecord, readJson } from './repo.js';
+import { readOverrideAllowlist } from '../../../eslint-rules/override-allowlist.mjs';
+import { findFiles, hasScripts, isRecord, readJson } from './repo.js';
 import { ACCESS, MODULES, OVERRIDE, errors, eslint, outside, root } from './test-helpers/lint.js';
 
 const sourceFile = /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/;
-const skipped = new Set(['node_modules', '.git', '.yarn', '.nx', '.worktrees']);
+const skipped: ReadonlySet<string> = new Set([
+  'node_modules',
+  '.git',
+  '.yarn',
+  '.nx',
+  '.worktrees',
+]);
 const buildOutput = /^(?:apps|services|packages|infra)\/[^/]+\/(?:dist|coverage)\//;
 
 /** Repo-relative paths of every source file in the checkout, build output folders included. */
-function sourceFiles(dir = ''): string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-    const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
-    if (entry.isDirectory()) {
-      if (!skipped.has(entry.name)) found.push(...sourceFiles(relative));
-    } else if (sourceFile.test(entry.name)) {
-      found.push(relative);
-    }
-  }
-  return found.sort();
-}
-
-const hasScripts = (value: unknown): value is { scripts: Record<string, string> } =>
-  isRecord(value) && isRecord(value['scripts']);
+const sourceFiles = (): string[] => findFiles(root, (name) => sourceFile.test(name), skipped);
 
 describe('lint ignores cover build output only', () => {
   it('ignores the build output folder of a workspace', async () => {

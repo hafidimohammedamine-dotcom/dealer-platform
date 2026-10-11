@@ -76,7 +76,10 @@ downloads.claude.ai` / `could not download Bun <v> from github.com` / `the Bun a
 libnginx-mod-stream bubblewrap socat`, `could not load the AppArmor profile for bubblewrap` - the runner image changed. Re-run
   once, then a founder checks the packages and the AppArmor setup.
 - `self-test: allowed host api.github.com not reachable` / `allowed name <name> not reachable through the lock` - the proxy
-  or DNS is not working, or a name in the list is wrong. The log shows the proxy log and a verbose curl. Every self-test
+  or DNS is not working, or a name in the list is wrong. The `api.github.com` probe (`GET /zen`) sends the job's `GH_TOKEN`
+  (or `GITHUB_TOKEN`) as a Bearer token when the job has one and is anonymous otherwise: anonymous calls share GitHub's
+  60-an-hour limit with every other job on the runner's address, and a 403 from that killed a review job on 2026-10-11
+  (`docs/changelog/2026-10-11-lock-selftest-token.md`). The log shows the proxy log and a verbose curl. Every self-test
   failure ends with `self-test failed; see errors above`.
 - Any other `self-test: ...` message means the lock is not doing its job on this runner. Do not bypass it; open an
   `area:security` issue for the founders. The messages: `sudo still works`, `sudo still lists rules for this user (a
@@ -158,7 +161,7 @@ read the default branch's head commit` / `could not list the main-guard runs ...
 - `accounts file not found: <file>`, `bad line <n> in <file> ...`, `no founder listed in <file>` - fix `.github/accounts.txt`.
 
 **What the agents' own token can do, and what catches it.** A classic `repo` token on a collaborator account can push to any
-branch of this repository, `main` included, and the free plan cannot block that with a ruleset. So `main` is guarded after
+branch of this repository, `main` included, and no ruleset blocks that (see "Known limits" in `docs/runbooks/ci-guards.md`). So `main` is guarded after
 the fact: `main-guard.yml` runs on every push to `main` (`scripts/check-main-push.sh`); when the pusher's user ID is not a
 `founder` row of `.github/accounts.txt` it undoes the push with one commit carrying the previous tip's tree (never a force push), cancels and
 disables every workflow that holds a secret or write scope and opens an `area:security` + `blocked` issue for the founders

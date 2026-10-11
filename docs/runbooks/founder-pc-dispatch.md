@@ -35,8 +35,10 @@ schtasks /Create /F /TN "DealerPlatform\WeeklyAudit" /SC WEEKLY /D SUN /ST 03:05
 schtasks /Create /F /TN "DealerPlatform\LockProbe"   /SC WEEKLY /D MON /ST 02:45 /TR "`"$gh`" workflow run egress-lock-claude.yml -R $r --ref main"
 ```
 
-The `/ST` times are the PC's local time (PC1 is in US Eastern: 07:05 local = 11:05 UTC in standard time; the hour of a
-report does not matter to the agents). Check: `schtasks /Query /TN "DealerPlatform\MainGuard"`, and on GitHub,
+The `/ST` times are the PC's local time (PC1 is in US Eastern: 07:05 local = 11:05 UTC in daylight time, 12:05 UTC in
+standard time, and the same one-hour shift applies to the weekly times; the hour of a report does not matter to the
+agents). The table gives UTC for daylight time. The workflows' own cron times are 11:00 daily (report), 07:00 on Sundays
+(audit), 06:41 on Mondays (lock probe) and `:15` every hour (manager); the main guard's cron is `:37` every hour. Check: `schtasks /Query /TN "DealerPlatform\MainGuard"`, and on GitHub,
 Actions -> Main guard shows a `workflow_dispatch` run by the founder every 30 minutes. Remove: `schtasks /Delete /F /TN
 "DealerPlatform\MainGuard"` (and the others).
 

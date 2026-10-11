@@ -3,18 +3,16 @@ import { mkdtempSync, readdirSync, rmSync, symlinkSync, mkdirSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import rootVitestConfig, { lintRuleFiles } from '../../../vitest.config.js';
+import rootVitestConfig from '../../../vitest.config.js';
+import checksVitestConfig, { lintRuleFiles } from '../vitest.config.js';
 import { dependenciesMetaProblems, lifecycleScriptProblems, yarnrcProblems } from './checks.js';
-import { findFiles, findRepoRoot, isRecord, listWorkspaces, readJson, readText } from './repo.js';
-
-const root = findRepoRoot();
+import { findFiles, hasScripts, isRecord, listWorkspaces, readJson, readText } from './repo.js';
+import { root } from './test-helpers/lint.js';
 
 const hasCompilerOptions = (
   value: unknown,
 ): value is { compilerOptions?: Record<string, unknown> } =>
   isRecord(value) && (value['compilerOptions'] === undefined || isRecord(value['compilerOptions']));
-const hasScripts = (value: unknown): value is { scripts: Record<string, string> } =>
-  isRecord(value) && isRecord(value['scripts']);
 
 describe('tsconfig.base.json', () => {
   const { compilerOptions = {} } = readJson(root, 'tsconfig.base.json', hasCompilerOptions);
@@ -75,7 +73,9 @@ describe('workspaces', () => {
     // Coverage must be on, with the shared config that holds the 90% gate.
     expect(scripts['test']).toContain('vitest run');
     expect(scripts['test']).toContain('--coverage');
-    expect(scripts['test']).toContain('--config ../../vitest.config.ts');
+    // infra/checks has its own config (it adds the lint rule files); the rest use the shared one directly.
+    const config = workspace === 'infra/checks' ? 'vitest.config.ts' : '../../vitest.config.ts';
+    expect(scripts['test']).toContain(`--config ${config}`);
     const files = readdirSync(join(root, workspace, 'src'));
     expect(files.some((name) => name.endsWith('.test.ts'))).toBe(true);
   });
@@ -93,13 +93,71 @@ describe('shared vitest config', () => {
   });
 
   it('counts the Payload lint rules toward the infra/checks coverage gate', () => {
-    // These tests run from infra/checks, so the config adds the rule files outside src/.
+    // These tests run from infra/checks, so its own config (merged over the shared one) adds the rule files outside src/.
     expect(lintRuleFiles).toEqual([
       join(root, 'eslint-rules/**/*.mjs'),
       join(root, 'eslint.payload-ban.mjs'),
     ]);
-    expect(rootVitestConfig.test?.coverage?.include).toEqual(['src/**/*.ts', ...lintRuleFiles]);
-    expect(rootVitestConfig.test?.coverage?.allowExternal).toBe(true);
+    const { coverage } = checksVitestConfig.test ?? {};
+    expect(coverage?.include).toEqual(['src/**/*.ts', ...lintRuleFiles]);
+    expect(coverage?.allowExternal).toBe(true);
+    expect(coverage?.thresholds).toEqual(rootVitestConfig.test?.coverage?.thresholds);
+  });
+
+  it('keeps the shared config free of workspace special cases', () => {
+    expect(rootVitestConfig.test?.coverage?.include).toEqual(['src/**/*.ts']);
+    expect(rootVitestConfig.test?.coverage?.allowExternal).toBeUndefined();
+  });
+});
+
+describe('root scripts, yarn.lock and CI', () => {
+  const { scripts } = readJson(root, 'package.json', hasScripts);
+
+  it('has the lint, typecheck, test and build scripts CI runs', () => {
+    expect(scripts['lint']).toBe('eslint . && prettier --check .');
+    expect(scripts['typecheck']).toBe('nx run-many -t typecheck');
+    expect(scripts['test']).toBe('nx run-many -t test');
+    expect(scripts['build']).toBe('nx run-many -t build');
+  });
+
+  it('runs those scripts in CI after `yarn install --immutable`, in this order', () => {
+    const ci = readText(root, '.github/workflows/ci.yml');
+    const steps = [
+      'yarn install --immutable',
+      'yarn lint',
+      'yarn typecheck',
+      'yarn test',
+      'yarn build',
+      'yarn npm audit --severity moderate --all --recursive',
+    ];
+    const positions = steps.map((step) =>
+      ci.search(new RegExp(`^\\s+run: (?:corepack enable && )?${step}$`, 'm')),
+    );
+    expect(
+      positions.every((position) => position >= 0),
+      steps.join(', '),
+    ).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  // `yarn install --immutable` fails when yarn.lock would change, so the lockfile must list every workspace
+  // (and no folder that is not one) with its current name.
+  it('lists every workspace, and only the workspaces, in yarn.lock', () => {
+    const lock = readText(root, 'yarn.lock');
+    const locked = [...lock.matchAll(/^ {2}resolution: "(.+)@workspace:(.+)"$/gm)].map(
+      (match) => `${match[1]}@${match[2]}`,
+    );
+    const hasName = (value: unknown): value is { name: string } =>
+      isRecord(value) && typeof value['name'] === 'string';
+    const expected = ['.', ...listWorkspaces(root)].map((workspace) => {
+      const { name } = readJson(
+        root,
+        `${workspace === '.' ? '' : `${workspace}/`}package.json`,
+        hasName,
+      );
+      return `${name}@${workspace}`;
+    });
+    expect(locked.sort()).toEqual(expected.sort());
   });
 });
 

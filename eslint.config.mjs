@@ -1,9 +1,10 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import { payloadBanConfigs } from './eslint.payload-ban.mjs';
 
-export default tseslint.config(
+export default defineConfig(
   // Lint every source extension. ESLint only picks up a file whose extension some block names, so
   // without this `.jsx` files would never be linted and the Payload bans below would not run on them.
   { files: ['**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}'] },

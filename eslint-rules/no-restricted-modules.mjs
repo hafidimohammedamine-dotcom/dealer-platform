@@ -1,21 +1,22 @@
 // @ts-check
-import { posix } from 'node:path';
+import { posix, relative } from 'node:path';
 import {
   allowedPayloadValueImports,
   deskingDbDir,
   deskingDbPackage,
   isDbClientModule,
   isProcessModule,
+  isUrlImport,
   loaderMembers,
   payloadModule,
   processBindingMember,
 } from './payload-lists.mjs';
-import { memberName, outermostWrapper, propertyName, staticString, unwrap } from './ast.mjs';
+import { isCallee, memberName, propertyName, repoRoot, staticString, unwrap } from './ast.mjs';
 
 /**
  * @typedef {import('@typescript-eslint/utils').TSESTree.Node} Node
  * @typedef {{ allowPayload?: boolean, allowDbClients?: boolean, allowSpawn?: boolean }} ModuleOptions
- * @typedef {'payloadValue' | 'dbClient' | 'dynamicLoad' | 'processModule' | 'loaderMember' | 'deskingDb'} ModuleMessage
+ * @typedef {'payloadValue' | 'dbClient' | 'dynamicLoad' | 'processModule' | 'loaderMember' | 'deskingDb' | 'urlImport'} ModuleMessage
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -46,6 +47,7 @@ function isDeskingDbImport(source, file) {
 function loadProblem(sourceNode, isValue, options, file) {
   const source = staticString(sourceNode);
   if (source === undefined) return isFullyAllowed(options) ? undefined : 'dynamicLoad';
+  if (isUrlImport(source)) return 'urlImport';
   if (isProcessModule(source) && !options.allowSpawn) return 'processModule';
   if (!file.startsWith('services/desking/') && isDeskingDbImport(source, file)) return 'deskingDb';
   if (isDbClientModule(source)) return options.allowDbClients ? undefined : 'dbClient';
@@ -64,8 +66,7 @@ const isFullyAllowed = (options) =>
 function isLoaderValue(node) {
   if (node.name === 'createRequire') return true;
   if (node.name !== 'require') return false;
-  const outer = outermostWrapper(node);
-  return !(outer.parent?.type === 'CallExpression' && outer.parent.callee === outer);
+  return !isCallee(node);
 }
 
 /** @param {Node | null | undefined} node */
@@ -101,6 +102,35 @@ function valueSpecifiers(node) {
   });
 }
 
+/**
+ * Is this destructured key a hand-loading member (`const { _load } = Module`, `const { binding } = process`)?
+ * @param {import('@typescript-eslint/utils').TSESTree.Property} node
+ * @param {ModuleOptions} options
+ */
+function isLoaderPattern(node, options) {
+  if (options.allowSpawn || node.parent.type !== 'ObjectPattern') return false;
+  const name = propertyName(node);
+  const owner = node.parent.parent;
+  const onProcess = owner?.type === 'VariableDeclarator' && isProcess(owner.init);
+  if (name === undefined) return onProcess;
+  return loaderMembers.includes(name) || (onProcess && name === processBindingMember);
+}
+
+/**
+ * Checks an `import` declaration. A type-only import, or a database client, is checked as a whole; otherwise each
+ * value specifier is checked on its own so the report points at it.
+ * @param {(node: Node, sourceNode: Node | null | undefined, isValue: boolean) => void} check
+ * @param {import('@typescript-eslint/utils').TSESTree.ImportDeclaration} node
+ */
+function checkImport(check, node) {
+  const values = valueSpecifiers(node);
+  if (isDbClientModule(node.source.value) || values.length === 0) {
+    check(node, node.source, values.length > 0);
+    return;
+  }
+  for (const spec of values) check(spec, node.source, true);
+}
+
 /** @type {import('@typescript-eslint/utils').TSESLint.RuleModule<ModuleMessage, [ModuleOptions?]>} */
 export const noRestrictedModules = {
   meta: {
@@ -124,7 +154,9 @@ export const noRestrictedModules = {
       dynamicLoad:
         'Load modules by a fixed name only (no computed import()/require(), no `require` or `createRequire` as a value).',
       processModule:
-        'No `vm`, `worker_threads`, `child_process`, `module`, `cluster` or `repl`: they can run or load code the lint rules cannot see (CLAUDE.md, Payload rule 1).',
+        'No `vm`, `worker_threads`, `child_process`, `module`, `cluster`, `repl`, `inspector` or `wasi`: they can run or load code the lint rules cannot see (CLAUDE.md, Payload rule 1).',
+      urlImport:
+        'No module names with a URL scheme (`data:`, `http:`, `https:`, `file:`, `blob:`): they load code the lint rules cannot see. Only `node:` is allowed (CLAUDE.md, Payload rule 1).',
       loaderMember:
         'No `Module._load`, `process.getBuiltinModule`, `process.binding`, `dlopen` or `.require`: they load modules by hand and skip the import bans (CLAUDE.md, Payload rule 1).',
       deskingDb:
@@ -134,8 +166,9 @@ export const noRestrictedModules = {
   defaultOptions: [{}],
   create(context) {
     const options = context.options[0] ?? {};
+    // Repo-relative, from the file's own location: it does not depend on the folder ESLint runs from.
     const file = posix.normalize(
-      context.filename.slice(context.cwd.length + 1).replaceAll('\\', '/'),
+      relative(repoRoot, context.physicalFilename).replaceAll('\\', '/'),
     );
     /**
      * @param {Node} node
@@ -147,14 +180,7 @@ export const noRestrictedModules = {
       if (messageId) context.report({ node, messageId });
     };
     return {
-      ImportDeclaration(node) {
-        const values = valueSpecifiers(node);
-        if (isDbClientModule(node.source.value) || values.length === 0) {
-          check(node, node.source, values.length > 0);
-          return;
-        }
-        for (const spec of values) check(spec, node.source, true);
-      },
+      ImportDeclaration: (node) => checkImport(check, node),
       ExportAllDeclaration: (node) => check(node, node.source, node.exportKind !== 'type'),
       ExportNamedDeclaration(node) {
         if (!node.source) return;
@@ -184,15 +210,7 @@ export const noRestrictedModules = {
         }
       },
       Property(node) {
-        if (options.allowSpawn || node.parent.type !== 'ObjectPattern') return;
-        const name = propertyName(node);
-        const owner = node.parent.parent;
-        const onProcess = owner?.type === 'VariableDeclarator' && isProcess(owner.init);
-        const bad =
-          name === undefined
-            ? onProcess
-            : loaderMembers.includes(name) || (onProcess && name === processBindingMember);
-        if (bad) context.report({ node, messageId: 'loaderMember' });
+        if (isLoaderPattern(node, options)) context.report({ node, messageId: 'loaderMember' });
       },
     };
   },

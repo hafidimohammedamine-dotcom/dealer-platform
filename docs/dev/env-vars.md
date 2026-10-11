@@ -1,7 +1,8 @@
 # Environment variables
 
 The template is `.env.example` in the repo root. It lists 26 variables. This page explains each one.
-The infra config test in `infra/checks` checks that the template and this list match what it expects.
+The tests in `infra/checks` (`src/repo-files.test.ts`) check that the template, its expected-names list and this page match,
+and that the values in the template follow the rules below.
 
 Placeholders on this page look like `<password>`. Never write a real-looking value in docs, issues, PR comments, logs or chat.
 
@@ -14,6 +15,12 @@ Setting one changes nothing yet.
 
 ## Rules for values
 
+- What `.env.example` may hold (`envValueProblems` in `infra/checks/src/checks.ts` enforces this):
+  - A name that contains `SECRET`, `KEY` or `TOKEN` must be empty, even if the value looks like a URL.
+  - A value that starts with a URL scheme (`postgres://`, `redis://`, `http://`) must be a valid URL on host `localhost`,
+    with no password or the placeholder password `change-me`.
+  - `APP_ENV` may be `dev`.
+  - Every other variable must be empty. Any other non-empty value fails the test.
 - Real values never go in git, in `.env.example`, in issues or PR comments, in logs, or in chat with agents.
 - Staging and production values live in **Railway variables**. CI secrets live in **GitHub Actions secrets**.
   (Both are the places the template comment names.)
@@ -105,7 +112,9 @@ Format: `postgres://<role>:<password>@<host>:5432/<database>`
 
 ## Adding a variable
 
-1. Add it to `.env.example` with an empty value. Never add a real value or a real-looking example.
-2. Add the name to the expected list in `infra/checks/src/config.test.ts`. That file is owned by devops.
+1. Add it to `.env.example`. A name with `SECRET`, `KEY` or `TOKEN` takes an empty value. A URL takes a `localhost` address with the
+   placeholder password `change-me` (or no password). `APP_ENV` is `dev`. Any other variable is empty. Never add a real value or a
+   real-looking example. The rules are in "Rules for values" above.
+2. Add the name to the expected list (`expectedEnvKeys`) in `infra/checks/src/repo-files.test.ts`. That file is owned by devops.
 3. Add it to this page, marked as secret or not, with its status.
 4. Run `yarn test`. The config test fails if the template and the list do not match.

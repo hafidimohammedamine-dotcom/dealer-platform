@@ -1,5 +1,6 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MODULES, errors } from './test-helpers/lint.js';
+import { MODULES, errors, errorsWith, eslintFrom, root } from './test-helpers/lint.js';
 
 const desking = 'services/desking/src/db/credit.ts';
 
@@ -41,5 +42,18 @@ describe('nothing outside services/desking imports from services/desking/src/db'
     expect(
       await errors("import x from '../desking-db/x.js';\nvoid x;\n", 'services/lenders/src/x.ts'),
     ).toEqual([]);
+  });
+});
+
+describe('the desking boundary does not depend on the folder ESLint runs from', () => {
+  const lenders = 'services/lenders/src/x.ts';
+  const bad = "import x from '../../desking/src/db/credit.js';\nvoid x;\n";
+
+  // Run from `services/`, the old code saw `lenders/src/x.ts` and `../../desking/src/db` became `desking/src/db`.
+  it('flags the import and allows desking itself when run from a subfolder', async () => {
+    const linter = eslintFrom(join(root, 'services'));
+    expect(await errorsWith(linter, bad, lenders)).toEqual([MODULES]);
+    const own = "import { creditApp } from './db/credit.js';\nvoid creditApp;\n";
+    expect(await errorsWith(linter, own, 'services/desking/src/deals.ts')).toEqual([]);
   });
 });

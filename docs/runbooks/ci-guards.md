@@ -26,8 +26,7 @@ founder's workflow change fails every job before any secret, sudo or Claude is u
 Claude repeat the check. A founder who changes a pinned file runs `bash scripts/check-pins.sh update` in the same PR (it
 rewrites `pins.txt` and every `PINS_SHA256`); `scripts/check-pins.test.sh` and the workflow checker fail until it is done.
 `pusher-ledger.yml` runs on a pushed branch but checks out the default branch, so its pin step takes the expected hash
-from the default branch's own `guards.yml` instead of its env (the checker requires that exact form). Until this PR is on
-`main`, that step fails on every branch (no `pins.txt` on `main` yet); it works from the first push after merge.
+from the default branch's own `guards.yml` instead of its env (the checker requires that exact form).
 Failure messages: `sha256sum: WARNING: 1 computed checksum did NOT match` (a pinned file differs from the reviewed state:
 either run `update` in a founder PR or, if the push was not a founder's, see "Main guard"); from the checker, `PINS_SHA256
 is <x> but .github/pins.txt is <y>`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is
@@ -80,7 +79,7 @@ finds that push unchecked and stops the agents (see "Main guard").
 
 ### Step "Who pushed each commit (from the ledger written by pusher-ledger.yml)"
 
-First `the fetched PR head is not this event's head sha (...); the PR moved, see the newer run` - this run judges only the
+First `the fetched PR head is <sha>, not this event's <sha>; the PR moved, see the newer run` - this run judges only the
 head its event names; the newer push has its own run. Then `scripts/check-pushers.sh verify` prints `<sha> <id>
 <founder|agent|unknown>` per commit, or `<sha> - unknown` when no status carries a valid mac (none, deleted, or forged);
 `could not read the statuses of <sha>` is a GitHub API error (re-run once); `GUARDS_LEDGER_KEY is missing: a founder sets
@@ -98,8 +97,8 @@ founder rebases those commits out and re-creates the changes in commits of their
 the previous step did not run; re-run the job.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
 `scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt` (founder-only,
-created by founder PR #43 and empty for now: the reviewed system jobs that may use `overrideAccess: true`, see CLAUDE.md Payload rule 1), `.yarnrc.yml` and
-`.yarn/` (lifecycle scripts stay off) and `.gitattributes` (in any folder: the guards read every PR tree with attributes off,
+not in this tree yet; a missing file counts as empty: the reviewed system jobs that may use `overrideAccess: true`, see CLAUDE.md Payload rule 1), `.yarnrc.yml` and
+`.yarn/` (both in any folder; lifecycle scripts stay off) and `.gitattributes` (in any folder: the guards read every PR tree with attributes off,
 and an `export-ignore` must not hide a file from them). Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,
 the founder pushes once more after checking the agent's commits.
@@ -155,7 +154,7 @@ Also `pull_request_target`, also from `main`.
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
 - The `review` job runs only for a PR whose head is in this repository (a fork's PR gets no Claude run; the repo is
   public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned `scripts/check-claude-answer.sh`,
-  which prints the blocked tool calls and hands the answer (text, at most 60000 bytes) to the job `post` as a job
+  which prints the blocked tool calls and hands the answer (text, at most 60000 characters) to the job `post` as a job
   output. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
   answer from `ANSWER`, scans it, posts it and sets labels. The daily report and weekly audit do the same with
   `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
@@ -179,8 +178,8 @@ round needed`.
 
 The step (after "Pinned Python packages for the guard scripts", above) runs `bash scripts/check-workflows.sh` and
 `bash scripts/check-coverage.sh 90`. The coverage script runs every
-`scripts/*.test.sh` (it fails if a test file is missing from its `TESTS` list; `scripts/check-coverage-sh.test.sh` tests the
-runner itself on a small tree). The Python packages come from PyPI with `--require-hashes`, so this step and
+`scripts/*.test.sh` (the list is built from the files in `scripts/`, so no test is skipped; `ERROR: no scripts/*.test.sh found`
+if there are none; `scripts/check-coverage-sh.test.sh` tests the runner itself on a small tree). The Python packages come from PyPI with `--require-hashes`, so this step and
 `scripts/check-python-deps.test.sh` need network access to `pypi.org` (GitHub's runners have it; an offline run fails at
 the install, which is unrelated to the code - founder decision: no vendored wheels until a mirror exists). A test passes only if it exits 0 and its last line reads `<n> passed, 0 failed` with `<n>`
 above 0. Then it measures line coverage:
@@ -192,7 +191,7 @@ above 0. Then it measures line coverage:
   is put in front of `PATH` as `python3` only for the tests.
   Messages: `ERROR: <test> tests failed` (the failing test's output is printed above it), `<script> ... <-- below minimum` with
   the commands that never ran, `ERROR: <path to script.py> line coverage N.NN% is below 90%` (two decimals, so 89.6% does not
-  round up), `ERROR: <file> is not in TESTS`, `ERROR: missing test <file>`, `bad minimum percent`, and `Coverage OK (every guard script
+  round up), `ERROR: missing test <file>` (only when a test list is given by hand, as the runner's own test does), `ERROR: bad minimum percent`, and `Coverage OK (every guard script
 at least 90%)`. Fix: add a test case for the commands listed as not run. To see one test's cases, run it alone, for example
   `bash scripts/check-egress-lock.test.sh`; `GITLEAKS=/path/to/gitleaks` is needed for `scripts/gitleaks-config.test.sh` (it
   exits 2 if gitleaks can't run).
@@ -279,10 +278,9 @@ of this job); nothing undone`): undoing again would undo more than the push.
 
 Then `scripts/check-main-push.sh` compares the pusher's user ID with the `founder` rows: a founder's push (every merge)
 prints `Push to main by founder '<login>' (ID <id>): OK.` Any other push means guards, review and founder approval were
-bypassed (the agents' token can push to `main`; the free plan cannot block it): the job prints `::error::push to main by
-user ID <id> ...`, **undoes the push with one commit whose tree is exactly the previous tip's** (`git read-tree --reset -u
-<before>`, then a commit - empty if the push changed no file - and `git diff --quiet <before> HEAD` before anything is
-pushed or marked; never per-commit reverts: a pushed merge whose first parent is an older `main` commit would make `git
+bypassed (the agents' token can push to `main`; no ruleset blocks it): the job prints `::error::push to main by
+user ID <id> ...`, **undoes the push with one commit whose tree is exactly the previous tip's** (`git commit-tree <before>^{tree} -p <after>`, built without a working tree, and `git diff --quiet <before> <undo commit>` before anything is
+pushed or marked; the commit is empty if the push changed no file; never per-commit reverts: a pushed merge whose first parent is an older `main` commit would make `git
 revert -m 1` roll `main` back to that older tree, every founder change since gone and the head marked checked, and a
 revert can conflict or stop halfway), pushes it with its own token (which starts no workflow), marks it, cancels every
 running or queued run of the eight workflows that hold a secret or judge pushes (the manager, review team, founder
@@ -328,8 +326,8 @@ issue for the founders.
 
 ## Known limits
 
-- Pushes by the agents' account cannot be blocked by a ruleset on the current plan (rulesets for a private repo need a paid
-  plan). What holds instead: the token has no `workflow` scope (it cannot change `.github/workflows/`); a non-founder push to
+- Pushes by the agents' account are not blocked by a ruleset: this runbook assumes none is on (rulesets for a private repo need a paid
+  plan; the repository has been public since 2026-10-11, and whether to turn one on is a founder decision). What holds instead: the token has no `workflow` scope (it cannot change `.github/workflows/`); a non-founder push to
   `main` is undone by "Main guard" (above) and stops the agents; founder-only changes need every commit pushed by a founder
   (the pusher ledger); the agents' account may own no repository, the four guard workflows must be active and the default
   branch's head must have passed the main guard (`scripts/check-agent-token.sh`, start of every shift and again in the
@@ -338,7 +336,7 @@ issue for the founders.
   (`scripts/check-agent-events.sh`, before each shift and again in job `after`: the token can comment on or open issues
   in any repository it can see; a rolling day rather than "since the shift started" because the events feed can lag, so
   the check before the next shift sees what this one missed). Job `after` is a fresh runner (`needs: shift`,
-  `if: always() && github.run_attempt == '1'`), because the shift's Claude runs with bypassPermissions
+  `if: always() && needs.shift.result != 'skipped' && github.run_attempt == '1'`), because the shift's Claude runs with bypassPermissions
   and could have written its own job's `$GITHUB_ENV` or `$GITHUB_PATH`; inside Actions both scripts ignore every
   environment override (`GH_BIN`, `GH_REPO`, `GUARD_WORKFLOWS`, `AGENT_TOKEN_WAIT`) and take gh from PATH and the
   repository from `GITHUB_REPOSITORY`. `the agents' account '<login>' acted outside <repo> since <time>:` lists the
@@ -348,5 +346,5 @@ events of '<login>'` - start a fresh run. Founder decisions 1 and 4 in `docs/run
   that secret ever holds a founder's or anyone else's token, the manager stops at its step "Agents must run on their own GitHub
   token, never a founder's" on every run. That is on purpose: the founder check in `guards` trusts GitHub accounts, so agents
   must never push as a founder.
-- `CODEOWNERS` and required checks enforce nothing until branch protection is on (paid GitHub plan for a private repo).
+- `CODEOWNERS` and required checks enforce nothing until branch protection is on (a founder decision; it was not available on a private repo on the free plan, and the repository is public now).
 - `ci.yml` runs from the PR (tests, no secrets). Anything a PR must not be able to change lives in `guards.yml` / `review.yml`.
