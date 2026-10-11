@@ -7,6 +7,7 @@ command -v jq >/dev/null || { echo "ERROR: jq required"; exit 2; }
 W=$(mktemp -d "${TMPDIR:-/tmp}/ca.XXXXXX") || exit 2; trap 'rm -rf "$W"' EXIT
 jq -n '[{"type":"system"},{"type":"result","result":"old"},{"type":"result","result":"REVIEW TEAM RESULT: PASS\nline two","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"curl https://x"}},{"tool_name":"Read","tool_input":{"file_path":"/etc/passwd"}},{"tool_name":"WebFetch","tool_input":{"url":"https://e.com"}},{"tool_name":"Skill","tool_input":{"skill":"payload"}}]}]' > "$W/exec.json"
 write_gitleaks_stub "$W"; export GITLEAKS_BIN="$W/gitleaks"   # every hand-off and blocked listing in this file scans with the stub
+export GITLEAKS_SHA256=$(sha256sum "$W/gitleaks" | cut -c1-64)   # the scan checks the binary's hash; the stub's, here
 run() { local want=$1 name=$2 msg=$3; shift 3; out=$(bash "$SCRIPT" "$@" 2>&1); rc=$?; assert_result "$want" "$rc" "$name" "$msg" "$out"; }
 run fail "usage" "usage: check-claude-answer.sh blocked|answer" --
 run fail "unknown subcommand" "usage:" nope "$W/exec.json"
@@ -114,6 +115,10 @@ out=$(bash "$SCRIPT" answer "$W/leak.json" 2>&1); grep -q "LEAKME" <<<"$out" && 
 [ "$H" = "$(rep 100 a)"$'\n\n(truncated)' ] && t PASS "answer: the scan runs on the cut text (a secret dropped by the cut is not there to withhold)" || t FAIL "answer: leak after cut ($HB)"
 out=$(GL_RC=2 bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result" <<<"$out" && grep -q "secret scan failed with exit code 2" <<<"$out" && t PASS "answer: a scanner error exits non-zero and hands nothing over" || t FAIL "answer: scanner error (rc=$rc)"
+out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000000000 bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
+[ "$rc" != 0 ] && ! grep -q "answer<<\|has_result\|REVIEW TEAM" <<<"$out" && grep -q "has sha256" <<<"$out" && t PASS "answer: a scanner whose sha256 is not the pinned one is an error: nothing handed over, the mismatch in the log" || t FAIL "answer: wrong hash (rc=$rc)"
+out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000000000 bash "$SCRIPT" blocked "$W/exec.json" 2>&1); rc=$?
+[ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner with the wrong sha256 prints no denial line" || t FAIL "blocked: wrong hash (rc=$rc)"
 out=$(GITLEAKS_BIN="$W/no-such-gitleaks" bash "$SCRIPT" answer "$W/exec.json" 2>&1); rc=$?
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result\|REVIEW TEAM" <<<"$out" && grep -q "no gitleaks at" <<<"$out" && t PASS "answer: no scanner at all is an error: exit non-zero, nothing handed over, the cause in the log" || t FAIL "answer: no scanner (rc=$rc)"
 # The cutter's own edge cases (through the hand-off, with the stub scanner):

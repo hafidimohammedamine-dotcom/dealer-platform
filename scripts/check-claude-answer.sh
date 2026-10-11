@@ -17,15 +17,15 @@ case "$CMD" in blocked|answer) ;; *) echo "usage: check-claude-answer.sh blocked
 have=0; [ -n "$EXEC" ] && [ -f "$EXEC" ] && jq -e 'type == "array"' "$EXEC" >/dev/null 2>&1 && have=1
 . "$(dirname "$0")/check-scan-lib.sh"   # scan_answer: the pinned gitleaks (GITLEAKS_BIN); the job log is public
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/scan"
+denials='[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]'   # the last result's denied tool calls
 if [ "$CMD" = blocked ]; then
   [ "$have" = 1 ] || { echo "no execution file"; exit 0; }
   # The denied tool inputs are Claude's own commands, paths and URLs: scanned before they reach the log, like the answer.
-  jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[]
-         | "BLOCKED " + (.tool_name // "?") + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' "$EXEC" > "$T/scan/blocked.md"
+  jq -r "$denials"' | "BLOCKED " + (.tool_name // "?") + ": " + ((.tool_input.command // .tool_input.file_path // .tool_input.url // "") | tostring | .[0:300])' "$EXEC" > "$T/scan/blocked.md"
   set +e; scan_answer "$T/scan"; rc=$?; set -e
   case $rc in
     0) cat "$T/scan/blocked.md";;
-    3) jq -r '[.[]? | select(.type == "result")] | last | (.permission_denials // [])[] | "BLOCKED " + (.tool_name // "?") + ": (withheld: looks like a secret)"' "$EXEC";;
+    3) jq -r "$denials"' | "BLOCKED " + (.tool_name // "?") + ": (withheld: looks like a secret)"' "$EXEC";;
     *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;;
   esac
   exit 0

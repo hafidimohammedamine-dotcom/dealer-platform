@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "d5f4228fd98585ab4ea1ff0882115de47ec7f02fccb005f600df6973931cfd36"
+          PINS_SHA256: "1b35bc7dd2f864d92cf2a3ff96885fe29daf46d46a4c00e1acf608562c8f552b"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -62,7 +62,10 @@ jobs:
         if: always()
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "d5f4228fd98585ab4ea1ff0882115de47ec7f02fccb005f600df6973931cfd36"
+          GITLEAKS_BIN: /tmp/gitleaks   # pinned here: a step's own env wins over anything a Claude step wrote to $GITHUB_ENV
+          GITLEAKS_SHA256: "46a05260e7cce527f132cb618de59d22262b8b5eb47f66c288447b95c7a98b7e"
+          BASH_ENV: ""
+          PINS_SHA256: "1b35bc7dd2f864d92cf2a3ff96885fe29daf46d46a4c00e1acf608562c8f552b"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -87,7 +90,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "d5f4228fd98585ab4ea1ff0882115de47ec7f02fccb005f600df6973931cfd36"
+          PINS_SHA256: "1b35bc7dd2f864d92cf2a3ff96885fe29daf46d46a4c00e1acf608562c8f552b"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

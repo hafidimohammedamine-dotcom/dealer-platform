@@ -9,7 +9,8 @@ writes the text to hand to the post job on stdout.
   over in part, and never inside a -----BEGIN ... -----END block: blocks are paired like brackets (an END line closes
   the nearest open BEGIN, markers matched without regard to case), and the kept text stops before the first BEGIN left
   open.
-- When nothing before the cap is safe to keep, the text is withheld and WITHHELD is handed over instead; nothing of
+- When nothing before the cap is safe to keep (no line break, space or tab before it, or only line breaks: a newline at
+  index 0 would otherwise keep an empty text), the text is withheld and WITHHELD is handed over instead; nothing of
   the answer is kept, not even its first line, so the post job posts FAIL: a result nobody can read must never label a
   PR ready-to-merge (the founders accept losing that result; the review is simply re-run). A cut answer is different:
   its verdict line and its start are posted, so a cut PASS keeps its labels (a PASS has no findings to lose; the
@@ -46,9 +47,10 @@ def cut(b: bytes) -> bytes:
                 open_begins.pop()
         if open_begins:
             at = b.rfind(b"\n", 0, open_begins[0])
-    if at < 0:
+    kept = b[:at].rstrip(b"\n") if at >= 0 else b""
+    if not kept:   # nothing before the cap was safe to keep (or only line breaks were): the notice, never an empty answer
         return WITHHELD + MARK
-    return b[:at].rstrip(b"\n") + MARK
+    return kept + MARK
 
 
 if __name__ == "__main__":

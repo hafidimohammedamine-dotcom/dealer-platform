@@ -35,3 +35,9 @@ are gone.
   has no findings to lose); only a withheld answer loses its result.
 - `scripts/check-scan-lib.sh` (pinned): the one gitleaks call (`scan_answer <dir>`) both the hand-off and the post
   script use; `check-review-post.sh` stops if the runner lacks the C.UTF-8 locale (bash would count bytes).
+- The scan checks the scanner: `scan_answer` compares `/tmp/gitleaks` with the pinned binary sha256 (a swapped or
+  edited binary is an error, nothing is handed over or posted), and every hand-off and blocked-call step pins
+  `GITLEAKS_BIN`, `GITLEAKS_SHA256` and `BASH_ENV` in its own `env:`, which a Claude step's writes to `$GITHUB_ENV`
+  cannot override. A cut that would keep nothing (a line break at index 0) hands over the withheld notice, never an
+  empty answer. `scripts/check-claude-answer-cut.test.sh` tests `cut()` directly; the post tests run one case with the
+  real pinned gitleaks when it is installed.

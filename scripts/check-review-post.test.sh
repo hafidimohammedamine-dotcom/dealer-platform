@@ -15,7 +15,7 @@ exit 0
 STUB
 chmod +x "$W/gh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-testlib.sh"
-write_gitleaks_stub "$W"
+write_gitleaks_stub "$W"; export GITLEAKS_SHA256=$(sha256sum "$W/gitleaks" | cut -c1-64)   # the scan checks the hash
 A=""; answer() { A="$1"; }   # the answer the next run posts (ANSWER in the post jobs)
 run() { # run <name> <expect-rc 0|1> <posted-first-line> <label-arg-expected>
   rm -f "$W/gh.log" "$W/posted.md"
@@ -27,6 +27,16 @@ run() { # run <name> <expect-rc 0|1> <posted-first-line> <label-arg-expected>
 # The locale probe at the top of the script: under a byte-counting locale "é" is 2 characters and the script must stop.
 LC_ALL=C bash -c 'p=$'"'"'\xc3\xa9'"'"'; [ "${#p}" = 2 ]' && t PASS "locale probe: a byte-counting locale makes the probe fail (what the script checks before cutting)" || t FAIL "locale probe"
 LC_ALL=C.UTF-8 bash -c 'p=$'"'"'\xc3\xa9'"'"'; [ "${#p}" = 1 ]' && t PASS "locale probe: C.UTF-8 counts characters on this runner" || t FAIL "locale probe utf-8"
+# The probe inside the real script: a byte-counting locale stops it before anything is posted.
+rm -f "$W/gh.log" "$W/posted.md"; out=$(LOCALE_PROBE=ab ANSWER=$'REVIEW TEAM RESULT: PASS\nok' GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" pr 21 2>&1); rc=$?
+[ $rc = 1 ] && grep -q "C.UTF-8 locale is missing" <<<"$out" && [ ! -f "$W/posted.md" ] && [ ! -f "$W/gh.log" ] && t PASS "locale probe inside the script: exit 1, nothing posted, no label change" || t FAIL "locale probe in script (rc=$rc)"
+# A missing scanner in every mode: exit non-zero, no comment, no label change.
+for m in "pr 21" "issue 2" "daily-reports"; do
+  rm -f "$W/gh.log" "$W/posted.md"; out=$(ANSWER=$'REVIEW TEAM RESULT: PASS\nok' STUB_DAILY_NUMBER=42 GH_BIN="$W/gh" GITLEAKS_BIN="$W/no-such" bash "$SCRIPT" $m 2>&1); rc=$?
+  [ $rc != 0 ] && grep -q "no gitleaks at" <<<"$out" && [ ! -f "$W/posted.md" ] && ! grep -q "comment\|pr edit" "$W/gh.log" 2>/dev/null && t PASS "no scanner ($m): exit non-zero, nothing posted, no label change" || t FAIL "no scanner ($m) rc=$rc"
+done
+rm -f "$W/gh.log" "$W/posted.md"; out=$(ANSWER=$'REVIEW TEAM RESULT: PASS\nok' GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000000000 bash "$SCRIPT" pr 21 2>&1); rc=$?
+[ $rc != 0 ] && grep -q "has sha256" <<<"$out" && [ ! -f "$W/posted.md" ] && t PASS "a scanner with the wrong sha256: exit non-zero, nothing posted" || t FAIL "wrong hash rc=$rc"
 answer $'REVIEW TEAM RESULT: PASS\nall good';  run "PASS posts and labels ready-to-merge" 0 "REVIEW TEAM RESULT: PASS" "--add-label ready-to-merge"
 answer $'REVIEW TEAM RESULT: FAIL\n1. x';      run "FAIL posts and labels changes-requested" 0 "REVIEW TEAM RESULT: FAIL" "--add-label changes-requested"
 answer $'Looks fine to me\nREVIEW TEAM RESULT: PASS'; run "wrong first line becomes FAIL" 0 "REVIEW TEAM RESULT: FAIL" "--add-label changes-requested"
@@ -120,6 +130,17 @@ n=$((119987 - 8 - 25 - 1 - 27 - 10 - 1)); { echo "REVIEW TEAM RESULT: PASS"; rep
 e2e "$W/endline.json"
 [ $rc = 0 ] && ! grep -q "BEGIN\|BLOCKBODY" <<<"$A" && ! grep -q "BEGIN\|BLOCKBODY" "$W/posted.md" && grep -q "(truncated)" "$W/posted.md" && grep -q "add-label ready-to-merge" "$W/gh.log" \
   && t PASS "end to end: a block whose END line straddles the hand-off cap is never handed over or posted" || t FAIL "end to end END line (rc=$rc)"
+# With the real pinned gitleaks and the repo's .gitleaks.toml (skipped when the binary is not installed): a fake key block
+# across the 120000-byte cap and a fake Claude token across the 60000-character cut are both kept out of the comment
+# (the key markers are spelled in pieces so this file itself never matches the private-key rule in the commit scan).
+REAL="${GITLEAKS:-/tmp/gitleaks}"
+if [ -x "$REAL" ]; then
+  python3 -c 'print("REVIEW TEAM RESULT: PASS\n"+"x"*59980+"sk-ant-api03-"+"A"*40+"\n"+"y"*59900+"\n-----BEGIN RSA "+"PRIV"+"ATE KEY-----\n"+"MIIE"+"A"*60+"\n"+"B"*64+"\n-----END RSA "+"PRIV"+"ATE KEY-----\n", end="")' | mk_exec "$W/real.json"
+  A=$(handoff_text "$(GITLEAKS_BIN="$REAL" GITLEAKS_SHA256= bash "$HANDOFF" answer "$W/real.json")"); rm -f "$W/gh.log" "$W/posted.md"
+  ANSWER="$A" GH_BIN="$W/gh" GITLEAKS_BIN="$REAL" GITLEAKS_SHA256= bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?
+  [ $rc = 0 ] && ! grep -q "sk-ant\|BEGIN\|MIIE" "$W/posted.md" && grep -q "add-label changes-requested" "$W/gh.log" \
+    && t PASS "real gitleaks: a fake Claude token across the 60000 cut and a key block across the 120000 cap never reach the comment" || t FAIL "real gitleaks end to end (rc=$rc)"
+else t PASS "real gitleaks end to end: skipped (no binary at $REAL)"; fi
 out=$(ANSWER="$A" GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" other 2 2>&1); [ $? != 0 ] && { t PASS "bad mode rejected"; } || { t FAIL "bad mode"; }
 # The answer from the environment (the post jobs), and the daily-reports target
 rm -f "$W/gh.log" "$W/posted.md"; ANSWER=$'REVIEW TEAM RESULT: PASS\nfrom env' GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?

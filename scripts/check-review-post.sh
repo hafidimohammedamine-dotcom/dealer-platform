@@ -10,7 +10,7 @@
 #        GH_BIN / GITLEAKS_BIN may point to stubs.
 set -euo pipefail
 export LC_ALL=C.UTF-8   # ${#text} and ${text:0:60000} count characters, never bytes (a byte cut could split a multibyte character)
-probe=$'\xc3\xa9'   # "é": one character under a UTF-8 locale, two bytes if the runner lacks C.UTF-8 (then the cut could split one)
+probe="${LOCALE_PROBE:-$'\xc3\xa9'}"   # "é": one character under a UTF-8 locale, two bytes if the runner lacks C.UTF-8 (tests may set LOCALE_PROBE)
 [ "${#probe}" = 1 ] || { echo "ERROR: the C.UTF-8 locale is missing on this runner (bash counts bytes)"; exit 1; }
 MODE="${1:?pr, issue or daily-reports}"
 case "$MODE" in
