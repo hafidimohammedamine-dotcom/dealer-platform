@@ -8,16 +8,16 @@ writes the full version here.
 **Built** means code exists in this repo today. **Reserved** means the folder, name or variable is set aside and
 documented, but nothing uses it yet.
 
-| Part                      | Where                                                          | Status                                                                |
-| ------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Yarn workspaces + Nx      | `apps/*`, `services/*`, `packages/*`, `infra/*`                | Built: every workspace has `typecheck`, `test` and `build`            |
-| Repo checks               | `infra/checks`, `eslint.payload-ban.mjs`, `eslint-rules/`      | Built: config tests and the Payload lint bans                         |
-| Payload admin (CRM, site) | `apps/admin`                                                   | Reserved: Payload is not installed yet                                |
-| Business services         | `services/*` (intake, ai, messaging, voice, desking, ...)      | Reserved: placeholder workspaces only                                 |
-| Shared packages           | `packages/data`, `contracts`, `platform`, `ui`                 | Reserved: placeholder workspaces only                                 |
-| CRM tables                | Postgres, owned by Payload, row-level security per dealer      | Reserved: no tables, roles or policies yet                            |
-| Credit and finance data   | Separate encrypted Postgres schema owned by `services/desking` | Reserved: never in Payload collections; the schema does not exist yet |
-| Queues                    | Redis, used by BullMQ                                          | Reserved: `REDIS_URL` only                                            |
+| Part                      | Where                                                          | Status                                                                    |
+| ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Yarn workspaces + Nx      | `apps/*`, `services/*`, `packages/*`, `infra/*`                | Built: every workspace has `typecheck`, `test` and `build`                |
+| Repo checks               | `infra/checks`, `eslint.config.mjs`                            | Built: config tests and lint. The Payload lint ban is not built yet (#36) |
+| Payload admin (CRM, site) | `apps/admin`                                                   | Reserved: Payload is not installed yet                                    |
+| Business services         | `services/*` (intake, ai, messaging, voice, desking, ...)      | Reserved: placeholder workspaces only                                     |
+| Shared packages           | `packages/data`, `contracts`, `platform`, `ui`                 | Reserved: placeholder workspaces only                                     |
+| CRM tables                | Postgres, owned by Payload, row-level security per dealer      | Reserved: no tables, roles or policies yet                                |
+| Credit and finance data   | Separate encrypted Postgres schema owned by `services/desking` | Reserved: never in Payload collections; the schema does not exist yet     |
+| Queues                    | Redis, used by BullMQ                                          | Reserved: `REDIS_URL` only                                                |
 
 Postgres roles (reserved, named in `.env.example`):
 

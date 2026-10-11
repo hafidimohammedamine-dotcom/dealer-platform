@@ -18,8 +18,7 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 
 - **`PAYLOAD_SECRET`** signs Payload logins and encrypts the Payload API keys stored in the database. Anyone who has it may
   be able to forge a login, and with a copy of the database can read the stored API keys. If it changes, every Payload
-  API key must be regenerated (Payload v3 docs: "If you change your PAYLOAD_SECRET, you will need to regenerate your API
-  keys").
+  API key must be regenerated. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. This repo does not install Payload yet, so it is re-checked against the pinned version's source in issue #5.
 - **`FIELD_ENCRYPTION_KEY`** encrypts sensitive fields at rest (`CLAUDE.md`, non-negotiable rule 7). Someone with the key
   and a copy of the database can read those fields. If the key is lost, the fields cannot be read at all.
 

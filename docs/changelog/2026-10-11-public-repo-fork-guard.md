@@ -4,7 +4,8 @@ Founder change (`.github/workflows/review.yml`). GitHub Actions stopped at 12:42
 plan has 2000 hosted minutes a month and the agents had used them (one manager shift is about 150 minutes; every job
 then failed in two seconds with "The job was not started because recent account payments have failed or your spending
 limit needs to be increased"). The founders made the repository public, which gives hosted runners without a minute cap
-at no cost; `docs/runbooks/agent-runner.md` (PR #34, runners on the founders' PCs) is the way back to private at $0.
+at no cost; the agent-runner runbook from PR #34 (runners on the founders' PCs; not in this tree yet) is the way back
+to private at $0.
 
 - `review.yml`: the `review` job runs only when the PR's head is in this repository
   (`github.event.pull_request.head.repo.full_name == github.repository`). A fork's PR must never start a Claude run:

@@ -48,89 +48,32 @@ scripts. A founder still has to confirm that.
 
 ## Root scripts
 
-| Command          | What it runs                          | When to use it                                        |
-| ---------------- | ------------------------------------- | ----------------------------------------------------- |
-| `yarn lint`      | `eslint .`, then `prettier --check .` | Before every push                                     |
-| `yarn format`    | `prettier --write .`                  | To fix formatting                                     |
-| `yarn typecheck` | `nx run-many -t typecheck`            | Type check every workspace                            |
-| `yarn test`      | `nx run-many -t test`                 | Unit tests in every workspace, with the coverage gate |
-| `yarn build`     | `nx run-many -t build`                | Compile every workspace to `dist/`                    |
+| Command          | What it runs                                                   | When to use it                                        |
+| ---------------- | -------------------------------------------------------------- | ----------------------------------------------------- |
+| `yarn lint`      | `eslint --config eslint.config.mjs .`, then `prettier --check .` | Before every push                                     |
+| `yarn format`    | `prettier --write .`                                           | To fix formatting                                     |
+| `yarn typecheck` | `nx run-many -t typecheck`                                     | Type check every workspace                            |
+| `yarn test`      | `nx run-many -t test`                                          | Unit tests in every workspace, with the coverage gate |
+| `yarn build`     | `nx run-many -t build`                                         | Compile every workspace to `dist/`                    |
 
 Notes:
 
 - `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file not in `.prettierignore`, including Markdown in `docs/`.
-- ESLint also enforces the Payload data rules. All data access goes through `packages/data`. `eslint.payload-ban.mjs`
-  wires them up; the rules are in `eslint-rules/`, and the reviewed allow-lists in `eslint-rules/payload-lists.mjs`. The system-job allow-list is a separate file,
-  `packages/data/override-allowlist.txt`.
-  The rules ban where the Payload instance comes from and every name it goes by, instead of listing bad uses. Expect
-  false positives; rename the value or ask security to review an allow-list entry.
-  - `local/no-payload-instance-access`, outside `packages/data`: no identifier, object key, string, JSX prop or type named
-    `payload`, `getPayload…`, `Payload` or `BasePayload`. The one exception is `payload.logger` / `req.payload.logger`.
-    `Reflect` is banned. A computed read whose key is not a fixed string (`obj[key]`, or `const p = req[k]`) is flagged in
-    any use. Plain writes (`obj[k] = 1`) and `delete obj[k]` are not. `Object.values`, `entries`, `assign`,
-    `getOwnPropertyDescriptor(s)` and `getOwnPropertyNames` are banned, and so is any use of `Object` other than
-    `Object.<fixed name>`. `JSON.stringify` and `JSON.parse` take no replacer or reviver function (only `null` or an
-    array of fixed strings): a function there is handed every value, the Payload instance included. `_payload` is a
-    banned name, and so is any `_`-prefixed member of `global` or `globalThis` (Payload's `getPayload` keeps its cache on
-    `global._payload`). A call to a Local API method name (`find`, `create`, ...) whose first argument has a `collection` or
-    `global` key is flagged too.
-    A webhook body with a field of that name (Telnyx sends `data.payload`) needs a reviewed entry in
-    `payloadNameAllowedPaths`.
-  - `local/no-restricted-modules`, outside `packages/data`: only type imports from `payload`. No database client at all
-    (`pg` and `pg-*`, `postgres`, `kysely`, `knex`, `drizzle-orm`, `drizzle-kit`, Prisma, Neon, `@vercel/postgres`,
-    `node:sqlite`, every `@payloadcms/db-*` adapter and more). The reviewed exception list is empty, so no file outside
-    `packages/data` may import one yet. The `deskingDb` message of the same rule stops code outside `services/desking/` from importing
-    `services/desking/src/db/`. The rule finds the importing file's path from the rule's own location, not from the
-    folder ESLint runs in, so the check holds when you run ESLint from a subfolder. `import()` and `require()` take
-    fixed names only. A module name with a URL scheme (`data:`, `http:`, `https:`, `file:`, `blob:`) is banned in every
-    form, `packages/data` included; only `node:` names may use a scheme.
-  - `local/no-override-access`, in every file: `overrideAccess` is only the literal `false`, except in a system job
-    listed in `packages/data/override-allowlist.txt`. A listed file may also skip the `user`/`req` requirement, but every
-    other check stays on for it (`depth`, `versions`, `showHiddenFields`, spreads, computed keys, `.db`). That file is
-    founder-only. It is not in this tree yet, and a missing file counts as empty, so no file may use `true` yet.
-    The rule reads it as exact repo-relative paths, one per line. `#` comment lines and blank lines are
-    skipped. No globs, no trailing comments, no `..` and no leading `/`. A missing file counts as an empty list. A
-    malformed line, or a listed file that does not exist, breaks lint when the config loads. An unlisted file that uses
-    `true` fails lint. In `packages/data`, every Local API call passes one object literal with `overrideAccess: false`,
-    `depth` and `versions`, plus `user` or `req` (a `null` or `undefined` value does not count), with no spreads and no
-    computed keys. `showHiddenFields` may only be the literal `false`, or be left out. Also in `packages/data`: a Local API method (`find`, `create`, ...)
-    may only be read to call it directly (`payload.find({...})` or `payload.find.call(payload, {...})`), so no destructured
-    `find`, no `[payload.find][0](...)`, no `.apply` or `.bind`. No dynamic or numeric key (`obj[k]`, `rows[0]`; use a fixed
-    name, `.at()` or a Map), no `Reflect`, and no `.values()`, `.entries()`, `.getOwnPropertyDescriptor()` or
-    `.getOwnPropertyDescriptors()` (use `for...of` on a Map instead). Raw database access through `payload.db` has no
-    reviewed file yet: `payloadDbAllowedPaths` in `eslint-rules/payload-lists.mjs` is empty. Its entry comes with the
-    PR that adds the reviewed file, which must set the dealer for each transaction (Payload rule 2).
-    Outside `packages/data`, `local/no-override-access` checks only a static `overrideAccess` key. Dynamic keys
-    (`{ [k]: true }`) and spreads (`{ ...opts }`) in `apps/` and `services/` are not flagged by it, because the Payload
-    instance cannot be reached there: the other two rules ban every way to reach it. The reasoning is in the header of
-    `eslint-rules/no-override-access.mjs`.
-  - `local/no-code-constructors`, in every file, `packages/data` included: code can be built at run time without
-    `eval`, because any function's `.constructor` is the `Function` constructor
-    (`({}).constructor.constructor('...')()`, `(async () => {}).constructor('...')()`). So `constructor`, `__proto__`,
-    `__lookupGetter__`, `__lookupSetter__`, `__defineGetter__` and `__defineSetter__` are banned as a member
-    (`x.constructor`), as a computed string member (`x['constructor']`) and as a destructured key
-    (`const { constructor } = x`). `Function`, `AsyncFunction`, `GeneratorFunction` and `AsyncGeneratorFunction` are
-    banned as identifiers, as exact strings and as `global`/`globalThis` members. A class's own `constructor() {}` is
-    not a read and is fine. The rule is in `eslint-rules/no-code-constructors.mjs`; its tests are in
-    `infra/checks/src/payload-ban-code.test.ts`.
-  - `no-eval`, `no-implied-eval`, `no-new-func` and `no-with` are on. Process, thread, VM, debugger and module-loading
-    modules are banned, with or without `node:` and with any subpath: `vm`, `worker_threads`, `child_process`, `module`,
-    `cluster`, `repl`, `inspector` and `wasi`. So are the
-    members that load code or modules by hand: `getBuiltinModule`, `_load`, `_linkedBinding`, `dlopen`, `.require`,
-    `process.binding` and `process[k]`. These bans apply everywhere, `packages/data` included. Only exactly two files may
-    start processes (`spawnAllowedPaths`): `infra/checks/src/config.test.ts` and
-    `infra/checks/src/payload-ban-config.test.ts`. Lint bans these names; it cannot prove that no other route exists, so
-    it is not a sandbox.
-  - Inline `eslint-disable` comments are off, so a file cannot switch these rules off.
-  - Limit: the rules work on names and syntax, not on types. A value that reaches the Payload instance through a name the
-    rules do not know, or through a function's return value, is not caught by lint. The checks above are syntax checks,
-    not proof. The type-aware rule is issue
-    [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36); it blocks the PR that adds `payload`,
-    which may not merge before #36 is done. Until then, and after,
-    Postgres row-level security and the cross-dealer leak tests are the locks that hold (`CLAUDE.md`, Payload rules 2-3).
-- `eslint-rules/`, `eslint.payload-ban.mjs` and `eslint.config.mjs` become founder-only once #19 merges. A follow-up
-  founder PR adds them to the founder-only list (CLAUDE.md, `scripts/check-founder-files.sh`, CODEOWNERS and
-  `.prettierignore`). Until that PR merges, they are not founder-only yet.
+- `--config eslint.config.mjs` makes the root config the only one. ESLint ignores any other `eslint.config.*` file, and a
+  config test in `infra/checks` fails if one is committed anywhere else (`src/lint-config.test.ts`).
+- Lint skips only install, cache and build output: `node_modules` (any depth), the root `.nx` and `.yarn`, and each
+  workspace's own `dist/` and `coverage/`. A config test fails if git tracks any file in those folders (apart from the founder-owned
+  `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.
+- Inline `eslint-disable` comments are off (`noInlineConfig`). A rule exception goes in `eslint.config.mjs`, where review sees it.
+- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are not enforced by lint yet.** There is no Payload ban rule in
+  this repo today. Payload is not installed (issue #5 adds it), so no code here can reach a Payload instance or its Local
+  API. The ban is built in issue [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36) as a
+  type-aware rule (it flags any value whose type is the Payload instance, however it was reached), and #36 must be done
+  before the PR that adds `payload` may merge. Until then, Payload rule 1 rests on the security reviewer alone.
+- The other locks are planned, not built: Postgres row-level security (Payload rule 2) and the cross-dealer leak tests
+  (Payload rule 3) do not exist yet. Today nothing in the repo holds dealer data, so there is nothing for them to guard.
+- `eslint.config.mjs` and the root `lint` script are not founder-only files today, so an agent PR can change them and
+  only review would see it. The founders track making the lint guard founder-only in issue #46.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
 - CI runs `yarn install --immutable`, `yarn lint`, `yarn typecheck`, `yarn test`, `yarn build` and the audit as separate
   steps (`.github/workflows/ci.yml`, lines 39 to 54). Config tests in `infra/checks` check that these root scripts have
@@ -147,8 +90,7 @@ Notes:
 - Caches results. If the inputs did not change, Nx replays the saved result. The `infra/checks` tests are never cached:
   they read files that are not Nx inputs.
   The inputs include the workspace's own files and these root files: `tsconfig.base.json`, `eslint.config.mjs`,
-  `eslint.payload-ban.mjs` and `eslint-rules/` (the Payload ban rules that `eslint.config.mjs` imports), `vitest.config.ts`,
-  `package.json`, `yarn.lock`, `.yarnrc.yml` and `.env.example`. Changing any of them invalidates the cache for every
+  `vitest.config.ts`, `package.json`, `yarn.lock`, `.yarnrc.yml` and `.env.example`. Changing any of them invalidates the cache for every
   workspace.
 - Writes `dist/` (build) and `coverage/` (test). Both are git-ignored.
 - To ignore the cache for one run, add `--skip-nx-cache`, for example `yarn build --skip-nx-cache`.
@@ -156,15 +98,13 @@ Notes:
 ## Coverage gate
 
 - Every workspace's `test` script runs:
-  `vitest run --coverage --config ../../vitest.config.ts`. The one exception is `infra/checks`, which runs
-  `vitest run --coverage --config vitest.config.ts`: its own config merges the shared one and adds the lint rule files.
+  `vitest run --coverage --config ../../vitest.config.ts`. There are no exceptions.
 - The shared `vitest.config.ts` sets a **90%** minimum for lines, functions, branches and statements (v8 provider).
   The minimum applies **per file** (`perFile: true`), not to the total, so one weak file cannot hide behind the others.
   Below 90% in any file, `yarn test` fails.
 - Tests live in `src/**/*.test.ts`. A workspace with no test file fails the config tests in `infra/checks`.
-- `infra/checks/vitest.config.ts` also counts the Payload lint rules (`eslint.payload-ban.mjs` and `eslint-rules/*.mjs`) toward its gate.
-  Its tests lint with the repo's `eslint.config.mjs` loaded through Vitest, and one test checks in a separate process that
-  ESLint loading the file from disk (as `yarn lint` does) gives the same result.
+- Each test run prints a coverage table with one row per file, fully covered files included, so the CI log shows the
+  per-file numbers for every workspace.
 
 ## Pinned overrides
 

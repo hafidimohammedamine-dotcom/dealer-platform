@@ -1,7 +1,7 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
 
 /** Repo root, found by walking up from this file to the folder with `.yarnrc.yml`. */
 export function findRepoRoot(start: string = dirname(fileURLToPath(import.meta.url))): string {
@@ -34,15 +34,6 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export const isMap = (value: unknown): value is Map<unknown, unknown> => value instanceof Map;
 
-/**
- * Copies a JSON-like value with every plain object turned into a Map (a round trip through the YAML parser, which
- * reads JSON and can return Maps), so it can be read with `.get()` and iterated without a dynamic key.
- */
-export function toMaps(value: unknown): unknown {
-  const text = JSON.stringify(value);
-  return text === undefined ? undefined : parse(text, { mapAsMap: true });
-}
-
 /** Does this parsed package.json have a `scripts` object? */
 export const hasScripts = (value: unknown): value is { scripts: Record<string, string> } =>
   isRecord(value) && isRecord(value['scripts']);
@@ -69,39 +60,13 @@ export function listWorkspaces(root: string): string[] {
   return folders.sort();
 }
 
-/** Folders a repo walk never enters: installs, git data, caches, build output and worktrees. */
-export const walkSkip: ReadonlySet<string> = new Set([
-  'node_modules',
-  '.git',
-  '.yarn',
-  '.nx',
-  'dist',
-  'coverage',
-  '.worktrees',
-]);
-
 /**
- * Repo-relative paths (with `/`) of every file under `root` whose name matches, skipping the
- * folders in `skip` (default `walkSkip`). Sorted.
+ * Repo-relative paths (with `/`) of every file git tracks under `root`, which is what CI checks out. Untracked and
+ * git-ignored files (installs, caches, build output on your machine) are not listed.
  */
-export function findFiles(
-  root: string,
-  match: (name: string) => boolean,
-  skip: ReadonlySet<string> = walkSkip,
-): string[] {
-  const found: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-      const relative = dir === '' ? entry.name : `${dir}/${entry.name}`;
-      if (entry.isDirectory()) {
-        if (!skip.has(entry.name)) walk(relative);
-      } else if (match(entry.name)) {
-        found.push(relative);
-      }
-    }
-  };
-  walk('');
-  return found.sort();
+export function trackedFiles(root: string): string[] {
+  const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
+  return out.split('\0').filter((path) => path !== '');
 }
 
 /** Parses KEY=value lines of an env template. Comments and blank lines are skipped. */

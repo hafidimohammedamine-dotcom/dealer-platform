@@ -4,9 +4,11 @@ import {
   dependenciesMetaProblems,
   lifecycleScriptProblems,
   lifecycleScripts,
+  envPlaceholders,
   envValueProblems,
   optionalYarnrc,
   requiredYarnrc,
+  trackedFileProblems,
   yarnrcProblems,
 } from './checks.js';
 
@@ -174,79 +176,102 @@ describe('lifecycleScriptProblems', () => {
 describe('envValueProblems', () => {
   // Built at run time so no secret-looking text sits in the source.
   const fake = ['not', 'a', 'real', 'value'].join('-');
+  const message = (key: string): string =>
+    `${key}: must be empty or exactly its placeholder in envPlaceholders`;
+  const db = envPlaceholders.get('DATABASE_URL') ?? '';
 
-  it('flags a filled key, token or secret', () => {
-    expect(envValueProblems(new Map([['TELNYX_API_KEY', fake]]))).toEqual([
-      'TELNYX_API_KEY: must be empty',
-    ]);
-    expect(envValueProblems(new Map([['META_VERIFY_TOKEN', fake]]))).toHaveLength(1);
+  it('accepts empty values and every reviewed placeholder', () => {
+    expect(envValueProblems(new Map(envPlaceholders))).toEqual([]);
+    expect(
+      envValueProblems(
+        new Map([
+          ['PAYLOAD_SECRET', ''],
+          ['SENTRY_DSN', ''],
+        ]),
+      ),
+    ).toEqual([]);
   });
 
-  it('flags a non-local host and a real-looking password', () => {
-    const url = ['postgres://u:', fake, '@db.example.com:5432/x'].join('');
-    expect(envValueProblems(new Map([['DATABASE_URL', url]]))).toEqual([
-      'DATABASE_URL: host must be localhost',
-      'DATABASE_URL: password must be empty or change-me',
-    ]);
+  it('accepts the placeholders from a CRLF template', () => {
+    const text = [...envPlaceholders].map(([key, value]) => `${key}=${value}\r\n`).join('');
+    expect(envValueProblems(parseEnvTemplate(text))).toEqual([]);
   });
 
-  it('reports a malformed URL by key only, without the value', () => {
-    const bad = ['postgres://u:', fake, '@local host:99999/x'].join('');
-    const problems = envValueProblems(new Map([['DATABASE_URL', bad]]));
-    expect(problems).toEqual(['DATABASE_URL: invalid URL']);
+  it.each([
+    ['a filled key', 'TELNYX_API_KEY', fake],
+    ['a filled secret that looks like a URL', 'ROUTEONE_CLIENT_SECRET', db],
+    ['a plain value on a variable with no placeholder', 'SENTRY_DSN', fake],
+    ['another APP_ENV', 'APP_ENV', 'production'],
+    ['a secret as the user name', 'REDIS_URL', `redis://${fake}@localhost:6379`],
+    ['another user name', 'DATABASE_URL', db.replace('app_user', 'owner_user')],
+    ['a real-looking password', 'DATABASE_URL', db.replace('change-me', fake)],
+    ['another host', 'DATABASE_URL', db.replace('localhost', 'db.example.com')],
+    ['another port', 'DATABASE_URL', db.replace('5432', '5433')],
+    ['a secret in the path', 'DATABASE_URL', `${db}/${fake}`],
+    ['a query string', 'DATABASE_URL', `${db}?a=b`],
+    ['a secret in the query string', 'DATABASE_URL', `${db}?sslpassword=${fake}`],
+    ['a fragment', 'DATABASE_URL', `${db}#${fake}`],
+    ['an upper-case scheme', 'DATABASE_URL', db.replace('postgres', 'POSTGRES')],
+    ['a value with = inside', 'PAYLOAD_PUBLIC_SERVER_URL', 'http://localhost:3000/?a=b'],
+  ])('flags %s, without repeating the value', (_name, key, value) => {
+    const problems = envValueProblems(new Map([[key, value]]));
+    expect(problems).toEqual([message(key)]);
     expect(problems.join('\n')).not.toContain(fake);
   });
 
-  it('flags a plain value that is not APP_ENV=dev', () => {
-    expect(envValueProblems(new Map([['SENTRY_DSN', fake]]))).toEqual([
-      'SENTRY_DSN: unexpected value (only APP_ENV=dev or a localhost URL)',
-    ]);
-    expect(envValueProblems(new Map([['APP_ENV', 'production']]))).toHaveLength(1);
-  });
-
-  it('flags every non-empty KEY, SECRET and TOKEN, even one that looks like a URL', () => {
-    const vars = new Map([
-      ['FIELD_ENCRYPTION_KEY', fake],
-      ['PAYLOAD_SECRET', fake],
-      ['META_PAGE_ACCESS_TOKEN', fake],
-      ['ROUTEONE_CLIENT_SECRET', 'postgres://u:change-me@localhost:5432/x'],
-    ]);
-    expect(envValueProblems(vars)).toEqual([
-      'FIELD_ENCRYPTION_KEY: must be empty',
-      'PAYLOAD_SECRET: must be empty',
-      'META_PAGE_ACCESS_TOKEN: must be empty',
-      'ROUTEONE_CLIENT_SECRET: must be empty',
-    ]);
-  });
-
-  it('checks URLs whatever the case of the scheme', () => {
-    const url = ['POSTGRES://u:', fake, '@db.example.com:5432/x'].join('');
-    const problems = envValueProblems(new Map([['DATABASE_URL', url]]));
-    expect(problems).toEqual([
-      'DATABASE_URL: host must be localhost',
-      'DATABASE_URL: password must be empty or change-me',
-    ]);
-    expect(problems.join('\n')).not.toContain(fake);
-    expect(envValueProblems(new Map([['REDIS_URL', 'Redis://LOCALHOST:6379']]))).toEqual([]);
-  });
-
-  it('checks a value with = inside, read from a CRLF template', () => {
-    const text = `DATABASE_URL=postgres://u:change-me@db.example.com/x?sslmode=require\r\nSENTRY_DSN=a=b\r\n`;
+  it('flags every bad value in one template', () => {
+    const text = `APP_ENV=dev\r\nDATABASE_URL=${db}?a=b\r\nSENTRY_DSN=a=b\r\n`;
     expect(envValueProblems(parseEnvTemplate(text))).toEqual([
-      'DATABASE_URL: host must be localhost',
-      'SENTRY_DSN: unexpected value (only APP_ENV=dev or a localhost URL)',
+      message('DATABASE_URL'),
+      message('SENTRY_DSN'),
     ]);
-    const ok = 'DATABASE_URL=postgres://u:change-me@localhost:5432/x?a=b\r\nAPP_ENV=dev\r\n';
-    expect(envValueProblems(parseEnvTemplate(ok))).toEqual([]);
+  });
+});
+
+describe('trackedFileProblems', () => {
+  it('accepts linted files, the root ESLint config and the founder-owned Yarn folders', () => {
+    const paths = [
+      'eslint.config.mjs',
+      'package.json',
+      'apps/admin/src/x/dist/y.ts',
+      'services/intake/src/coverage/y.ts',
+      'dist/notes.md',
+      '.yarn/releases/yarn-4.18.1.cjs',
+      '.yarn/plugins/plugin.cjs',
+      'docs/eslint.config.md',
+      'packages/data/src/.nx/x.ts',
+      'services/ai/.yarn/x.js',
+    ];
+    expect(trackedFileProblems(paths)).toEqual([]);
   });
 
-  it('accepts the allowed shapes', () => {
-    const ok = new Map([
-      ['APP_ENV', 'dev'],
-      ['DATABASE_URL', 'postgres://u:change-me@localhost:5432/x'],
-      ['REDIS_URL', 'redis://localhost:6379'],
-      ['PAYLOAD_SECRET', ''],
-    ]);
-    expect(envValueProblems(ok)).toEqual([]);
+  it.each([
+    'node_modules/pg/index.js',
+    'services/ai/src/node_modules/helper/index.js',
+    'apps/admin/dist/index.js',
+    'services/intake/coverage/lcov.info',
+    'infra/checks/dist/deep/x.js',
+    '.nx/cache/x.js',
+    '.yarn/cache/x.zip',
+    '.yarn/install-state.gz',
+  ])('flags %s, committed in a folder lint skips', (path) => {
+    expect(trackedFileProblems([path])).toEqual([`${path}: committed in a folder lint skips`]);
+  });
+
+  it.each([
+    'apps/admin/src/dist/eslint.config.mjs',
+    'services/ai/eslint.config.js',
+    'packages/data/src/eslint.config.cjs',
+    'eslint.config.ts',
+    'apps/admin/eslint.config.mts',
+    'services/ai/src/eslint.config.cts',
+    '.eslintrc',
+    'apps/admin/.eslintrc.json',
+  ])('flags the ESLint config %s outside the repo root', (path) => {
+    expect(trackedFileProblems([path])).toEqual([`${path}: ESLint config outside the repo root`]);
+  });
+
+  it('reports both problems for a config in a skipped folder', () => {
+    expect(trackedFileProblems(['apps/admin/dist/eslint.config.mjs'])).toHaveLength(2);
   });
 });

@@ -108,32 +108,10 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 
 ### Lint fails
 
-- **ESLint error.** Read the rule name in the log. The Payload rules in `eslint.payload-ban.mjs` are:
-  - `local/no-payload-instance-access`: outside `packages/data`, nothing may be named `payload`, `getPayload…`,
-    `Payload` or `BasePayload` (only `payload.logger` is allowed), and no `Reflect`. A computed read whose key is not a fixed string is flagged, even
-    when saved to a variable. `Object.values`, `entries`, `assign`, the property-descriptor helpers, and any `Object` use
-    other than `Object.<fixed name>` are banned. `JSON.stringify`/`JSON.parse` with a replacer or reviver function,
-    `_payload`, any `_`-prefixed member of `global`/`globalThis`, and a Local API method call with a `collection` or
-    `global` option are banned too.
-    If the name is unrelated (a webhook body), rename the value, or ask security to add the file to
-    `payloadNameAllowedPaths`.
-  - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients are banned
-    outside `packages/data` (the reviewed exception list is empty); `import()` and `require()` with fixed names only. Process, thread,
-    VM, debugger and module-loader modules (`vm`, `worker_threads`, `child_process`, `module`, `cluster`, `repl`,
-    `inspector`, `wasi`) are banned too; only two `infra/checks` config tests may start processes. A module name with a URL
-    scheme (`data:`, `http:`, `https:`, `file:`, `blob:`) is banned everywhere.
-  - `local/no-code-constructors`: in every file, `packages/data` included, no `constructor`, `__proto__`,
-    `__lookupGetter__`-style member (dotted, `x['constructor']` or destructured) and no `Function`, `AsyncFunction` or
-    `GeneratorFunction` as identifier, string or `globalThis` member. They build code without `eval`.
-  - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file, except in a system job listed
-    in `packages/data/override-allowlist.txt` (not in this tree yet; a missing file counts as empty). In `packages/data`, Local API
-    calls need one object literal with `overrideAccess: false`, `depth`, `versions` and `user` or `req`, without spreads.
-    `showHiddenFields` may only be `false`.
-  - `no-eval`, `no-implied-eval`, `no-new-func`, `no-with`: code built from strings.
-  - `@typescript-eslint/consistent-type-assertions`: no `as` casts. Narrow with a type guard.
-
-  Use `packages/data` instead. Inline `eslint-disable` comments do not work for these rules. Details:
-  [Developer setup](../dev/setup.md).
+- **ESLint error.** Read the rule name in the log and fix the code. Inline `eslint-disable` comments do not work
+  (`noInlineConfig`). `@typescript-eslint/consistent-type-assertions` means an `as` cast: narrow with a type guard instead.
+  `yarn lint` uses only the root `eslint.config.mjs` (`--config`). There is no Payload ban rule yet (issue #36, see
+  [Developer setup](../dev/setup.md)).
 
 - **Prettier: "Code style issues found".** Run `yarn format` locally and commit the result. Prettier also checks Markdown
   in `docs/`.
@@ -149,7 +127,8 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 - Add tests for new code. Do not lower the threshold in `vitest.config.ts`. That is a founder decision. The threshold is per file, so a
   single file under 90% fails the run.
 - Config tests in `infra/checks` also run here. They check `tsconfig.base.json`, every workspace's scripts, the
-  `.env.example` keys, and `.yarnrc.yml`. The `.yarnrc.yml` check parses the file as YAML. It requires `nodeLinker: node-modules`
+  `.env.example` keys and values, the lint wiring (no file committed where lint does not look, no ESLint config but the
+  root one), and `.yarnrc.yml`. The `.yarnrc.yml` check parses the file as YAML. It requires `nodeLinker: node-modules`
   and `enableScripts: false`, allows `enableTelemetry: false`, and allows `dependenciesMeta` only in the founder-approved
   shape (`"<package>@<exact version>": { built: true }`, see the file's header), so a registry, scope, proxy or SSL
   setting fails. It also fails on a duplicate key, on a second `.yarnrc.yml` anywhere in the repo, and on

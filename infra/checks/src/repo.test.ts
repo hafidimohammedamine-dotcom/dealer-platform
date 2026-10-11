@@ -1,14 +1,15 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  findFiles,
   findRepoRoot,
   isRecord,
   listWorkspaces,
   parseEnvTemplate,
   readJson,
+  trackedFiles,
 } from './repo.js';
 
 const hasName = (value: unknown): value is { name: string } =>
@@ -53,28 +54,21 @@ describe('repo helpers', () => {
     expect(() => listWorkspaces(root)).toThrow('Unsupported workspace pattern');
   });
 
-  it('finds matching files at any depth, skipping installs, caches and build output', () => {
+  it('lists the files git tracks, at any depth, and no untracked or ignored file', () => {
     const root = makeTemp();
-    for (const dir of [
-      'a/b',
-      'node_modules/x',
-      '.git',
-      'dist',
-      'coverage',
-      '.worktrees/w',
-      'a/.nx',
-    ]) {
-      mkdirSync(join(root, dir), { recursive: true });
-      writeFileSync(join(root, dir, 'target.txt'), '');
-    }
-    writeFileSync(join(root, 'target.txt'), '');
-    writeFileSync(join(root, 'a', 'other.txt'), '');
-    mkdirSync(join(root, 'a', 'target.txt.d'));
-    expect(findFiles(root, (name) => name === 'target.txt')).toEqual([
-      'a/b/target.txt',
-      'target.txt',
-    ]);
-    expect(findFiles(root, () => false)).toEqual([]);
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    mkdirSync(join(root, 'a', 'b'), { recursive: true });
+    mkdirSync(join(root, 'node_modules', 'x'), { recursive: true });
+    writeFileSync(join(root, '.gitignore'), 'node_modules/\n');
+    writeFileSync(join(root, 'top.txt'), '');
+    writeFileSync(join(root, 'a', 'b', 'deep file.txt'), '');
+    writeFileSync(join(root, 'node_modules', 'x', 'index.js'), '');
+    writeFileSync(join(root, 'untracked.txt'), '');
+    execFileSync('git', ['add', '.gitignore', 'top.txt', 'a'], { cwd: root });
+    expect(trackedFiles(root).sort()).toEqual(['.gitignore', 'a/b/deep file.txt', 'top.txt']);
+    // A force-added file in an ignored folder is tracked, so the checks see it.
+    execFileSync('git', ['add', '-f', 'node_modules/x/index.js'], { cwd: root });
+    expect(trackedFiles(root)).toContain('node_modules/x/index.js');
   });
 
   it('parses env templates and skips comments and blank lines', () => {

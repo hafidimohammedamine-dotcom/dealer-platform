@@ -1,5 +1,5 @@
 import { parse } from 'yaml';
-import { isMap, toMaps } from './repo.js';
+import { isMap, isRecord } from './repo.js';
 
 /**
  * The settings `.yarnrc.yml` must hold, with their required values. The file is founder-owned and pinned
@@ -76,18 +76,13 @@ export function yarnrcProblems(text: string): string[] {
  * (that would let its install scripts run).
  */
 export function dependenciesMetaProblems(manifest: unknown, where: string): string[] {
-  const doc = toMaps(manifest);
-  if (!isMap(doc)) return [`${where}: not a JSON object`];
-  const meta = doc.get('dependenciesMeta');
+  if (!isRecord(manifest)) return [`${where}: not a JSON object`];
+  const meta = manifest['dependenciesMeta'];
   if (meta === undefined) return [];
-  if (!isMap(meta)) return [`${where}: dependenciesMeta must be an object`];
-  const problems: string[] = [];
-  for (const [name, settings] of meta) {
-    if (isMap(settings) && settings.get('built') === true) {
-      problems.push(`${where}: dependenciesMeta.${String(name)}.built must not be true`);
-    }
-  }
-  return problems;
+  if (!isRecord(meta)) return [`${where}: dependenciesMeta must be an object`];
+  return Object.entries(meta)
+    .filter(([, settings]) => isRecord(settings) && settings['built'] === true)
+    .map(([name]) => `${where}: dependenciesMeta.${name}.built must not be true`);
 }
 
 /** Script names that run on their own during install or pack. A workspace's own are not stopped by `enableScripts: false`. */
@@ -102,50 +97,74 @@ export const lifecycleScripts: readonly string[] = [
 
 /** Problems with one package.json: it must not define an install or pack lifecycle script. */
 export function lifecycleScriptProblems(manifest: unknown, where: string): string[] {
-  const doc = toMaps(manifest);
-  if (!isMap(doc)) return [`${where}: not a JSON object`];
-  const scripts = doc.get('scripts');
+  if (!isRecord(manifest)) return [`${where}: not a JSON object`];
+  const scripts = manifest['scripts'];
   if (scripts === undefined) return [];
-  if (!isMap(scripts)) return [`${where}: scripts must be an object`];
+  if (!isRecord(scripts)) return [`${where}: scripts must be an object`];
   return lifecycleScripts
-    .filter((name) => scripts.has(name))
+    .filter((name) => Object.hasOwn(scripts, name))
     .map((name) => `${where}: scripts.${name} must not exist (lifecycle scripts stay off)`);
 }
 
-/** Problems with one URL value of an env template. Never repeats the value itself. */
-function urlProblems(key: string, value: string): string[] {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return [`${key}: invalid URL`];
-  }
-  const problems: string[] = [];
-  if (url.hostname.toLowerCase() !== 'localhost') problems.push(`${key}: host must be localhost`);
-  if (url.password !== '' && url.password !== 'change-me') {
-    problems.push(`${key}: password must be empty or change-me`);
-  }
-  return problems;
-}
-
-/** A value that starts with a URL scheme and `//`, in any case (`postgres://`, `POSTGRES://`, `redis+tls://`). */
-const urlScheme = /^[a-z][a-z0-9+.-]*:\/\//i;
+/**
+ * The only non-empty values `.env.example` may hold: local placeholders, each reviewed as an exact string. A value
+ * that differs in any part (user name, password, host, port, path, query or fragment) fails, so nothing real can hide
+ * in a field the check does not look at.
+ */
+export const envPlaceholders: ReadonlyMap<string, string> = new Map([
+  ['APP_ENV', 'dev'],
+  ['DATABASE_URL', 'postgres://app_user:change-me@localhost:5432/dealer'],
+  ['MIGRATION_DATABASE_URL', 'postgres://owner_user:change-me@localhost:5432/dealer'],
+  ['DESKING_DATABASE_URL', 'postgres://desking_user:change-me@localhost:5432/dealer'],
+  ['REDIS_URL', 'redis://localhost:6379'],
+  ['PAYLOAD_PUBLIC_SERVER_URL', 'http://localhost:3000'],
+]);
 
 /**
- * Problems found in the values of an env template. Only localhost URLs with a
- * placeholder password are allowed, plus APP_ENV=dev. Keys, tokens and secrets stay empty,
- * even when the value looks like a URL. Never repeats a value.
+ * Problems found in the values of an env template: every value is empty or exactly its entry in `envPlaceholders`.
+ * Never repeats a value.
  */
 export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
   const problems: string[] = [];
   for (const [key, value] of vars) {
-    if (value === '') continue;
-    if (/(SECRET|KEY|TOKEN)/.test(key)) {
-      problems.push(`${key}: must be empty`);
-    } else if (urlScheme.test(value)) {
-      problems.push(...urlProblems(key, value));
-    } else if (key !== 'APP_ENV' || value !== 'dev') {
-      problems.push(`${key}: unexpected value (only APP_ENV=dev or a localhost URL)`);
+    if (value !== '' && envPlaceholders.get(key) !== value) {
+      problems.push(`${key}: must be empty or exactly its placeholder in envPlaceholders`);
+    }
+  }
+  return problems;
+}
+
+/** Top-level folders that hold workspaces (`<folder>/<workspace>/`), as in the root `package.json`. */
+const workspaceFolders: readonly string[] = ['apps', 'services', 'packages', 'infra'];
+
+/**
+ * Is this path in a folder lint never looks at (the ignores in `eslint.config.mjs`): `node_modules` at any depth, the
+ * root `.nx` and `.yarn`, or `<workspace>/dist` and `<workspace>/coverage`. The founder-owned `.yarn/releases/` and
+ * `.yarn/plugins/` at the root are allowed.
+ */
+function inUnlintedFolder(path: string): boolean {
+  const folders = path.split('/').slice(0, -1);
+  if (folders.includes('node_modules')) return true;
+  const [top = '', second = '', third = ''] = folders;
+  if (top === '.nx') return true;
+  if (top === '.yarn') return second !== 'releases' && second !== 'plugins';
+  return workspaceFolders.includes(top) && (third === 'dist' || third === 'coverage');
+}
+
+/** An ESLint config file name: flat (`eslint.config.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`) or legacy (`.eslintrc*`). */
+const eslintConfigName = /^(?:eslint\.config\.[cm]?[jt]s|\.eslintrc(?:\..+)?)$/;
+
+/**
+ * Problems with the list of files git tracks (repo-relative, `/`-separated). Nothing may be committed where lint
+ * never looks, and the root `eslint.config.mjs` is the only ESLint config.
+ */
+export function trackedFileProblems(paths: readonly string[]): string[] {
+  const problems: string[] = [];
+  for (const path of paths) {
+    if (inUnlintedFolder(path)) problems.push(`${path}: committed in a folder lint skips`);
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    if (eslintConfigName.test(name) && path !== 'eslint.config.mjs') {
+      problems.push(`${path}: ESLint config outside the repo root`);
     }
   }
   return problems;

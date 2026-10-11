@@ -15,12 +15,12 @@ Setting one changes nothing yet.
 
 ## Rules for values
 
-- What `.env.example` may hold (`envValueProblems` in `infra/checks/src/checks.ts` enforces this):
-  - A name that contains `SECRET`, `KEY` or `TOKEN` must be empty, even if the value looks like a URL.
-  - A value that starts with a URL scheme (`postgres://`, `redis://`, `http://`) must be a valid URL on host `localhost`,
-    with no password or the placeholder password `change-me`.
-  - `APP_ENV` may be `dev`.
-  - Every other variable must be empty. Any other non-empty value fails the test.
+- What `.env.example` may hold (`envValueProblems` in `infra/checks/src/checks.ts` enforces this): every value is
+  empty, or exactly the reviewed placeholder for that name in `envPlaceholders` (same file). Six names have one:
+  `APP_ENV` (`dev`), the three Postgres URLs (user `app_user`, `owner_user` or `desking_user`, password `change-me`,
+  `localhost:5432/dealer`), `REDIS_URL` (`redis://localhost:6379`) and `PAYLOAD_PUBLIC_SERVER_URL`
+  (`http://localhost:3000`). Any other value fails the test, whatever part of it differs (user name, password, host,
+  port, path, query or fragment). To change a placeholder, change it in both `.env.example` and `envPlaceholders`.
 - Real values never go in git, in `.env.example`, in issues or PR comments, in logs, or in chat with agents.
 - Staging and production values live in **Railway variables**. CI secrets live in **GitHub Actions secrets**.
   (Both are the places the template comment names.)
@@ -92,7 +92,7 @@ Format: `postgres://<role>:<password>@<host>:5432/<database>`
   password manager. Do not paste it in chat or in an issue.
 - Restart the container so it reads the new value. Users sign in again, with 2FA.
 - Payload also uses this secret to encrypt the API keys it stores. After rotation, re-issue all Payload API keys; treat
-  stored API keys as exposed. Payload v3 docs: "If you change your PAYLOAD_SECRET, you will need to regenerate your API keys".
+  stored API keys as exposed. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. This repo does not install Payload yet, so it is re-checked against the pinned version's source in issue #5.
 - Payload may use this secret for other signed values, such as reset links. Expect those to stop working after rotation.
 - Status: this is a manual procedure. No rotation script exists.
 - If the secret leaked, follow [Key leak or loss](../runbooks/key-leak-or-loss.md).

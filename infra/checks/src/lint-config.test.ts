@@ -1,92 +1,102 @@
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { readOverrideAllowlist } from '../../../eslint-rules/override-allowlist.mjs';
-import { findFiles, hasScripts, isRecord, readJson } from './repo.js';
-import { ACCESS, MODULES, OVERRIDE, errors, eslint, outside, root } from './test-helpers/lint.js';
+import { ESLint } from 'eslint';
+import { afterAll, describe, expect, it } from 'vitest';
+import { trackedFileProblems } from './checks.js';
+import { trackedFiles } from './repo.js';
+import { root } from './test-helpers/root.js';
 
-const sourceFile = /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/;
-const skipped: ReadonlySet<string> = new Set([
-  'node_modules',
-  '.git',
-  '.yarn',
-  '.nx',
-  '.worktrees',
-]);
-const buildOutput = /^(?:apps|services|packages|infra)\/[^/]+\/(?:dist|coverage)\//;
+const rootConfig = join(root, 'eslint.config.mjs');
+const eslint = new ESLint({ cwd: root, overrideConfigFile: rootConfig });
 
-/** Repo-relative paths of every source file in the checkout, build output folders included. */
-const sourceFiles = (): string[] => findFiles(root, (name) => sourceFile.test(name), skipped);
+/** Rule ids ESLint reports for `code`, linted as if it were the repo file `file`. */
+async function ruleIds(code: string, file: string): Promise<(string | null)[]> {
+  const [result] = await eslint.lintText(code, { filePath: join(root, file) });
+  return (result?.messages ?? []).map((message) => message.ruleId);
+}
 
-describe('lint ignores cover build output only', () => {
-  it('ignores the build output folder of a workspace', async () => {
+describe('lint ignores', () => {
+  it('ignore install, cache and build output folders', async () => {
     for (const file of [
       'apps/admin/dist/index.js',
       'services/intake/dist/deep/x.js',
       'packages/data/coverage/x.js',
-      'infra/checks/coverage/x.js',
+      'node_modules/x/index.js',
+      'services/ai/src/node_modules/x/index.js',
       '.nx/cache/x.js',
       '.yarn/releases/x.cjs',
-      'node_modules/x/index.js',
     ]) {
       expect(await eslint.isPathIgnored(join(root, file)), file).toBe(true);
     }
   });
 
-  it('lints source files that sit in a folder called dist, coverage or .nx deeper in a workspace', async () => {
+  it('lint a source file in a folder called dist, coverage, .nx or .yarn below the top level', async () => {
     for (const file of [
       'apps/admin/src/x/dist/y.ts',
-      'apps/admin/src/coverage/y.ts',
-      'services/intake/src/dist/y.ts',
-      'packages/data/src/dist/y.ts',
-      'apps/admin/src/.nx/y.ts',
-      'apps/admin/src/.yarn/y.ts',
-      'tests/e2e/dist/y.ts',
-      'dist/y.ts',
+      'services/intake/src/coverage/y.ts',
+      'packages/data/src/.nx/y.ts',
+      'services/ai/.yarn/y.js',
     ]) {
       expect(await eslint.isPathIgnored(join(root, file)), file).toBe(false);
     }
   });
 
-  it('runs the Payload bans on a probe in a nested dist folder', async () => {
-    const file = 'apps/admin/src/x/dist/y.ts';
-    expect(await errors('void req.payload;\n', file)).toEqual([ACCESS]);
-  });
-
-  it('has no source file in the checkout outside a build output folder that lint ignores', async () => {
-    const files = sourceFiles();
-    expect(files.length).toBeGreaterThan(50);
-    for (const file of files) {
-      if (buildOutput.test(file)) continue;
+  it('skip no committed source file', async () => {
+    const sources = trackedFiles(root).filter((path) => /\.[cm]?[jt]sx?$/.test(path));
+    expect(sources.length).toBeGreaterThan(30);
+    for (const file of sources) {
       expect(await eslint.isPathIgnored(join(root, file)), file).toBe(false);
     }
   });
 });
 
-describe('the lint wiring is exactly what the reviews approved', () => {
-  it('has the root lint script `eslint . && prettier --check .`', () => {
-    const { scripts } = readJson(root, 'package.json', hasScripts);
-    expect(scripts['lint']).toBe('eslint . && prettier --check .');
+describe('committed files', () => {
+  it('include nothing in a folder lint skips, and no ESLint config but the root one', () => {
+    expect(trackedFileProblems(trackedFiles(root))).toEqual([]);
+  });
+});
+
+describe('lint rules', () => {
+  it('cannot be switched off by a comment in the file', async () => {
+    const ids = await ruleIds('/* eslint-disable */\ndebugger;\n', 'services/ai/src/x.ts');
+    expect(ids).toContain('no-debugger');
   });
 
-  it('turns inline config comments off', async () => {
-    const config = await eslint.calculateConfigForFile(join(root, outside));
-    expect(config?.linterOptions?.noInlineConfig).toBe(true);
+  it('ban type casts in TypeScript files', async () => {
+    const ids = await ruleIds(
+      'declare const y: unknown;\nexport const x = y as string;\n',
+      'packages/ui/src/x.ts',
+    );
+    expect(ids).toContain('@typescript-eslint/consistent-type-assertions');
   });
+});
 
-  it('has the three Payload rules on as errors in every source file, relaxed only where reviewed', async () => {
-    const allowed = new Set(readOverrideAllowlist());
-    for (const file of sourceFiles()) {
-      if (buildOutput.test(file)) continue;
-      const rules = (await eslint.calculateConfigForFile(join(root, file)))?.rules ?? {};
-      const inData = file.startsWith('packages/data/');
-      expect(rules['local/no-payload-instance-access']?.[0], `${ACCESS} ${file}`).toBe(
-        inData ? 0 : 2,
-      );
-      expect(rules['local/no-restricted-modules']?.[0], `${MODULES} ${file}`).toBe(2);
-      expect(rules['local/no-override-access']?.[0], `${OVERRIDE} ${file}`).toBe(2);
-      const options = rules['local/no-override-access']?.[1];
-      const relaxed = isRecord(options) && options['allowOverrideTrue'] === true;
-      expect(relaxed, `allowOverrideTrue ${file}`).toBe(allowed.has(file));
-    }
-  });
+// `yarn lint` runs `eslint --config eslint.config.mjs .` (checked in config.test.ts). These runs show what `--config`
+// buys: a nested config file that switches a rule off is used without it and ignored with it.
+describe('eslint --config', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lint-config-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'src', 'dist'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src', 'dist', 'eslint.config.mjs'),
+    "export default [{ rules: { 'no-debugger': 'off' } }];\n",
+  );
+  writeFileSync(join(dir, 'src', 'dist', 'x.js'), 'debugger;\n');
+  const eslintBin = join(root, 'node_modules', 'eslint', 'bin', 'eslint.js');
+  const run = (args: string[]): number | null =>
+    spawnSync(process.execPath, [eslintBin, ...args, 'src/dist/x.js'], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: 60_000,
+    }).status;
+
+  it('uses a nested config when no --config is given (control)', () => {
+    expect(run([])).toBe(0);
+  }, 90_000);
+
+  it('ignores the nested config with --config, so the rule still fails the run', () => {
+    expect(run(['--config', rootConfig])).toBe(1);
+  }, 90_000);
 });

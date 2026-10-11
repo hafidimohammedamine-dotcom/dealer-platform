@@ -15,7 +15,7 @@
     "infra/*"
   ],
   "scripts": {
-    "lint": "eslint . && prettier --check .",
+    "lint": "eslint --config eslint.config.mjs . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "nx run-many -t typecheck",
     "test": "nx run-many -t test",
@@ -27,7 +27,6 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "20.19.43",
-    "@typescript-eslint/utils": "8.71.1",
     "@vitest/coverage-v8": "4.1.11",
     "eslint": "10.12.0",
     "globals": "17.13.0",

@@ -2,19 +2,17 @@ import js from '@eslint/js';
 import globals from 'globals';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
-import { payloadBanConfigs } from './eslint.payload-ban.mjs';
 
+// The only ESLint config. `yarn lint` passes it with `--config`, so a config file anywhere else is never used.
 export default defineConfig(
-  // Lint every source extension. ESLint only picks up a file whose extension some block names, so
-  // without this `.jsx` files would never be linted and the Payload bans below would not run on them.
+  // Lint every source extension. ESLint only picks up a file whose extension some block names.
   { files: ['**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}'] },
   {
-    // Nobody can switch the Payload bans off with a comment. A comment that tries to is an error.
+    // A rule cannot be switched off by a comment in a file. An exception goes in this file, where review sees it.
     linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
   },
   {
-    // Build outputs only, anchored to the top of a workspace. A `dist` or `coverage` folder deeper in the source tree
-    // (`apps/admin/src/x/dist/y.ts`) is source and is linted, so no folder name can hide a file from the Payload bans.
+    // Install, cache and build output only. A config test fails if any file in these folders is committed.
     ignores: [
       '{apps,services,packages,infra}/*/dist/**',
       '{apps,services,packages,infra}/*/coverage/**',
@@ -33,5 +31,4 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
     },
   },
-  ...payloadBanConfigs(),
 );

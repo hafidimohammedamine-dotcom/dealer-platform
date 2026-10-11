@@ -4,10 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import rootVitestConfig from '../../../vitest.config.js';
-import checksVitestConfig, { lintRuleFiles } from '../vitest.config.js';
 import { dependenciesMetaProblems, lifecycleScriptProblems, yarnrcProblems } from './checks.js';
-import { findFiles, hasScripts, isRecord, listWorkspaces, readJson, readText } from './repo.js';
-import { root } from './test-helpers/lint.js';
+import { hasScripts, isRecord, listWorkspaces, readJson, readText, trackedFiles } from './repo.js';
+import { root } from './test-helpers/root.js';
 
 const hasCompilerOptions = (
   value: unknown,
@@ -73,9 +72,7 @@ describe('workspaces', () => {
     // Coverage must be on, with the shared config that holds the 90% gate.
     expect(scripts['test']).toContain('vitest run');
     expect(scripts['test']).toContain('--coverage');
-    // infra/checks has its own config (it adds the lint rule files); the rest use the shared one directly.
-    const config = workspace === 'infra/checks' ? 'vitest.config.ts' : '../../vitest.config.ts';
-    expect(scripts['test']).toContain(`--config ${config}`);
+    expect(scripts['test']).toContain('--config ../../vitest.config.ts');
     const files = readdirSync(join(root, workspace, 'src'));
     expect(files.some((name) => name.endsWith('.test.ts'))).toBe(true);
   });
@@ -92,21 +89,11 @@ describe('shared vitest config', () => {
     });
   });
 
-  it('counts the Payload lint rules toward the infra/checks coverage gate', () => {
-    // These tests run from infra/checks, so its own config (merged over the shared one) adds the rule files outside src/.
-    expect(lintRuleFiles).toEqual([
-      join(root, 'eslint-rules/**/*.mjs'),
-      join(root, 'eslint.payload-ban.mjs'),
-    ]);
-    const { coverage } = checksVitestConfig.test ?? {};
-    expect(coverage?.include).toEqual(['src/**/*.ts', ...lintRuleFiles]);
-    expect(coverage?.allowExternal).toBe(true);
-    expect(coverage?.thresholds).toEqual(rootVitestConfig.test?.coverage?.thresholds);
-  });
-
-  it('keeps the shared config free of workspace special cases', () => {
-    expect(rootVitestConfig.test?.coverage?.include).toEqual(['src/**/*.ts']);
-    expect(rootVitestConfig.test?.coverage?.allowExternal).toBeUndefined();
+  it('measures every source file under src, and prints a per-file table in the test log', () => {
+    const coverage = rootVitestConfig.test?.coverage;
+    expect(coverage?.include).toEqual(['src/**/*.ts']);
+    expect(coverage?.exclude).toEqual(['src/**/*.test.ts']);
+    expect(coverage?.reporter).toContainEqual(['text', { skipFull: false }]);
   });
 });
 
@@ -114,7 +101,7 @@ describe('root scripts, yarn.lock and CI', () => {
   const { scripts } = readJson(root, 'package.json', hasScripts);
 
   it('has the lint, typecheck, test and build scripts CI runs', () => {
-    expect(scripts['lint']).toBe('eslint . && prettier --check .');
+    expect(scripts['lint']).toBe('eslint --config eslint.config.mjs . && prettier --check .');
     expect(scripts['typecheck']).toBe('nx run-many -t typecheck');
     expect(scripts['test']).toBe('nx run-many -t test');
     expect(scripts['build']).toBe('nx run-many -t build');
@@ -240,7 +227,10 @@ describe('.yarnrc.yml and install scripts', () => {
   });
 
   it('is the only .yarnrc.yml in the repo', () => {
-    expect(findFiles(root, (name) => name === '.yarnrc.yml')).toEqual(['.yarnrc.yml']);
+    const yarnrcs = trackedFiles(root).filter(
+      (path) => path === '.yarnrc.yml' || path.endsWith('/.yarnrc.yml'),
+    );
+    expect(yarnrcs).toEqual(['.yarnrc.yml']);
   });
 
   const manifests = ['package.json', ...listWorkspaces(root).map((ws) => `${ws}/package.json`)];
