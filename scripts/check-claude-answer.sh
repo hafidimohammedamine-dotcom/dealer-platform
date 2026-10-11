@@ -3,17 +3,10 @@
 #   blocked <execution-file>   print "BLOCKED <tool>: <command or path>" for every denied tool call (names and commands
 #                              only, 300 characters each), so the job log shows what the deny lists stopped
 #   answer  <execution-file>   print GitHub job outputs: has_result=true|false and, when there is an answer, `answer` as a
-#                              multi-line output for the post job: the last result's text, at most 120000 bytes of UTF-8
-#                              (the post job receives it as ONE environment variable, and Linux rejects a single variable
-#                              over 128 KiB), cut by scripts/check-claude-answer-cut.py: at the last line break or blank
-#                              before the cap and never inside a -----BEGIN ... -----END block, so a token or a key block
-#                              is never handed over in part; when nothing before the cap is safe to keep, the text is
-#                              withheld and a notice is handed over instead; every cut ends with a "(truncated)" line.
-#                              The handed text goes to check-review-post.sh, which scans it (all of it, and the
-#                              60000-character cut it posts) for secrets before posting; it is all the post job sees.
-#                              Nothing is written to disk: the text goes jq -> python -> stdout, and the output block is
+#                              multi-line output for the post job: the last result's text, cut to at most 120000 bytes of
+#                              UTF-8 by scripts/check-claude-answer-cut.py (rules in its docstring), with the output block
 #                              printed only once the whole text is in hand (a failure prints no half block and exits
-#                              non-zero).
+#                              non-zero)
 # Usage: scripts/check-claude-answer.sh blocked|answer <execution-file>   (an empty or missing file is "no result")
 set -euo pipefail
 CMD="${1:-}"; EXEC="${2:-}"

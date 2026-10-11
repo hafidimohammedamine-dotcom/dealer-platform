@@ -69,6 +69,23 @@ for off in 8 13; do
 done
 { echo "REVIEW TEAM RESULT: PASS"; rep 119000 y; echo; echo '-----begin test block-----'; echo BLOCKBODY; rep 5000 z; echo; echo '-----end test block-----'; } | mk "$W/lower.json"; handed "$W/lower.json"
 [ "$H" = "REVIEW TEAM RESULT: PASS"$'\n'"$(rep 119000 y)"$'\n\n(truncated)' ] && t PASS "answer: lowercase BEGIN/END markers are a block too (the private-key rule ignores case)" || t FAIL "answer: lowercase ($HB)"
+# Blocks in order (each BEGIN closed by the next whole END line after it):
+H1="REVIEW TEAM RESULT: PASS"
+{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk "$W/twoopen.json"; handed "$W/twoopen.json"
+[ "$H" = "$H1"$'\n\n(truncated)' ] && t PASS "answer: a BEGIN with no END, then a second BEGIN across the cap: the cut moves before the FIRST open block" || t FAIL "answer: two open ($HB)"
+{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----END TEST BLOCK-----'; rep 119000 b; echo; rep 5000 c; } | mk "$W/nested.json"; handed "$W/nested.json"
+[ "$H" = "$H1"$'\n-----BEGIN TEST BLOCK-----\nBLOCKBODY\n-----BEGIN TEST BLOCK-----\nBLOCKBODY\n-----END TEST BLOCK-----\n'"$(rep 119000 b)"$'\n\n(truncated)' ] && t PASS "answer: two BEGINs then one END before the cut: in order, the END closes the first block, nothing is open, the cut stays at the line break" || t FAIL "answer: nested ($HB)"
+{ echo "$H1"; echo '-----BEGIN TEST BLOCK-----'; echo BLOCKBODY; echo '-----END TEST BLOCK-----'; rep 1000 a; echo; echo '-----BEGIN TEST BLOCK-----'; rep 119000 b; echo; echo '-----END TEST BLOCK-----'; } | mk "$W/closedopen.json"; handed "$W/closedopen.json"
+[ "$H" = "$H1"$'\n-----BEGIN TEST BLOCK-----\nBLOCKBODY\n-----END TEST BLOCK-----\n'"$(rep 1000 a)"$'\n\n(truncated)' ] && t PASS "answer: a closed block, then an open one across the cap: the closed block is kept, the cut moves before the open one" || t FAIL "answer: closed then open ($HB)"
+{ echo "$H1"; rep 119000 a; echo; printf 'prose then -----BEGIN TEST BLOCK----- on one line '; rep 5000 b; } | mk "$W/inline.json"; handed "$W/inline.json"
+[ "$H" = "$H1"$'\n'"$(rep 119000 a)"$'\n\n(truncated)' ] && t PASS "answer: prose and BEGIN on one line across the cap: that whole line is dropped, the cut is at the line break before it" || t FAIL "answer: inline BEGIN ($HB)"
+# The exact cap boundaries (LIMIT 120000, keep = LIMIT - 13 = 119987):
+{ rep 119999 a; echo; } | mk "$W/b0.json"; handed "$W/b0.json"; [ "$HB" = 119999 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: 119999 bytes plus a trailing newline (120000) pass whole, no marker" || t FAIL "answer: 120000 ($HB)"
+{ rep 60000 a; echo; rep 59999 b; } | mk "$W/b1.json"; handed "$W/b1.json"; [ "$HB" = 120000 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: exactly 120000 bytes pass whole, no marker" || t FAIL "answer: exactly 120000 ($HB)"
+{ rep 60000 a; echo; rep 60000 b; } | mk "$W/b2.json"; handed "$W/b2.json"; [ "$H" = "$(rep 60000 a)"$'\n\n(truncated)' ] && t PASS "answer: 120001 bytes are cut (at the line break)" || t FAIL "answer: 120001 ($HB)"
+{ rep 119987 a; echo; rep 100 b; } | mk "$W/b3.json"; handed "$W/b3.json"; [ "$HB" = 120000 ] && [ "$H" = "$(rep 119987 a)"$'\n\n(truncated)' ] && t PASS "answer: a line break at byte 119987 (= keep) is used: exactly 120000 bytes with the marker" || t FAIL "answer: keep boundary ($HB)"
+{ rep 119988 a; echo; rep 100 b; } | mk "$W/b4.json"; handed "$W/b4.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: a line break at byte 119988 (= keep + 1) is past the cap and not used: withheld" || t FAIL "answer: keep+1 boundary ($HB)"
+{ rep 100 a; echo; rep 119886 b; printf ' '; rep 100 c; } | mk "$W/b5.json"; handed "$W/b5.json"; [ "$H" = "$(rep 100 a)"$'\n'"$(rep 119886 b)"$'\n\n(truncated)' ] && t PASS "answer: a blank at byte 119987 is used (the later of line break and blank)" || t FAIL "answer: blank at keep ($HB)"
 printf '[{"type":"result","result":"ab\xffcd\\u0000ef"}]' > "$W/badutf.json"; handed "$W/badutf.json"
 [ "$rc" = 0 ] && [ "$H" = $'ab\xef\xbf\xbdcdef' ] && t PASS "answer: a byte that is not UTF-8 becomes U+FFFD, a NUL is removed, nothing else is dropped" || t FAIL "answer: bad utf-8 ($rc)"
 # More than 120000 bytes that are not UTF-8: cleaned to U+FFFD (3 bytes each) BEFORE the cap is measured, so the handed text

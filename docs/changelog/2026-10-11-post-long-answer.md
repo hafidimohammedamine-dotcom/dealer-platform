@@ -12,7 +12,8 @@ are gone.
 - `check-claude-answer.sh` (the hand-off) no longer cuts at 60000: it hands over at most 120000 bytes of UTF-8 (the
   post job receives the answer as one environment variable; Linux rejects one over 128 KiB), and that handed text is
   all the post job ever sees or scans. A longer answer is cut at the last line break or blank before the cap, and never
-  inside a `-----BEGIN ... -----END` block (the cut moves to before the BEGIN line), so a token or a key block is never
+  inside a `-----BEGIN ... -----END` block (blocks paired in order; the kept text stops before the first open BEGIN),
+  so a token or a key block is never
   handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed over.
   Every cut ends with a fixed `(truncated)` line so a reader sees the end is missing even when the post job's own cut
   does not run. Bytes that are not UTF-8 become U+FFFD and NULs are removed before the cap is measured, so the handed

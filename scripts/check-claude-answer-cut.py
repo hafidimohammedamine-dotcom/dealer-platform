@@ -6,8 +6,9 @@ writes the text to hand to the post job on stdout.
   BEFORE the size is measured. Trailing newlines are not kept.
 - At most LIMIT bytes: the post job receives the text as one environment variable, and Linux rejects one over 128 KiB.
 - A longer answer is cut at the last line break or blank before the cap, so a single-word token is never handed over in
-  part, and never inside a -----BEGIN ... -----END block (markers matched without regard to case, and a block counts as
-  closed only when its whole END line is before the cut): the cut moves to before the BEGIN line instead.
+  part, and never inside a -----BEGIN ... -----END block: blocks are paired in order (each BEGIN is closed by the next
+  whole END line after it, markers matched without regard to case), and the kept text stops before the first BEGIN
+  still open at the cut.
 - When nothing before the cap is safe to keep, the text is withheld and WITHHELD is handed over instead.
 - Every cut ends with MARK, a fixed ASCII line, so the reader can see the end is missing.
 """
@@ -16,7 +17,7 @@ import sys
 
 LIMIT = 120000
 MARK = b"\n\n(truncated)"
-WITHHELD = b"(answer withheld: no line break or blank before the 120000-byte limit)"
+WITHHELD = b"(answer withheld: no line break or blank before the %d-byte limit)" % LIMIT
 BEGIN = re.compile(rb"-----BEGIN", re.IGNORECASE)
 END_LINE = re.compile(rb"-----END[^\n]*-----", re.IGNORECASE)
 
@@ -28,10 +29,15 @@ def cut(b: bytes) -> bytes:
     keep = LIMIT - len(MARK)
     at = max(b.rfind(b"\n", 0, keep + 1), b.rfind(b" ", 0, keep + 1), b.rfind(b"\t", 0, keep + 1))
     if at >= 0:
-        begins = [m.start() for m in BEGIN.finditer(b, 0, at)]
-        ends = [m.end() for m in END_LINE.finditer(b, 0, at)]   # whole END lines that end before the cut
-        if begins and (not ends or begins[-1] > ends[-1]):      # a block open at the cut
-            at = b.rfind(b"\n", 0, begins[-1])
+        # Blocks in order: each BEGIN is closed by the next whole END line after it (both before the cut). The kept text
+        # stops before the first BEGIN still open at the cut: an earlier block with no END, or the one the cap falls in.
+        pos = 0
+        while (m := BEGIN.search(b, pos, at)) is not None:
+            e = END_LINE.search(b, m.end(), at)
+            if e is None:
+                at = b.rfind(b"\n", 0, m.start())
+                break
+            pos = e.end()
     if at < 0:
         return WITHHELD + MARK
     return b[:at].rstrip(b"\n") + MARK
