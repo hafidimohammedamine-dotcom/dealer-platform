@@ -84,6 +84,54 @@ jobs:
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
           python3 -I scripts/check-claude-probe.py skill-deny "$EXEC_FILE"
+  bypass:
+    # DIAGNOSTIC (scratch branch): does --permission-mode bypassPermissions take effect under the lock? Prints denial reasons.
+    if: github.actor_id == '238822878' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+      - run: bash scripts/check-main-head.sh
+      - id: lock
+        uses: ./.github/actions/agent-egress-lock
+      - id: claude
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        with:
+          classify_inline_comments: "false"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_TOKEN_REVIEW_V2 }}
+          path_to_claude_code_executable: ${{ steps.lock.outputs.claude-path }}
+          path_to_bun_executable: ${{ steps.lock.outputs.bun-path }}
+          github_token: ${{ github.token }}
+          prompt: "Diagnostic. Run exactly this Bash command once: echo BYPASS-OK; then reply with its output. If the tool call is denied, reply DENIED and quote the denial message."
+          claude_args: |
+            --model haiku
+            --max-turns 4
+            --permission-mode bypassPermissions
+            --disallowedTools "Skill(payload),Bash(curl:*),Bash(sudo:*),WebFetch,WebSearch"
+      - name: Denials and messages (diagnostic)
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          python3 -I - "$EXEC_FILE" <<'PY'
+          import json, re, sys
+          msgs = json.load(open(sys.argv[1]))
+          for m in msgs:
+              if m.get("type") == "result":
+                  print("denials:", json.dumps(m.get("permission_denials"))[:1500])
+                  print("result:", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", json.dumps(m.get("result")))[:1500])
+              if m.get("type") == "user":
+                  for c in m.get("message", {}).get("content", []):
+                      if isinstance(c, dict) and c.get("type") == "tool_result":
+                          print("tool_result:", re.sub(r"sk-ant-[A-Za-z0-9_-]+", "<token>", json.dumps(c.get("content")))[:800])
+          PY
   scrub:
     # Claude Code's subprocess isolation under the lock: a Bash tool started by Claude must not see the Claude token, either
     # in its environment or in any process environment it can read (scripts/check-scrub-probe.sh prints counts only).
