@@ -219,10 +219,22 @@ cancelling it rewrites its result without changing its number, which could erase
 re-run or cancel a main-guard run either; a failed first-attempt run (an agent push the guard undid) is normal.
 
 **Heartbeat.** The hourly run is what detects all of this, and the agents' token could cancel it every hour instead. So
-every Claude job (`check-main-head.sh`) and every shift (`check-agent-token.sh`, start and end) first requires a scheduled
+every Claude job (`check-main-head.sh`) and every shift (`check-agent-token.sh`, start and end) first requires an hourly
 main-guard run completed with success within the last 75 minutes (`main_guard_heartbeat`; in the first hour after the
-merge, before any scheduled run, the workflow's newest run must be that young): `the hourly main-guard run has not passed
-lately (stale: ...)` stops the job until a founder looks at the main-guard runs. `commit <sha> reached main without passing the main guard
+merge, before any hourly run, the workflow's newest run must be that young): `the hourly main-guard run has not passed
+lately (stale: ...)` stops the job until a founder looks at the main-guard runs. An hourly run is a `schedule` run or a
+`workflow_dispatch` run: **GitHub's cron is delayed or dropped for hours at times** (since 2026-08, GitHub community
+discussion #207346), so the heartbeat does not depend on it alone (see "Heartbeat from a founder's PC" below). A
+dispatched run counts only when it completed with success, and `check-main-push.sh heartbeat` fails the run unless the
+account that started it is a `founder` row (`only a founder may run the hourly check by hand; user ID <id> is not one`):
+the agents' token can start the workflow, but its run never becomes a heartbeat. Push runs never count: they check one
+push, not the run history.
+
+**Heartbeat from a founder's PC.** A founder's always-on PC (PC1) dispatches the hourly check every 30 minutes and the
+agent schedules at their times, with the founder's own `gh` login (a scheduled task; `docs/runbooks/founder-pc-dispatch.md`).
+Actions -> Main guard -> Run workflow with `accept_sha` empty does the same by hand (`Hourly check run by hand by founder
+<id>.`, then the usual hourly checks). If the PC is off, GitHub's own cron still runs when it can, and the agents simply
+stop until the next heartbeat. `commit <sha> reached main without passing the main guard
 (missing <sha> (runs: ...))` means a push whose head commit said `[skip ci]` (no run at all), a run someone cancelled, or
 the workflow disabled at the time: the job cancels and disables the secret-holding workflows and opens `SECURITY: a push to
 main passed no main-guard run (commit <sha>)` without reverting anything (it cannot tell what that push contained);

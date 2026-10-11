@@ -104,6 +104,12 @@ fresh; push_commits 1; run fail "accept: a non-numeric actor" "the actor id must
 fresh; push_commits 1; run fail "accept: the status post fails" "could not post the guards/main-guard status on $HEAD" accept 111 "$HEAD" STUB_MARK_RC=1
 fresh; push_commits 1; run fail "accept in Actions: a run started from another branch is refused (that branch's workflow file ran)" "run this workflow from the main branch (this run used 'refs/heads/other'); nothing was marked" accept 111 "$HEAD" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GITHUB_REF=refs/heads/other
 check "accept off main: no status posted" bash -c '! grep -q "statuses/" "$1"' _ "$W/gh.log"
+# A founder runs the hourly check by hand (workflow_dispatch without a sha): the heartbeat GitHub's cron does not deliver reliably
+fresh; push_commits 1; run ok "heartbeat: a founder's by-hand run is the hourly check" "Hourly check run by hand by founder 111." heartbeat 111 - "STUB_NUMBERS=9 10 11 12"
+check "heartbeat: the hourly checks ran (retained runs, lineage)" bash -c 'grep -q "Runs: ok main-guard runs #9..#11 are all retained" <<<"$1"' _ "$out"
+fresh; push_commits 1; run fail "heartbeat: the agents' account cannot run the hourly check by hand (its run never counts as a heartbeat)" "only a founder may run the hourly check by hand; user ID 333 is not one." heartbeat 333 -
+fresh; push_commits 1; run fail "heartbeat: an unknown account is refused" "user ID 999 is not one" heartbeat 999 -
+fresh; push_commits 1; run fail "heartbeat: a non-numeric actor" "the actor id must be numeric" heartbeat me -
 fresh; push_commits 1; run ok "accept in Actions from main" "Accepted: commit $HEAD" accept 111 "$HEAD" GITHUB_ACTIONS=true GITHUB_REPOSITORY=owner/repo GITHUB_REF=refs/heads/main
 # The chain check accepts a previous head that carries the status (the guard's own revert, or a founder's acceptance)
 fresh; push_commits 1; run ok "a previous head with no run but the guards/main-guard status passes the chain" "carries the guards/main-guard status" 111 "$BASE" "$HEAD" STUB_RUNS= STUB_MARKS=1
@@ -278,10 +284,11 @@ assert fb["env"]["PUSHER_ID"] == main["env"]["PUSHER_ID"], "the fallback tells a
 assert main["run"].strip() == 'bash scripts/check-main-push.sh "$PUSHER_ID" "$BEFORE" "$AFTER" .github/accounts.txt'
 on = wf.get("on", wf.get(True))
 assert on["push"] == {"branches": ["main"]} and on["schedule"] == [{"cron": "37 * * * *"}] and set(on) == {"push", "schedule", "workflow_dispatch"}, on
-assert on["workflow_dispatch"]["inputs"]["accept_sha"]["required"] is True and on["workflow_dispatch"]["inputs"]["accept_sha"]["type"] == "string"
+assert on["workflow_dispatch"]["inputs"]["accept_sha"]["required"] is False and on["workflow_dispatch"]["inputs"]["accept_sha"]["type"] == "string", "accept_sha is optional: an empty one is the hourly check by hand (heartbeat)"
 assert wf["permissions"] == {"contents": "write", "actions": "write", "issues": "write", "statuses": "write"}
 env = main["env"]
-assert env["PUSHER_ID"] == "${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && 'accept' || github.event.sender.id }}", env["PUSHER_ID"]
+assert env["PUSHER_ID"] == "${{ github.event_name == 'schedule' && 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.accept_sha != '') && 'accept' || github.event_name == 'workflow_dispatch' && 'heartbeat' || github.event.sender.id }}", env["PUSHER_ID"]
+assert "accept|heartbeat)" in fb["run"], "the fallback refuses both by-hand modes (accept and heartbeat) with an error"
 assert env["BEFORE"] == "${{ github.event_name == 'workflow_dispatch' && github.event.sender.id || github.event.before || '-' }}", env["BEFORE"]
 assert env["AFTER"] == "${{ github.event.inputs.accept_sha || github.event.after || '-' }}", env["AFTER"]
 assert 'statuses/$undo' in fb["run"] and "-f context=guards/main-guard" in fb["run"], "the fallback marks its undo commit"
