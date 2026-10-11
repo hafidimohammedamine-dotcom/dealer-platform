@@ -23,5 +23,8 @@ printf 'not json' > "$W/bad.json"; out=$(bash "$SCRIPT" answer "$W/bad.json"); [
 jq -n '[{"type":"result","result":"no text here" | ascii_upcase}]' > /dev/null; jq -n '[{"type":"result"}]' > "$W/noresult.json"; out=$(bash "$SCRIPT" answer "$W/noresult.json")
 [ "$(sed -n 1p <<<"$out")" = has_result=true ] && [ "$(sed -n 3p <<<"$out")" = "" ] && t PASS "answer: a result without text gives an empty answer (the post script posts the placeholder)" || { t FAIL "answer: no text"; echo "$out"; }
 python3 -c 'import json; json.dump([{"type":"result","result":"a"*70000}], open("'"$W/long.json"'","w"))'
-out=$(bash "$SCRIPT" answer "$W/long.json"); [ "$(sed -n 3p <<<"$out" | wc -c)" = 60001 ] && t PASS "answer: cut at 60000 characters" || t FAIL "answer: cut"
+out=$(set -o pipefail; bash "$SCRIPT" answer "$W/long.json"); rc=$?
+[ "$rc" = 0 ] && [ "$(sed -n 3p <<<"$out" | wc -c)" = 60001 ] && t PASS "answer: cut at 60000 characters and exit 0 (no SIGPIPE: a long review must still be posted)" || t FAIL "answer: cut (rc=$rc)"
+python3 -c 'import json; json.dump([{"type":"result","result":"x"*59999+"\n"}], open("'"$W/nl.json"'","w"))'
+out=$(bash "$SCRIPT" answer "$W/nl.json"); [ "$(sed -n 3p <<<"$out" | wc -c)" = 60000 ] && t PASS "answer: a trailing newline inside the cap is kept as is" || t FAIL "answer: trailing newline"
 summary

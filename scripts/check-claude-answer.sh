@@ -19,5 +19,8 @@ if [ "$have" != 1 ]; then echo "has_result=false"; exit 0; fi
 echo "has_result=true"
 d="ANSWER_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"   # a delimiter the answer cannot contain by accident
 echo "answer<<$d"
-jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC" | head -c 60000
+# Read the whole text, then cut it in bash: `jq | head -c` would kill jq with SIGPIPE on a long answer and, under
+# pipefail, fail this script (a review over 60000 characters then posted nothing).
+text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC")
+printf '%s' "${text:0:60000}"
 echo; echo "$d"
