@@ -28,7 +28,7 @@ green and touches no founder-only or `packages/contracts` file - those still wai
    and `overrideAccess: false` and the dealer's tenant. Calling `payload.find/create/update/delete` anywhere else is
    banned by a lint rule and blocked by the security reviewer. (Payload v3's Local API skips access checks by default.)
    The only place `overrideAccess: true` may appear is a reviewed system job listed in `packages/data/override-allowlist.txt`
-   (founder-only; the path is reserved and the file is created together with the lint rule that reads it).
+   (founder-only; one repo-relative path per line, format in the file header; read by the lint rule `local/no-override-access`).
 2. **Second lock in the database:** Postgres row-level security on `tenant` (dealer) for every CRM table, with
    `FORCE ROW LEVEL SECURITY`; the app sets the dealer per transaction. The app's database user is not the table owner.
 3. **Cross-dealer leak tests in CI:** logged in as dealer A, every collection and API must return nothing from dealer B.

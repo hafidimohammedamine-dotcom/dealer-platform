@@ -90,8 +90,9 @@ in the PR was pushed by someone else, or has no record (pushed before the ledger
 founder rebases those commits out and re-creates the changes in commits of their own, then pushes. `pushers file not found` -
 the previous step did not run; re-run the job.
 Founder-only: `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json`, `.claude/` (in any folder), anything in `.github/`, `scripts/check-*`,
-`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt` (reserved, not
-created yet: the reviewed system jobs that may use `overrideAccess: true`, see CLAUDE.md Payload rule 1), `.yarnrc.yml` and
+`scripts/gitleaks-config*`, `.gitleaks.toml`, `.gitleaksignore`, `packages/data/override-allowlist.txt` (the reviewed
+system jobs that may use `overrideAccess: true`; empty until a founder adds one, format in the file header, see CLAUDE.md
+Payload rule 1), `.yarnrc.yml` and
 `.yarn/` (lifecycle scripts stay off) and `.gitattributes` (in any folder: the guards read every PR tree with attributes off,
 and an `export-ignore` must not hide a file from them). Renames count both ways.
 Fix: undo those changes and comment `REQUEST: <path> - <change> - <why>` on the issue. If an agent pushed to a founder's PR,

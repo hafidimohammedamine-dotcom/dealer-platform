@@ -1,0 +1,5 @@
+# Payload `overrideAccess: true` allow-list (founder-only: guards refuse it in any PR not opened and pushed by founders). CLAUDE.md Payload rule 1: the only
+# place `overrideAccess: true` may appear is a reviewed system job listed here. One repo-relative file path per line,
+# exact (no globs), added by a founder after reading the job. The lint rule `local/no-override-access` reads this file;
+# a path that is not listed, or a file listed here that does not exist, fails lint. Empty = no system job may bypass
+# access checks yet.
