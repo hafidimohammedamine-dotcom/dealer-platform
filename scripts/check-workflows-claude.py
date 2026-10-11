@@ -169,52 +169,39 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
     and post steps that check their pinned files before running repo scripts."""
     P = core.P
     for i, step in enumerate(steps, 1):
-        if not isinstance(step, dict) or core.is_claude(step) or i <= 4:
+        if not isinstance(step, dict) or core.is_claude(step):
             continue
         sw = f"{jw} step {i}"
+        if i <= 4:   # the fixed start (checkout, pin step, main-head check, lock) is checked by shape in check_job_start
+            for key in ("working-directory", "shell"):
+                if key in step:
+                    core.err(f"{sw}: '{key}' not allowed in a job with a claude step")
+            continue
         uses = str(step.get("uses", ""))
+        run = str(step.get("run", ""))
         core.require_pinned(sw, uses)
         if claude_at and i < claude_at:
             check_pre_claude_step(sw, step)
         if uses.startswith("actions/checkout@"):
             check_checkout(sw, step, ok_refs)
         after = bool(claude_at) and i > claude_at
-        shell_hint = f" (after the claude step only shell: {P['post_claude_shell']})" if after else ""
         hardened = after and step.get("shell") == P["post_claude_shell"]
-        for key in ("working-directory", "shell"):
-            if key in step:
-                # After the claude step one shell is allowed: the hardened one from the policy (an absolute bash that reads
-                # no profile or rc file and, with -p, ignores BASH_ENV, ENV, SHELLOPTS, BASHOPTS, GLOBIGNORE and functions
-                # from the environment), so a step's own shell is not found through a PATH the claude step could prepend.
-                if key == "shell" and hardened:
-                    continue
-                core.err(f"{sw}: '{key}' not allowed in a job with a claude step" + (shell_hint if key == "shell" else ""))
-        if hardened and first_command(str(step.get("run", ""))) != P["post_claude_run_first"]:
-            # The commands inside the step would still be found through $GITHUB_PATH: the run body resets PATH first.
-            core.err(f"{sw}: a step with the hardened shell must start its run with '{P['post_claude_run_first']}' (the claude step could have changed PATH through $GITHUB_PATH)")
-        handoff = P.get("post_claude_handoff")   # set by the policy together with the hardened hand-off steps
-        if after and handoff and handoff in str(step.get("run", "")):
-            # The hand-off step runs pinned scripts right after Claude: its shell must be the hardened one, every variable
-            # the claude step could have set through $GITHUB_ENV to run code in that shell must be emptied in the step's
-            # own env (which wins), and HOME fixed, so nothing of the claude step's doing reaches it.
-            env = step.get("env") if isinstance(step.get("env"), dict) else {}
-            if step.get("shell") != P["post_claude_shell"]:
-                core.err(f"{sw}: the hand-off step must set shell: {P['post_claude_shell']}")
-            for k in P["post_claude_empty_env"]:
-                if env.get(k, None) != "":
-                    core.err(f"{sw}: the hand-off step must set env {k}: \"\" (a step's own env wins over $GITHUB_ENV)")
-            for k, v in P["post_claude_fixed_env"].items():
-                if env.get(k) != v:
-                    core.err(f"{sw}: the hand-off step must set env {k}: {v}")
+        if "working-directory" in step:
+            core.err(f"{sw}: 'working-directory' not allowed in a job with a claude step")
+        if "shell" in step and not hardened:
+            core.err(f"{sw}: 'shell' not allowed in a job with a claude step" + (f" (after the claude step only shell: {P['post_claude_shell']})" if after else ""))
+        if hardened:
+            check_hardened_step(sw, step)
+        elif after and "run" in step and P["post_claude_require_shell"]:
+            core.err(f"{sw}: a run step after the claude step must set shell: {P['post_claude_shell']} (policy post_claude_require_shell)")
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
-        reviewed = str(step.get("run", "")).strip() in P["pr_data_runs"]
+        reviewed = run.strip() in P["pr_data_runs"]
         if PR_DATA.search(body) and not reviewed:
             core.err(f"{sw}: runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)")
-        m = GIT_MOVE.search(str(step.get("run", "")))
+        m = GIT_MOVE.search(run)
         if m and not reviewed:
             core.err(f"{sw}: 'git {m.group(1)}' not allowed in a job with a claude step (the checkout must stay on the default branch)")
-        if claude_at and i > claude_at:
-            run = str(step.get("run", ""))
+        if after:
             if uses.startswith("./"):
                 core.err(f"{sw}: no local action after the claude step (its files could have changed)")
             m = re.search(r"scripts/|/tmp/gitleaks", run)
@@ -222,12 +209,42 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
                 core.err(f"{sw}: a step after the claude step must check its pinned files ({P['post_pin_check']}) before running repo scripts")
 
 
-def first_command(run):
-    """The first line of a run body that is not blank or a comment (stripped)."""
-    for line in run.splitlines():
-        if line.strip() and not line.lstrip().startswith("#"):
-            return line.strip()
-    return ""
+def check_hardened_step(sw, step):
+    """A run step after the claude step with the one allowed shell (policy post_claude_shell: an absolute bash, so it is
+    not found through a PATH the claude step may have extended with $GITHUB_PATH; -p, so bash reads no BASH_ENV or ENV
+    file and ignores SHELLOPTS, BASHOPTS and functions from the environment, whatever the claude step wrote to
+    $GITHUB_ENV). The rest of what $GITHUB_ENV and $GITHUB_PATH could do is closed here: the step's own env (which wins
+    over $GITHUB_ENV) empties every loader, locale, proxy and git variable (post_claude_empty_env) and fixes HOME and
+    TMPDIR (post_claude_fixed_env); the run body is a fixed list of lines (post_claude_run_first, then only
+    post_claude_run_lines and pinned scripts started under `env -i` with a fixed environment, post_claude_script_line),
+    so no command is found through PATH or inherits anything."""
+    P = core.P
+    if "uses" in step:
+        core.err(f"{sw}: a uses step may not set the hardened shell")
+        return
+    if not isinstance(step.get("env"), dict):
+        core.err(f"{sw}: a step with the hardened shell must have an env mapping")
+        return
+    env = step["env"]
+    for k in P["post_claude_empty_env"]:
+        if env.get(k, None) != "":
+            core.err(f"{sw}: a step with the hardened shell must set env {k}: \"\" (a step's own env wins over $GITHUB_ENV)")
+    for k, v in P["post_claude_fixed_env"].items():
+        if env.get(k) != v:
+            core.err(f"{sw}: a step with the hardened shell must set env {k}: {v}")
+    lines = [l.strip() for l in str(step.get("run", "")).splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    if not lines or lines[0] != P["post_claude_run_first"]:
+        core.err(f"{sw}: a step with the hardened shell must start its run with '{P['post_claude_run_first']}' (the claude step could have changed PATH through $GITHUB_PATH)")
+    script_line = re.compile(P["post_claude_script_line"])
+    for line in lines[1:]:
+        if line in P["post_claude_run_lines"]:
+            continue
+        if not script_line.fullmatch(line):
+            core.err(f"{sw}: line not allowed in a step with the hardened shell: {line[:100]!r} (only post_claude_run_lines and a pinned script under post_claude_script_line)")
+            continue
+        planted = [n for n in re.findall(r" ([A-Z0-9_]+)=", line.split(" /usr/bin/", 1)[0]) if n in P["post_claude_empty_env"]]
+        if planted:
+            core.err(f"{sw}: the script line may not set {', '.join(planted)} (post_claude_empty_env)")
 
 
 def check_pre_claude_step(sw, step):
