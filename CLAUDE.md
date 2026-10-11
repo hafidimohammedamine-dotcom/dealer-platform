@@ -5,7 +5,9 @@ response (text, voice, Messenger, chat, email), CRM, inventory, website and
 listings, desking and finance (RouteOne, Dealertrack, direct lenders),
 documents and title, accounting.
 
-Two founders run the company. Agents do the work. Founders approve every merge.
+Two founders run the company. Agents do the work. Founders approve every merge: by hand, or through the founders'
+hourly auto-merge (`scripts/check-founder-merge.sh`, run from a founder's own account) for a PR that is `ready-to-merge`,
+green and touches no founder-only or `packages/contracts` file - those still wait for a founder's click.
 
 ## Stack
 - TypeScript (strict) everywhere. Node 20+. Yarn workspaces + Nx monorepo.
@@ -94,7 +96,8 @@ issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes i
 
 ## Review policy: block on everything
 A pull request merges only when **all** of these say PASS with **zero findings at any level**:
-security, tester, architect, compliance, designer (if screens changed). Plus CI is green and a founder approves.
+security, tester, architect, compliance, designer (if screens changed). Plus CI is green and a founder merges (by hand,
+or the founders' auto-merge under the conditions above).
 There is no "fix it later". Every finding is fixed in the same pull request.
 Escalation: builder fixes for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1; Opus while Fable usage is unavailable) finds the root cause and fixes it
 itself -> if that still fails review, the PR is `blocked` for the founders.
@@ -111,11 +114,12 @@ Our own code, our own skills, CI and workflows keep the full zero-findings rule.
 ## How work flows (GitHub)
 - Every task is a GitHub Issue on the project board, with labels `area:*`, `agent:*`, `priority:*`.
 - Issue -> manager assigns a builder -> builder opens a pull request (one issue = one branch = one PR)
-  -> review team posts findings -> builder fixes -> all PASS -> label `ready-to-merge` -> founder merges.
+  -> review team posts findings -> builder fixes -> all PASS -> label `ready-to-merge` -> the founders' auto-merge merges
+  within the hour (founder-only or `packages/contracts` changes: a founder by hand).
 - Branch names: `agent/<issue-number>-<short-name>`. PR title starts with the issue number.
   Founder-only files may change only in PRs **opened and pushed by founders' GitHub accounts** (`founder` user IDs in `.github/accounts.txt`);
   the `guards` check enforces this from the base branch. Agents must use their own GitHub account (`AGENT_GH_TOKEN_V2`), never a founder's.
 
 ## Definition of done
 Tests, lint and type check pass; all reviewers PASS with zero findings; docs updated;
-issue linked; a founder approved and merged.
+issue linked; merged by a founder or the founders' auto-merge.
