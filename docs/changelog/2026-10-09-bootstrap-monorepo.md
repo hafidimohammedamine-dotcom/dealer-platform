@@ -8,7 +8,7 @@
   `enableTelemetry: false`.
 - **Payload lint rules** (`eslint.payload-ban.mjs`): outside `packages/data`, nothing may name or import the Payload
   instance, and database clients may not be imported (no reviewed exception yet). `overrideAccess` is only
-  ever `false`, except in a system job listed in `packages/data/override-allowlist.txt` (empty for now), and Local API calls in `packages/data` must set `overrideAccess`, `depth` and `versions`. Inline disable
+  ever `false`, except in a system job listed in `packages/data/override-allowlist.txt` (empty for now), and Local API calls in `packages/data` must set `overrideAccess`, `depth` and `versions`, and pass `user` or `req`. `showHiddenFields` may only be `false`. Inline disable
   comments do not work. TypeScript `as` casts are banned.
 - **Developer setup** (`docs/dev/setup.md`): Node range, Corepack, `yarn install --immutable`, each root script, what
   `nx run-many` does, the lint rules and their limits, a table of pinned `resolutions`, and how to add a workspace.

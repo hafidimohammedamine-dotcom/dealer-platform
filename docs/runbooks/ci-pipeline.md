@@ -110,15 +110,19 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
 
 - **ESLint error.** Read the rule name in the log. The Payload rules in `eslint.payload-ban.mjs` are:
   - `local/no-payload-instance-access`: outside `packages/data`, nothing may be named `payload`, `getPayload…`,
-    `Payload` or `BasePayload` (only `payload.logger` is allowed), and no `Reflect` or dynamic key that is then called.
+    `Payload` or `BasePayload` (only `payload.logger` is allowed), and no `Reflect`. A computed read whose key is not a fixed string is flagged, even
+    when saved to a variable. `Object.values`, `entries`, `assign`, the property-descriptor helpers, and any `Object` use
+    other than `Object.<fixed name>` are banned.
     If the name is unrelated (a webhook body), rename the value, or ask security to add the file to
     `payloadNameAllowedPaths`.
   - `local/no-restricted-modules`: only type imports from `payload` outside `packages/data`; database clients are banned
-    outside `packages/data` (the reviewed exception list is empty); `import()` and `require()` with fixed names only. The
-    modules that run code from a string (`vm`, `worker_threads`, `child_process`) are banned too.
+    outside `packages/data` (the reviewed exception list is empty); `import()` and `require()` with fixed names only. Process, thread,
+    VM and module-loader modules (`vm`, `worker_threads`, `child_process`, `module`, `cluster`, `repl`) are banned too;
+    only two `infra/checks` config tests may start processes.
   - `local/no-override-access`: `overrideAccess` must be the literal `false`, in every file, except in a system job listed
-    in `packages/data/override-allowlist.txt` (founder-only; empty for now). In `packages/data`, Local API calls need one
-    object literal with `overrideAccess: false`, `depth` and `versions`, without spreads.
+    in `packages/data/override-allowlist.txt` (created by founder PR #43; empty for now). In `packages/data`, Local API
+    calls need one object literal with `overrideAccess: false`, `depth`, `versions` and `user` or `req`, without spreads.
+    `showHiddenFields` may only be `false`.
   - `no-eval`, `no-implied-eval`, `no-new-func`, `no-with`: code built from strings.
   - `@typescript-eslint/consistent-type-assertions`: no `as` casts. Narrow with a type guard.
 
