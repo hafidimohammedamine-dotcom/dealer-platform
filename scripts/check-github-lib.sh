@@ -104,16 +104,20 @@ main_guard_runs_intact() {
 
 # MAIN_GUARD_HEARTBEAT: how old (seconds) the newest successful hourly main-guard run may be before every Claude job and
 # shift refuses to start: the hourly run is what detects deleted, re-run or cancelled runs (main_guard_runs_intact), and
-# the agents' token could cancel it every hour instead. 75 minutes: one hourly slot plus a margin.
+# the agents' token could cancel it every hour instead. 75 minutes: one hourly slot plus a margin (a founder's PC
+# dispatches the run every 30 minutes as well, docs/runbooks/ci-guards.md "Heartbeat from a founder's PC").
 MAIN_GUARD_HEARTBEAT=4500
 
-# main_guard_heartbeat: a scheduled main-guard run completed with success within MAIN_GUARD_HEARTBEAT seconds (or none
-# has been scheduled yet and the workflow's newest run is that young: the first hour after the merge). Prints "ok ..." and
-# returns 0, "stale ..." and returns 1, or "ERROR: ..." on an API error.
+# main_guard_heartbeat: an hourly main-guard run completed with success within MAIN_GUARD_HEARTBEAT seconds (or none has
+# run yet and the workflow's newest run is that young: the first hour after the merge). An hourly run is a scheduled run
+# or a workflow_dispatch run: GitHub's cron is delayed or dropped for hours at times, so a founder's PC dispatches the
+# workflow every 30 minutes, and check-main-push.sh fails a dispatched run whose actor is not a founder (so a run the
+# agents' token dispatched never completes with success). Push runs do not count: they check a push, not the run history.
+# Prints "ok ..." and returns 0, "stale ..." and returns 1, or "ERROR: ..." on an API error.
 main_guard_heartbeat() {
   local sched newest at now age
   now=$(date -u +%s)
-  sched=$("$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?event=schedule&per_page=10" --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.created_at)"' 2>/dev/null) \
+  sched=$("$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=30" --jq '.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch") | "\(.status) \(.conclusion) \(.created_at) \(.event)"' 2>/dev/null) \
     || { echo "ERROR: could not list the scheduled main-guard runs."; return 1; }
   if [ -z "$sched" ]; then
     newest=$("$GH" api "repos/$REPO/actions/workflows/main-guard.yml/runs?per_page=1" --jq '.workflow_runs[0].created_at // empty' 2>/dev/null) \

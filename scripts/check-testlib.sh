@@ -16,7 +16,7 @@ summary() { echo "$pass passed, $failed failed"; [ "$failed" = 0 ]; }
 # status), STUB_RUNS/STUB_RUNS_RC/STUB_RUNS_LATER with STUB_COUNT (the main-guard runs of a head; LATER after the first
 # call), STUB_LATEST/STUB_LATEST_RC (the newest successful push run's head; empty = none), STUB_NUMBERS/STUB_NUMBERS_RC (the
 # run numbers of every retained main-guard run, each as "n 1 success"; STUB_RUN_ROWS adds raw "number attempt conclusion"
-# lines), STUB_SCHED/STUB_SCHED_RC (the newest scheduled runs as "status conclusion created_at" lines; default: one
+# lines), STUB_SCHED/STUB_SCHED_RC (the newest scheduled or dispatched runs as "status conclusion created_at [event]" lines; default: one
 # success now), STUB_NEWEST_AT/STUB_NEWEST_RC (the newest run's time), STUB_MARKS/STUB_MARKS_RC (how
 # many guards/main-guard statuses a commit carries), STUB_MARK_RC (posting one),
 # STUB_GH_LOG (every call appended). A test adds its own cases in <dir>/gh-extra: a file holding one
@@ -36,7 +36,7 @@ case "$*" in
   'api -X POST repos/owner/repo/statuses/'*' -f state=success -f context=guards/main-guard -f description='*) exit "${STUB_MARK_RC:-0}";;
   'api --paginate repos/owner/repo/actions/workflows/main-guard.yml/runs?per_page=100 --jq '*'.run_number'*)
     [ "${STUB_NUMBERS_RC:-0}" = 0 ] || exit 1; [ -z "${STUB_RUN_ROWS:-}" ] || printf '%s\n' "$STUB_RUN_ROWS"; for n in ${STUB_NUMBERS:-}; do echo "$n 1 success"; done; exit 0;;
-  'api repos/owner/repo/actions/workflows/main-guard.yml/runs?event=schedule&per_page=10 --jq '*) [ "${STUB_SCHED_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_SCHED-completed success $(date -u +%Y-%m-%dT%H:%M:%SZ)}"; exit 0;;
+  'api repos/owner/repo/actions/workflows/main-guard.yml/runs?per_page=30 --jq '*) [ "${STUB_SCHED_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_SCHED-completed success $(date -u +%Y-%m-%dT%H:%M:%SZ)}"; exit 0;;
   'api repos/owner/repo/actions/workflows/main-guard.yml/runs?per_page=1 --jq '*) [ "${STUB_NEWEST_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_NEWEST_AT-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"; exit 0;;
   'api repos/owner/repo/actions/workflows/main-guard.yml/runs?event=push&status=success&per_page=1 --jq '*) [ "${STUB_LATEST_RC:-0}" = 0 ] || exit 1; printf '%s\n' "${STUB_LATEST:-}"; exit 0;;
   'api repos/owner/repo/actions/workflows/main-guard.yml/runs?head_sha='*)
