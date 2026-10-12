@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IdSchema, TimeZoneSchema, contactFields, recordBase } from './common.js';
+import { IdSchema, SafeTextSchema, TimeZoneSchema, contactFields, recordBase } from './common.js';
 
 export const CustomerSchema = z.strictObject({
   ...recordBase,
@@ -8,10 +8,10 @@ export const CustomerSchema = z.strictObject({
   time_zone: TimeZoneSchema.optional(),
   address: z
     .strictObject({
-      street: z.string().max(200).optional(),
-      city: z.string().max(100).optional(),
-      region: z.string().max(50).optional(),
-      postal_code: z.string().max(20).optional(),
+      street: SafeTextSchema.max(200).optional(),
+      city: SafeTextSchema.max(100).optional(),
+      region: SafeTextSchema.max(50).optional(),
+      postal_code: SafeTextSchema.max(20).optional(),
     })
     .optional(),
   /** Rep (user) who owns the customer. */
