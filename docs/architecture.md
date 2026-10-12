@@ -26,6 +26,10 @@ Postgres roles (reserved, named in `.env.example`):
 - `owner_user` (`MIGRATION_DATABASE_URL`): the one migration job in CI only. Never the app, never at container start.
 - `desking_user` (`DESKING_DATABASE_URL`): `services/desking` only, for the encrypted credit and finance schema.
 
+Record ids: `packages/contracts` `IdSchema` accepts string ids (letters, digits, `_`, `-`, 1-64). Payload's Postgres adapter
+defaults to numeric ids, so Payload is to be configured with `idType: 'uuid'` in `apps/admin/payload.config.ts`
+(requested from the Payload config owner; not set yet). If the founders prefer numeric ids, the contract changes instead.
+
 Setup and commands: [Developer setup](dev/setup.md). Every variable and its status:
 [Environment variables](dev/env-vars.md).
 

@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import {
   CentsNonNegativeSchema,
+  EvidenceTextSchema,
   IdSchema,
   IsoDateSchema,
   IsoDateTimeSchema,
+  SafeTextSchema,
   recordBase,
   sensitive,
   sensitiveFields,
@@ -12,14 +14,14 @@ import {
 /** Customer's permission to pull credit (FCRA permissible purpose). */
 export const CreditPullAuthorizationSchema = z.strictObject({
   /** Exact wording the customer agreed to. */
-  evidence_text: z.string().min(1).max(2000),
+  evidence_text: EvidenceTextSchema,
   authorized_at: IsoDateTimeSchema,
   method: z.enum(['written', 'electronic', 'verbal_recorded']),
 });
 
 /** Evidence that both applicants intended to apply for joint credit (Reg B, 12 CFR 1002.7(d)(1)). */
 export const JointIntentEvidenceSchema = z.strictObject({
-  evidence_text: z.string().min(1).max(2000),
+  evidence_text: EvidenceTextSchema,
   recorded_at: IsoDateTimeSchema,
 });
 
@@ -34,14 +36,14 @@ export const CreditAppSchema = z
     ...recordBase,
     deal_id: IdSchema,
     customer_id: IdSchema,
-    applicant_name: z.string().min(1).max(200),
+    applicant_name: SafeTextSchema.min(1).max(200),
     /** Social Security number, `NNN-NN-NNNN`. */
     ssn: sensitive(z.string().regex(/^\d{3}-\d{2}-\d{4}$/)),
     date_of_birth: sensitive(IsoDateSchema),
     monthly_income_cents: sensitive(CentsNonNegativeSchema),
     bank_account_number: sensitive(z.string().regex(/^\d{4,17}$/)),
     bank_routing_number: sensitive(z.string().regex(/^\d{9}$/)),
-    employer_name: z.string().max(200).optional(),
+    employer_name: SafeTextSchema.max(200).optional(),
     credit_pull_authorization: CreditPullAuthorizationSchema,
     has_coapplicant: z.boolean(),
     coapplicant_customer_id: IdSchema.optional(),

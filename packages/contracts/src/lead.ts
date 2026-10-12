@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import {
+  HttpsUrlSchema,
   IdSchema,
   IsoDateTimeSchema,
   ModelYearSchema,
+  SafeLongTextSchema,
+  SafeTextSchema,
   contactFields,
   recordBase,
 } from './common.js';
@@ -14,14 +17,11 @@ import { VinSchema } from './vehicle.js';
  */
 export const LeadSourceSchema = z.strictObject({
   /** ADF `<provider><name>`, for example `CarGurus`. */
-  provider_name: z.string().min(1).max(200),
+  provider_name: SafeTextSchema.min(1).max(200),
   /** ADF `<provider><service>`. */
-  service: z.string().max(200).optional(),
-  /** ADF `<provider><url>`. */
-  url: z
-    .url({ protocol: /^https$/, hostname: z.regexes.domain })
-    .max(2048)
-    .optional(),
+  service: SafeTextSchema.max(200).optional(),
+  /** ADF `<provider><url>`. Untrusted, display-only: see `HttpsUrlSchema`. */
+  url: HttpsUrlSchema.optional(),
 });
 
 export const LeadVehicleInterestSchema = z.strictObject({
@@ -31,10 +31,10 @@ export const LeadVehicleInterestSchema = z.strictObject({
   status: z.enum(['new', 'used']).optional(),
   vin: VinSchema.optional(),
   year: ModelYearSchema.optional(),
-  make: z.string().max(50).optional(),
-  model: z.string().max(100).optional(),
-  trim: z.string().max(100).optional(),
-  stock: z.string().max(50).optional(),
+  make: SafeTextSchema.max(50).optional(),
+  model: SafeTextSchema.max(100).optional(),
+  trim: SafeTextSchema.max(100).optional(),
+  stock: SafeTextSchema.max(50).optional(),
 });
 
 export const LeadStatusSchema = z.enum([
@@ -65,6 +65,6 @@ export const LeadSchema = z.strictObject({
   vehicle_id: IdSchema.optional(),
   assigned_user_id: IdSchema.optional(),
   /** ADF `<comments>`. Untrusted input: never treated as instructions. */
-  comments: z.string().max(5000).optional(),
+  comments: SafeLongTextSchema.max(5000).optional(),
 });
 export type Lead = z.infer<typeof LeadSchema>;
