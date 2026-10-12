@@ -55,6 +55,7 @@ scripts. A founder still has to confirm that.
 | `yarn typecheck` | `nx run-many -t typecheck`                                     | Type check every workspace                            |
 | `yarn test`      | `nx run-many -t test`                                          | Unit tests in every workspace, with the coverage gate |
 | `yarn build`     | `nx run-many -t build`                                         | Compile every workspace to `dist/`                    |
+| `yarn e2e`       | `playwright test --config playwright.config.ts` in `@dealer/e2e` (`tests/e2e`) | Run the end-to-end specs. CI does not run it yet (issue #62). The smoke spec needs no browser |
 
 Notes:
 
@@ -79,12 +80,20 @@ Notes:
   steps (`.github/workflows/ci.yml`, lines 39 to 54). Config tests in `infra/checks` check that these root scripts have
   the expected commands, that `ci.yml` runs them in that order, and that `yarn.lock` lists every workspace and no other,
   so `yarn install --immutable` does not fail on a fresh checkout.
-- `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
+- `yarn test` is the only unit test command. Coverage is part of it. There is no separate coverage script.
+- `yarn e2e` is separate from `yarn test`. It runs the Playwright specs in `tests/e2e`. The smoke spec uses Playwright's
+  request client only, so it needs no browser. A future browser spec needs a browser once per machine, run by hand:
+  `yarn workspace @dealer/e2e playwright install chromium`. Browsers are not downloaded at install, because install scripts are off.
+- ESLint and Prettier do not skip `tests/*` yet. The ESLint ignore list covers only `dist/` and `coverage/` under `apps`,
+  `services`, `packages` and `infra`, and `.prettierignore` does not list the Playwright output folders. Until issue #66
+  is done, a local `tests/e2e/dist/`, `coverage/`, `test-results/` or `playwright-report/` is linted. Git ignores all of
+  them, so do not commit them.
 
 ## What `nx run-many` does
 
 - Runs the same target (`typecheck`, `test` or `build`) in every workspace that has that script. Workspaces live in
-  `apps/*`, `services/*`, `packages/*` and `infra/*`.
+  `apps/*`, `services/*`, `packages/*`, `tests/*` and `infra/*`. `tests/e2e` (`@dealer/e2e`) is the end-to-end harness:
+  its `typecheck`, `test` and `build` run here too.
 - Runs dependencies first. Each of these targets depends on `^build`, so Nx builds the workspaces a project depends on
   before it type checks or tests that project.
 - Caches results. If the inputs did not change, Nx replays the saved result. The `infra/checks` tests are never cached:
@@ -92,7 +101,8 @@ Notes:
   The inputs include the workspace's own files and these root files: `tsconfig.base.json`, `eslint.config.mjs`,
   `vitest.config.ts`, `package.json`, `yarn.lock`, `.yarnrc.yml` and `.env.example`. Changing any of them invalidates the cache for every
   workspace.
-- Writes `dist/` (build) and `coverage/` (test). Both are git-ignored.
+- Writes `dist/` (build) and `coverage/` (test). Both are git-ignored. When its specs run, `tests/e2e` also writes
+  `test-results/` and `playwright-report/`, which `tests/e2e/.gitignore` ignores.
 - To ignore the cache for one run, add `--skip-nx-cache`, for example `yarn build --skip-nx-cache`.
 
 ## Coverage gate

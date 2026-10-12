@@ -9,7 +9,7 @@ Placeholders on this page look like `<password>`. Never write a real-looking val
 ## Status today: all 26 are reserved
 
 No code reads any of the 26 listed variables yet. This was checked with a search of `apps/`, `services/`, `packages/`,
-`infra/` and `scripts/`. (A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads
+`infra/`, `scripts/` and `tests/`. (A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads
 none of these names.) So every variable below is **reserved**: named and documented, but no code uses it.
 Setting one changes nothing yet.
 
@@ -27,6 +27,16 @@ Setting one changes nothing yet.
 - `.env` on your computer is for local dev only. It is git-ignored.
 - "Secret" below means: anyone holding it can act as us, read data, or send and receive on our accounts.
   Treat anything marked "yes" as secret, even if it looks harmless.
+
+## E2E_BASE_URL (not in the template)
+
+`E2E_BASE_URL` is the base URL of the app that the end-to-end tests in `tests/e2e` run against. It is not a secret: it is
+an address, never a credential. `tests/e2e/playwright.config.ts` reads it. The config has no default, so when it is unset
+Playwright has no base URL. Set it for the run, for example `E2E_BASE_URL=<app address> yarn e2e`. Never put a token,
+password or key in the address.
+
+It is not in `.env.example` and is not one of the 26 variables below. The template test requires an exact list, so it
+is documented here only. Status: used by the e2e config today; the leak tests (issue #5) will use it for real suites.
 
 ## Variables
 
