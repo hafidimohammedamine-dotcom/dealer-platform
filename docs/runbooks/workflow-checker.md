@@ -134,22 +134,22 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
   `needs env CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"` - every claude job turns on Claude Code's subprocess isolation, so tools it
   runs never see the Claude token (the lock installs bubblewrap for it).
 - `runs-on must be ubuntu-latest`; `'defaults' not allowed in a job with a claude step`; `'working-directory' not allowed
-  in a job with a claude step`; `'shell' not allowed in a job with a claude step` - on every step before the claude step
+in a job with a claude step`; `'shell' not allowed in a job with a claude step` - on every step before the claude step
   (steps 1-4 included) and, after it, for every shell except the hardened one below. `no workflow-level defaults in a
-  workflow with a claude step` - a `defaults:` at the top of the file would set a shell or working directory for every
+workflow with a claude step` - a `defaults:` at the top of the file would set a shell or working directory for every
   step (a job-level `defaults` on a job without a claude step is allowed). `only one claude step per job (found <n>)`.
 - After the claude step (policy keys `post_claude_*`; the rules live in `scripts/check-workflows-hardened.py`). Plainly: a
   Claude step can write `$GITHUB_ENV` and `$GITHUB_PATH` (the egress lock does not block those files, and the manager
   runs with bypassPermissions), and a later step's default `bash` honours both (`PATH`, `BASH_ENV`, `LD_PRELOAD`, planted
   `BASH_FUNC_<name>%%` functions, and so on). What the checker does about it:
   - `'shell' not allowed in a job with a claude step (after the claude step only shell: /usr/bin/bash --noprofile --norc
-    -p -eo pipefail {0})` - exactly that string (`post_claude_shell`; a trailing space, a missing `{0}`, a missing flag,
+-p -eo pipefail {0})` - exactly that string (`post_claude_shell`; a trailing space, a missing `{0}`, a missing flag,
     `/bin/bash`, a case or tab change, a list or a mapping are refused): an absolute bash, so it is not found through
     `PATH`; `-p` (privileged mode), so bash reads no `BASH_ENV` or `ENV` file, ignores `SHELLOPTS`, `BASHOPTS` and
     `CDPATH` from the environment and imports no function from it (`--noprofile --norc` only skip the profile and rc
     files). `scripts/check-post-claude-shell.test.sh` proves those five on the bash that runs the tests (it prints the
     version; the runners' bash in CI), against the policy string, with a control case without `-p`. `a uses step may not
-    set the hardened shell`.
+set the hardened shell`.
   - `a step with the hardened shell must have an env mapping` / `must set env <X>: ""` / `must set env HOME: /nonexistent`
     / `must set env TMPDIR: /tmp` - the step's own `env:` (which wins over `$GITHUB_ENV`) sets every name in
     `post_claude_empty_env` to the empty string (bash: `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PS4`, `GLOBIGNORE`,
@@ -161,7 +161,7 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     `post_claude_fixed_env` (`HOME`, `TMPDIR`), so neither the shell nor `/usr/bin/sha256sum` loads anything planted.
     `must set env PINS_SHA256 to the sha256 of .github/pins.txt itself (never from $GITHUB_ENV)` - the pin check reads
     the hash from the step's own env, like the pin step before the claude step. `the run reads $<NAME>, which the step's
-    own env does not set (it could come from $GITHUB_ENV)` - every `$NAME` in the body is a key of the step's `env:`.
+own env does not set (it could come from $GITHUB_ENV)` - every `$NAME` in the body is a key of the step's `env:`.
     The one exception is `GITHUB_OUTPUT`: it is the runner's own, set per step, and "you can't overwrite the value of the
     default environment variables named `GITHUB_*` and `RUNNER_*`; if you attempt to override the value of one of these
     default variables, the assignment is ignored" (GitHub Docs, "Variables reference", Default environment variables).
@@ -169,15 +169,15 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     at `\n`; the checker splits on `\n` only and refuses every other control or non-ASCII character (`\r`, `\v`, `\f`,
     U+0085, U+2028, U+2029, ...), so a line that looks like a comment to a reader is a comment to bash as well.
   - `a step with the hardened shell must start its run with these lines, in this order: export PATH=/usr/bin:/bin / set -u
-    / echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet / /usr/bin/sha256sum --check
-    --strict --quiet .github/pins.txt` (`post_claude_run_first`, then `post_claude_run_prefix`; comments and blank lines
+/ echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet / /usr/bin/sha256sum --check
+--strict --quiet .github/pins.txt` (`post_claude_run_first`, then `post_claude_run_prefix`; comments and blank lines
     are skipped, nothing else may come before or between them, a trailing `;`, `\` or comment on a line is refused) and
     `line not allowed in a step with the hardened shell: ...` - after those, only pinned scripts started as
     `/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp [NAME=value ...] /usr/bin/bash scripts/check-<name>.sh
-    <arg> ... [>> "$GITHUB_OUTPUT"]` or `... /usr/bin/python3 -I scripts/check-<name>.py <arg> ...` (regex
+<arg> ... [>> "$GITHUB_OUTPUT"]` or `... /usr/bin/python3 -I scripts/check-<name>.py <arg> ...` (regex
     `post_claude_script_line`: the script name is `check-` plus lowercase letters and hyphens, each argument is lowercase
     letters and hyphens or a quoted `"$NAME"` set in the step env). `the script line may not set <X> (only
-    post_claude_script_env: GITLEAKS_BIN, GITLEAKS_SHA256)` - the `NAME=value` part is a reviewed allow-list, so `PATH`,
+post_claude_script_env: GITLEAKS_BIN, GITLEAKS_SHA256)` - the `NAME=value` part is a reviewed allow-list, so `PATH`,
     `HOME`, `TMPDIR` or a loader variable cannot be set again there. So every command in the step is a builtin, an
     absolute path, or a pinned script in a fresh environment: a child `bash scripts/...` never sees `BASH_ENV`,
     `SHELLOPTS` or a planted function either.

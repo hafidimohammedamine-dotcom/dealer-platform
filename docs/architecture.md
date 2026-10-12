@@ -14,7 +14,8 @@ documented, but nothing uses it yet.
 | Repo checks               | `infra/checks`, `eslint.config.mjs`                            | Built: config tests and lint. The Payload lint ban is not built yet (#36) |
 | Payload admin (CRM, site) | `apps/admin`                                                   | Reserved: Payload is not installed yet                                    |
 | Business services         | `services/*` (intake, ai, messaging, voice, desking, ...)      | Reserved: placeholder workspaces only                                     |
-| Shared packages           | `packages/data`, `contracts`, `platform`, `ui`                 | Reserved: placeholder workspaces only                                     |
+| Shared contracts          | `packages/contracts`                                           | Built: shared zod 4 shapes in `src/`, no database or I/O                  |
+| Shared packages           | `packages/data`, `packages/platform`, `packages/ui`            | Reserved: placeholder workspaces only                                     |
 | CRM tables                | Postgres, owned by Payload, row-level security per dealer      | Reserved: no tables, roles or policies yet                                |
 | Credit and finance data   | Separate encrypted Postgres schema owned by `services/desking` | Reserved: never in Payload collections; the schema does not exist yet     |
 | Queues                    | Redis, used by BullMQ                                          | Reserved: `REDIS_URL` only                                                |
