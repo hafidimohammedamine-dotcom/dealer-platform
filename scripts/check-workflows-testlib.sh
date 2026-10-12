@@ -37,9 +37,21 @@ else:
 open(p, "w").write(s)
 EOF
 }
+# The one shell allowed after the claude step (policy post_claude_shell) and what a step with it must look like.
+SH='/usr/bin/bash --noprofile --norc -p -eo pipefail {0}'
+EV=$(python3 -I -c 'import json, sys; P = json.load(open(sys.argv[1])); print("        env:\n" + "".join(f"          {k}: \"\"\n" for k in P["post_claude_empty_env"]) + "".join(f"          {k}: {v}\n" for k, v in P["post_claude_fixed_env"].items()) + f"          PINS_SHA256: \"{sys.argv[2]}\"\n          EXEC_FILE: f\n", end="")' "$(dirname "$PY")/check-workflows-policy.json" "$PINS_HASH")   # the full env block of a hardened step (real newlines, no trailing one)
+repin() { bash "$T/scripts/check-pins.sh" update "$T" >/dev/null; }   # after editing a pinned file in the copy
+require_on() { sed -i 's|"post_claude_require_shell": false|"post_claude_require_shell": true|' "$T/scripts/check-workflows-policy.json"; repin; }   # then run the COPY's checker: SCRIPT="$T/scripts/check-workflows.sh" expect ...
+PIN1='          echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet\n          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt\n'
+SCR='          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= /usr/bin/bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"\n'
+RUN="        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1$SCR"
+hs() { printf '%b' "      - shell: $SH\n$1" >> "$T/$W/t.yml"; }   # a step with the hardened shell after the claude step, then the given keys
+noenv() { printf '%s' "$EV" | grep -v "^          $1:"; }   # the env block without one name
+setenv() { printf '%s' "$EV" | sed "s|^          $1: .*|          $1: $2|"; }   # the env block with one name changed
+
 # A small valid workflow; tests edit it with sed.
-HARDENED_ENV=$(python3 -c 'import json, sys; P = json.load(open(sys.argv[1])); print("        env:\n" + "".join(f"          {k}: \"\"\n" for k in P["post_claude_empty_env"]) + "".join(f"          {k}: {v}\n" for k, v in P["post_claude_fixed_env"].items()), end="")' "$REPO/scripts/check-workflows-policy.json")
-mk() { sed "s|^PIN_STEP_HERE$|$(printf '%s' "$PIN_STEP" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//')|; s|^ENV_HERE$|$(printf '%s' "$HARDENED_ENV" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//')|" <<'EOF' > "$T/$W/t.yml"
+esc() { printf '%b' "$1" | sed 's/[&|]/\\&/g; s/$/\\/' | sed '$ s/\\$//'; }   # a multi-line sed replacement
+mk() { sed "s|^PIN_STEP_HERE$|$(esc "$PIN_STEP")|; s|^ENV_HERE$|$(esc "$EV")|; s|^RUN_HERE$|$(esc "$RUN")|" <<'EOF' > "$T/$W/t.yml"
 name: t
 on: workflow_dispatch
 jobs:
@@ -76,9 +88,7 @@ PIN_STEP_HERE
         if: always() && steps.claude.outputs.execution_file != ''
         shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
 ENV_HERE
-        run: |
-          export PATH=/usr/bin:/bin
-          # steps.claude.outputs are fine, and so are refs/remotes/pr/head:.claude and @claude
+RUN_HERE
 EOF
 }
 fx() { fresh; mk; }   # fresh copy of the real workflows plus the small fixture

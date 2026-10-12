@@ -6,6 +6,7 @@ import re
 import shlex
 
 import check_workflows_lib as core  # loaded into sys.modules by check-workflows.py before this module
+import check_workflows_hardened as hardened  # the shape of a run step after the claude step
 
 LOCK_OUTPUTS = {"path_to_claude_code_executable": "claude-path", "path_to_bun_executable": "bun-path"}   # action input -> lock output
 LOCK_OUT_RE = {key: re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\." + out + r"\s*\}\}$") for key, out in LOCK_OUTPUTS.items()}
@@ -185,13 +186,13 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
         if uses.startswith("actions/checkout@"):
             check_checkout(sw, step, ok_refs)
         after = bool(claude_at) and i > claude_at
-        hardened = after and step.get("shell") == P["post_claude_shell"]
+        is_hardened = after and step.get("shell") == P["post_claude_shell"]
         if "working-directory" in step:
             core.err(f"{sw}: 'working-directory' not allowed in a job with a claude step")
-        if "shell" in step and not hardened:
+        if "shell" in step and not is_hardened:
             core.err(f"{sw}: 'shell' not allowed in a job with a claude step" + (f" (after the claude step only shell: {P['post_claude_shell']})" if after else ""))
-        if hardened:
-            check_hardened_step(sw, step)
+        if is_hardened:
+            hardened.check_hardened_step(sw, step)
         elif after and "run" in step and P["post_claude_require_shell"]:
             core.err(f"{sw}: a run step after the claude step must set shell: {P['post_claude_shell']} (policy post_claude_require_shell)")
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
@@ -204,47 +205,10 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
         if after:
             if uses.startswith("./"):
                 core.err(f"{sw}: no local action after the claude step (its files could have changed)")
-            m = re.search(r"scripts/|/tmp/gitleaks", run)
-            if m and P["post_pin_check"] not in run[:m.start()]:
+            code = "\n".join(l for l in run.split("\n") if not l.lstrip(" \t").startswith("#"))   # a comment is not a pin check
+            m = re.search(r"scripts/|/tmp/gitleaks", code)
+            if m and P["post_pin_check"] not in code[:m.start()]:
                 core.err(f"{sw}: a step after the claude step must check its pinned files ({P['post_pin_check']}) before running repo scripts")
-
-
-def check_hardened_step(sw, step):
-    """A run step after the claude step with the one allowed shell (policy post_claude_shell: an absolute bash, so it is
-    not found through a PATH the claude step may have extended with $GITHUB_PATH; -p, so bash reads no BASH_ENV or ENV
-    file and ignores SHELLOPTS, BASHOPTS and functions from the environment, whatever the claude step wrote to
-    $GITHUB_ENV). The rest of what $GITHUB_ENV and $GITHUB_PATH could do is closed here: the step's own env (which wins
-    over $GITHUB_ENV) empties every loader, locale, proxy and git variable (post_claude_empty_env) and fixes HOME and
-    TMPDIR (post_claude_fixed_env); the run body is a fixed list of lines (post_claude_run_first, then only
-    post_claude_run_lines and pinned scripts started under `env -i` with a fixed environment, post_claude_script_line),
-    so no command is found through PATH or inherits anything."""
-    P = core.P
-    if "uses" in step:
-        core.err(f"{sw}: a uses step may not set the hardened shell")
-        return
-    if not isinstance(step.get("env"), dict):
-        core.err(f"{sw}: a step with the hardened shell must have an env mapping")
-        return
-    env = step["env"]
-    for k in P["post_claude_empty_env"]:
-        if env.get(k, None) != "":
-            core.err(f"{sw}: a step with the hardened shell must set env {k}: \"\" (a step's own env wins over $GITHUB_ENV)")
-    for k, v in P["post_claude_fixed_env"].items():
-        if env.get(k) != v:
-            core.err(f"{sw}: a step with the hardened shell must set env {k}: {v}")
-    lines = [l.strip() for l in str(step.get("run", "")).splitlines() if l.strip() and not l.lstrip().startswith("#")]
-    if not lines or lines[0] != P["post_claude_run_first"]:
-        core.err(f"{sw}: a step with the hardened shell must start its run with '{P['post_claude_run_first']}' (the claude step could have changed PATH through $GITHUB_PATH)")
-    script_line = re.compile(P["post_claude_script_line"])
-    for line in lines[1:]:
-        if line in P["post_claude_run_lines"]:
-            continue
-        if not script_line.fullmatch(line):
-            core.err(f"{sw}: line not allowed in a step with the hardened shell: {line[:100]!r} (only post_claude_run_lines and a pinned script under post_claude_script_line)")
-            continue
-        planted = [n for n in re.findall(r" ([A-Z0-9_]+)=", line.split(" /usr/bin/", 1)[0]) if n in P["post_claude_empty_env"]]
-        if planted:
-            core.err(f"{sw}: the script line may not set {', '.join(planted)} (post_claude_empty_env)")
 
 
 def check_pre_claude_step(sw, step):

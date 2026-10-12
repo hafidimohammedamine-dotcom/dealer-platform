@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a834dad592432ff3b757285cd42419c791151180071c4ad6368abbd56bea9148"
+          PINS_SHA256: "8f1147a7991f858ca83450546ad5f44286f273645c94024a12238e06f6ad8b22"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -75,12 +75,35 @@ jobs:
           BASHOPTS: ""
           PS4: ""
           GLOBIGNORE: ""
+          CDPATH: ""
+          BASH_XTRACEFD: ""
+          POSIXLY_CORRECT: ""
           LD_PRELOAD: ""
           LD_LIBRARY_PATH: ""
           LD_AUDIT: ""
+          LD_DEBUG: ""
+          LD_DEBUG_OUTPUT: ""
+          LD_PROFILE: ""
+          LD_BIND_NOW: ""
           GCONV_PATH: ""
           GLIBC_TUNABLES: ""
+          MALLOC_CHECK_: ""
+          MALLOC_PERTURB_: ""
+          MALLOC_TOP_PAD_: ""
+          MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_TRIM_THRESHOLD_: ""
+          MALLOC_ARENA_MAX: ""
           LOCPATH: ""
+          NLSPATH: ""
+          LANGUAGE: ""
+          LC_ALL: ""
+          LANG: ""
+          TZ: ""
+          TZDIR: ""
+          TEXTDOMAINDIR: ""
+          HOSTALIASES: ""
+          RES_OPTIONS: ""
+          LOCALDOMAIN: ""
           HTTP_PROXY: ""
           HTTPS_PROXY: ""
           ALL_PROXY: ""
@@ -96,9 +119,9 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "a834dad592432ff3b757285cd42419c791151180071c4ad6368abbd56bea9148"
+          PINS_SHA256: "8f1147a7991f858ca83450546ad5f44286f273645c94024a12238e06f6ad8b22"
         run: |
-          # First line (the checker requires it): entries the Claude session could have added through $GITHUB_PATH never apply.
+          # First line (the checker requires it): entries the Claude session could have added to the GITHUB_PATH file never apply.
           export PATH=/usr/bin:/bin
           set -u
           # After a Claude step the body is an allow-list (checker): the pins checked with /usr/bin/sha256sum, then the pinned
@@ -126,7 +149,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "a834dad592432ff3b757285cd42419c791151180071c4ad6368abbd56bea9148"
+          PINS_SHA256: "8f1147a7991f858ca83450546ad5f44286f273645c94024a12238e06f6ad8b22"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

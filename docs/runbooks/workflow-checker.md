@@ -15,40 +15,42 @@ keys rejected), fails closed, and prints `Workflow denies OK (Skill denies: ...)
 the `main` copy, a PR cannot switch it off. Every message, with its fix:
 
 Files and arguments
+
 - `PyYAML is missing; run through the venv from scripts/check-python-deps.sh (pinned in scripts/check-python-requirements.txt)`
   - guards and CI put that venv's `bin` on `PATH` first; locally run `bash scripts/check-python-deps.sh` and use the printed
-  folder's `python3`, or install PyYAML yourself.
+    folder's `python3`, or install PyYAML yourself.
 - `cannot read check-workflows-policy.json (...)` - restore the founder-owned policy file next to the script.
 - `bad argument '<x>'`, `--manifest needs a file`, `--accounts needs a file`, `manifest not found: <file>` - guards passes both
   manifests and the base branch's accounts file; an explicit manifest must exist. `run through scripts/check-workflows.sh` -
   `check-workflows.py` was started directly; the wrapper supplies the parsed manifests and accounts.
 - `accounts file not found: <file>`, `bad line <n> in <file> (want '<id> <login> founder|agent')`, `no founder listed in
-  <file>` - fix `.github/accounts.txt` (see `docs/runbooks/ci-guards.md`, "Who fixes these").
+<file>` - fix `.github/accounts.txt` (see `docs/runbooks/ci-guards.md`, "Who fixes these").
 - `no workflows folder <dir>`, `no workflow files in <dir>` - wrong root folder.
 - `<file>: not valid YAML or has duplicate keys (...)`, `no jobs mapping`, `<job>: not a mapping`, `steps must be a list`,
   `step <n>: not a mapping`, `'with' must be a mapping` - malformed workflow; fix the YAML.
 
 Any workflow or composite action
+
 - `.github/pins.txt is missing`, `<file> changed but its pin did not`, `does not list <file>`, `lists <file>, which is not
-  a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly `pins_required` from the policy: all
+a pinned file`, `line <n>: want '<sha256>  <path>'` - the pins file must list exactly `pins_required` from the policy: all
   of `.github/actions/`, every `scripts/check-*` script (not tests or test libraries), `.gitleaks.toml`,
   `.github/accounts.txt`, `.yarnrc.yml`, and every `CLAUDE.md`, `CLAUDE.local.md`, `.mcp.json` and `.claude/` file anywhere
   outside `.git`, `.worktrees` and `node_modules`, with their current sha256 (`bash scripts/check-pins.sh verify` applies the same rule in
   every pin step): `bash scripts/check-pins.sh update`. `no actions/checkout step (every job outside pins_exempt ...)`, `the step after
-  the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
-  <x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
+the checkout must be the pin step '...'`, `the pin step's run must be exactly the policy's pins_step_run`, `PINS_SHA256 is
+<x> but .github/pins.txt is <y>`, `the pin step may only have name, env (PINS_SHA256), run and id` - every job in a workflow
   outside `pins_exempt` (`ci.yml`, `egress-lock-test.yml`) checks out and then runs the exact pin step from the policy
   (`pins_step_name`, `pins_step_run`) with the current hash; a step is the pin step only when its name, run and env match
   exactly (plus an optional `id`), so a decoy with the right name is reported as a wrong pin step; `update` rewrites the hash. `the pin step's run must be
-  exactly the policy's pins_step_run_default_branch` / `may only have name, run and id` - a workflow in
+exactly the policy's pins_step_run_default_branch` / `may only have name, run and id` - a workflow in
   `pins_default_branch_workflows` (`pusher-ledger.yml`) reads the hash from the default branch's `guards.yml`.
 - `github_token must be exactly ${{ github.token }} (...)` (`${{ secrets.AGENT_GH_TOKEN_V2 }}` in the manager; policy
   `claude_github_token`) - every Claude step passes the job's own token; without one, claude-code-action trades the job's
   OIDC token for an app token that the job's `permissions:` block does not limit. With it, `id-token: write` is needed
   nowhere but the probe workflow's `oidc` job (`per_file_permission_scopes`).
-- `needs a job 'after' that runs the after-shift checks on a fresh runner`, `must have needs: shift and if: always()`,
+- `needs a job 'after' that runs the after-shift checks on a fresh runner`, `must have needs: shift and if: always() && needs.shift.result != 'skipped' && github.run_attempt == '1'`,
   `must run exactly '<script>'`, `after Claude ran, the event check belongs in job 'after' only`, `the event check before
-  the shift must run exactly '...'` (policy `after_shift`) - the manager's checks that run after Claude
+the shift must run exactly '...'` (policy `after_shift`) - the manager's checks that run after Claude
   (`scripts/check-agent-token.sh`, `scripts/check-agent-events.sh`) live in their own job, which the shift's Claude
   (bypassPermissions) cannot have touched; the event check may also run in the shift job before Claude, with the same
   24-hour window.
@@ -69,16 +71,17 @@ Any workflow or composite action
 - `secrets used other than as secrets.<NAME> outside a claude step's claude_code_oauth_token` - no `secrets['x']`,
   `secrets[format(...)]`, `toJSON(secrets)`, `join(secrets)` or the whole object anywhere.
 - `Claude/Anthropic credential secrets.<NAME> ...` / `Claude/Anthropic credential variable ...` - a secret named
-  *CLAUDE*/*ANTHROPIC*, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` appears outside a claude step's
+  _CLAUDE_/_ANTHROPIC_, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` appears outside a claude step's
   `claude_code_oauth_token` (also inside `.github/actions/*`).
 - `runs Claude outside the pinned claude-code-action` - no `claude` CLI (any path), `@anthropic-ai/...` or other claude-code
   action in `run:` or `uses:`.
 - `local action not on the allow-list: <x>` (only `install-gitleaks` and `agent-egress-lock`), `not allowed: docker://...` or a
   workflow file, `reusable workflow not allowed`, `'container' not allowed`, `'services' not allowed`.
 - `.github/actions/<x>/action.yml: not a composite action with steps`; `... step <n>: action must be pinned to a full commit
-  SHA: <uses>` - local actions are composite, and every remote action in them is pinned by a 40-character commit.
+SHA: <uses>` - local actions are composite, and every remote action in them is pinned by a 40-character commit.
 
 Workflows with a claude step
+
 - `no workflow-level env in a workflow with a claude step (use the job's env)` - move the names into the job's `env`.
 - `a workflow with a claude step must not run on pull_request` / `... on workflow_run` (PR code or its artifacts next to a
   Claude token).
@@ -86,6 +89,7 @@ Workflows with a claude step
   every deny in `manager_denies`.
 
 Who may start what, and the agents' token (any workflow)
+
 - `<where>: refers to a login in 'if' (logins can be re-registered); compare the numeric user ID` - no `github.actor`,
   `github.triggering_actor` or `*.login` in an `if`, in any spelling or order, except compared with a bot name such as
   `'github-actions[bot]'` (bot names cannot be registered).
@@ -95,21 +99,22 @@ Who may start what, and the agents' token (any workflow)
   comparing a founder's ID (`agent-manager.yml`, `claude.yml`, `agent-daily-report.yml`, `agent-weekly-audit.yml`,
   `egress-lock-claude.yml`) or the agents' ID (`review.yml`, fix rounds).
 - `<job>: holds the agents' token, so its first step after checkout and the lock must run 'bash scripts/check-agent-token.sh
-  .github/accounts.txt'` - every job that mentions `AGENT_GH_TOKEN_V2` (any case), and the manager always, checks the token
+.github/accounts.txt'` - every job that mentions `AGENT_GH_TOKEN_V2` (any case), and the manager always, checks the token
   first (`docs/runbooks/agent-network-lock.md`, "The agents' GitHub token"). `the agents' token check step may only have name
-  and run (found ...)` - no `if`, `env`, `continue-on-error` or `working-directory` on it. `<file>: the agents' token may only be
-  set in a job's env, after its token check` - never at workflow level.
+and run (found ...)` - no `if`, `env`, `continue-on-error` or `working-directory` on it. `<file>: the agents' token may only be
+set in a job's env, after its token check` - never at workflow level.
 
 Jobs with a claude step
+
 - `a job with a claude step must start with actions/checkout, the pin step, 'bash scripts/check-main-head.sh' (name and
-  run only), then ./.github/actions/agent-egress-lock`; `the ./.github/actions/agent-egress-lock step may only have
-  id/uses/name (found ...)`; `... step needs an id` - checkout, the pin step, the main-head check (the checked-out head of
+run only), then ./.github/actions/agent-egress-lock`; `the ./.github/actions/agent-egress-lock step may only have
+id/uses/name (found ...)`; `... step needs an id` - checkout, the pin step, the main-head check (the checked-out head of
   the default branch passed the main guard: a push whose head said `[skip ci]` has no run and must not run next to a Claude
   token; policy `main_head_guard`), then the bare lock step (no `with`, `env`, `if` or `continue-on-error`, so its test
   hooks cannot be set).
 - `a run step before the claude step must be one line 'bash scripts/check-<name>.sh ...' (a pinned guard), not: ...` /
   `may only have name/if/id/run/env`; `before the claude step only <actions> may be used (found ...)` / `<action> may only
-  have name/if/id/with and the inputs ...` - between the lock and the claude step nothing free-form runs: every `run` is
+have name/if/id/with and the inputs ...` - between the lock and the claude step nothing free-form runs: every `run` is
   one line calling a pinned `scripts/check-*.sh` with plain arguments (no `&&`, `;`, pipes, redirections, backticks or
   `$(...)`, except the one substitution in `pre_claude_run_allowed_substitutions`, the events check's 24-hour window), and
   every `uses` is in `pre_claude_actions` (`actions/download-artifact`, pinned, inputs `name` and `path` only: a downloaded
@@ -122,7 +127,7 @@ Jobs with a claude step
 - `checkout input(s) <x> not allowed in a claude job (only fetch-depth, persist-credentials, ref)` - no `repository`, `path`,
   `token` or other inputs on any checkout in the job.
 - `the checkout needs an explicit ref of the default branch (...), never the PR's code` / `the checkout needs
-  persist-credentials: false` - every checkout uses `main` (or `${{ github.event.repository.default_branch }}`;
+persist-credentials: false` - every checkout uses `main` (or `${{ github.event.repository.default_branch }}`;
   `${{ github.base_ref }}` only in a pull_request_target workflow) and keeps no credentials in `.git/config`.
 - `step <n>: action must be pinned to a full commit SHA: <uses>` - every remote action, including the first checkout.
 - `env '<x>' not allowed in a job with a claude step (allowed: ...)` - job env names are limited to `job_env` in the policy.
@@ -133,39 +138,56 @@ Jobs with a claude step
   (steps 1-4 included) and, after it, for every shell except the hardened one below. `no workflow-level defaults in a
   workflow with a claude step` - a `defaults:` at the top of the file would set a shell or working directory for every
   step (a job-level `defaults` on a job without a claude step is allowed). `only one claude step per job (found <n>)`.
-- After the claude step (policy keys `post_claude_*`). Plainly: a Claude step can write `$GITHUB_ENV` and `$GITHUB_PATH`
-  (the egress lock does not block those files, and the manager runs with bypassPermissions), and a later step's default
-  `bash` honours both (`PATH`, `BASH_ENV`, `LD_PRELOAD`, planted `BASH_FUNC_<name>%%` functions, and so on). What the
-  checker does about it:
+- After the claude step (policy keys `post_claude_*`; the rules live in `scripts/check-workflows-hardened.py`). Plainly: a
+  Claude step can write `$GITHUB_ENV` and `$GITHUB_PATH` (the egress lock does not block those files, and the manager
+  runs with bypassPermissions), and a later step's default `bash` honours both (`PATH`, `BASH_ENV`, `LD_PRELOAD`, planted
+  `BASH_FUNC_<name>%%` functions, and so on). What the checker does about it:
   - `'shell' not allowed in a job with a claude step (after the claude step only shell: /usr/bin/bash --noprofile --norc
     -p -eo pipefail {0})` - exactly that string (`post_claude_shell`; a trailing space, a missing `{0}`, a missing flag,
-    `/bin/bash`, a list or a mapping are refused): an absolute bash, so it is not found through `PATH`; `-p` (privileged
-    mode), so bash reads no `BASH_ENV` or `ENV` file, ignores `SHELLOPTS` and `BASHOPTS` from the environment and imports
-    no function from it (`--noprofile --norc` only skip the profile and rc files). `scripts/check-post-claude-shell.test.sh`
-    proves each of these on the bash that runs the tests, against the policy string, with a control case without `-p`.
-    `a uses step may not set the hardened shell`.
+    `/bin/bash`, a case or tab change, a list or a mapping are refused): an absolute bash, so it is not found through
+    `PATH`; `-p` (privileged mode), so bash reads no `BASH_ENV` or `ENV` file, ignores `SHELLOPTS`, `BASHOPTS` and
+    `CDPATH` from the environment and imports no function from it (`--noprofile --norc` only skip the profile and rc
+    files). `scripts/check-post-claude-shell.test.sh` proves those five on the bash that runs the tests (it prints the
+    version; the runners' bash in CI), against the policy string, with a control case without `-p`. `a uses step may not
+    set the hardened shell`.
   - `a step with the hardened shell must have an env mapping` / `must set env <X>: ""` / `must set env HOME: /nonexistent`
     / `must set env TMPDIR: /tmp` - the step's own `env:` (which wins over `$GITHUB_ENV`) sets every name in
-    `post_claude_empty_env` to the empty string (the loader: `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, `GCONV_PATH`,
-    `GLIBC_TUNABLES`, `LOCPATH`; bash: `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PS4`, `GLOBIGNORE`; the proxy
-    variables; `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GH_CONFIG_DIR`) and
+    `post_claude_empty_env` to the empty string (bash: `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PS4`, `GLOBIGNORE`,
+    `CDPATH`, `BASH_XTRACEFD`, `POSIXLY_CORRECT`; the loader and libc: `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`,
+    `LD_DEBUG`, `LD_DEBUG_OUTPUT`, `LD_PROFILE`, `LD_BIND_NOW`, `GCONV_PATH`, `GLIBC_TUNABLES`, the `MALLOC_*` tunables;
+    locale and time: `LOCPATH`, `NLSPATH`, `LANGUAGE`, `LC_ALL`, `LANG`, `TZ`, `TZDIR`, `TEXTDOMAINDIR`; the resolver:
+    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the proxy variables; `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
+    `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GH_CONFIG_DIR`; a `null`, list or mapping value is refused) and
     `post_claude_fixed_env` (`HOME`, `TMPDIR`), so neither the shell nor `/usr/bin/sha256sum` loads anything planted.
-  - `a step with the hardened shell must start its run with 'export PATH=/usr/bin:/bin'` (`post_claude_run_first`; a
-    comment or blank line may come before it, nothing else - a trailing `;`, `\` or comment on the line is refused) and
-    `line not allowed in a step with the hardened shell: ...` - the rest of the run body is an allow-list: the exact lines in
-    `post_claude_run_lines` (`set -u` and the two pin lines with `/usr/bin/sha256sum`) and pinned scripts started as
-    `/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp [NAME=value ...] /usr/bin/bash scripts/check-<x>.sh
-    <word|"$VAR"> ... [>> "$GITHUB_OUTPUT"]` (or `/usr/bin/python3 -I scripts/check-<x>.py ...`; regex
-    `post_claude_script_line`; `the script line may not set <X> (post_claude_empty_env)` for a loader variable in the
-    `NAME=value` part). So every command in the step is a builtin, an absolute path, or a pinned script in a fresh
-    environment: a child `bash scripts/...` never sees `BASH_ENV`, `SHELLOPTS` or a planted function either.
+    `must set env PINS_SHA256 to the sha256 of .github/pins.txt itself (never from $GITHUB_ENV)` - the pin check reads
+    the hash from the step's own env, like the pin step before the claude step. `the run reads $<NAME>, which the step's
+    own env does not set (it could come from $GITHUB_ENV)` - every `$NAME` in the body is a key of the step's `env:`.
+    The one exception is `GITHUB_OUTPUT`: it is the runner's own, set per step, and "you can't overwrite the value of the
+    default environment variables named `GITHUB_*` and `RUNNER_*`; if you attempt to override the value of one of these
+    default variables, the assignment is ignored" (GitHub Docs, "Variables reference", Default environment variables).
+  - `the run of a step with the hardened shell may hold only printable ASCII, tabs and newlines` - bash breaks lines only
+    at `\n`; the checker splits on `\n` only and refuses every other control or non-ASCII character (`\r`, `\v`, `\f`,
+    U+0085, U+2028, U+2029, ...), so a line that looks like a comment to a reader is a comment to bash as well.
+  - `a step with the hardened shell must start its run with these lines, in this order: export PATH=/usr/bin:/bin / set -u
+    / echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet / /usr/bin/sha256sum --check
+    --strict --quiet .github/pins.txt` (`post_claude_run_first`, then `post_claude_run_prefix`; comments and blank lines
+    are skipped, nothing else may come before or between them, a trailing `;`, `\` or comment on a line is refused) and
+    `line not allowed in a step with the hardened shell: ...` - after those, only pinned scripts started as
+    `/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp [NAME=value ...] /usr/bin/bash scripts/check-<name>.sh
+    <arg> ... [>> "$GITHUB_OUTPUT"]` or `... /usr/bin/python3 -I scripts/check-<name>.py <arg> ...` (regex
+    `post_claude_script_line`: the script name is `check-` plus lowercase letters and hyphens, each argument is lowercase
+    letters and hyphens or a quoted `"$NAME"` set in the step env). `the script line may not set <X> (only
+    post_claude_script_env: GITLEAKS_BIN, GITLEAKS_SHA256)` - the `NAME=value` part is a reviewed allow-list, so `PATH`,
+    `HOME`, `TMPDIR` or a loader variable cannot be set again there. So every command in the step is a builtin, an
+    absolute path, or a pinned script in a fresh environment: a child `bash scripts/...` never sees `BASH_ENV`,
+    `SHELLOPTS` or a planted function either.
   - `a run step after the claude step must set shell: ... (policy post_claude_require_shell)` - when the policy flag is
     `true`, every run step after the claude step must be a hardened one. It is `true`: the five hand-off steps and the
     three egress-lock probe steps are hardened, and no other run step may follow a claude step (a step without the
     hardened shell would get no protection from `$GITHUB_ENV` or `$GITHUB_PATH` beyond its pin check, with `sha256sum`
     itself found through `PATH`).
   - The other post-claude rules apply to every step after the claude step, hardened or not: no local action, the pin
-    check before any `scripts/` or `/tmp/gitleaks`, no PR data, no `git` moves.
+    check before any `scripts/` or `/tmp/gitleaks` (comment lines do not count), no PR data, no `git` moves.
 - `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with
   no `permissions` of its own in a workflow without a workflow-level `permissions` block would run with the repository's
   default job token, which can hold every write scope (`statuses: write` among them: enough to post a `guards/main-guard`
@@ -176,10 +198,10 @@ Jobs with a claude step
   `egress-lock-claude.yml`, for its `oidc` job; `statuses` only in `main-guard.yml` and `pusher-ledger.yml`, whose
   pinned scripts post the `guards/main-guard` and ledger commit statuses as github-actions[bot], and read-only in
   `guards.yml`, which reads the ledger back - no job the agents' code runs in can post a status in that identity), each read, write or none. `id-token: write, so its 'if' must contain
-  github.run_attempt == '1'` / `... must run 'bash scripts/check-main-head.sh' before the lock` - a job that can mint an
+github.run_attempt == '1'` / `... must run 'bash scripts/check-main-head.sh' before the lock` - a job that can mint an
   OIDC token runs only on a first attempt and only after the main-head check. `id-token: write is not allowed in a workflow that
-  runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access. `permission <scope>: write
-  is not allowed in <file> (its job token is read-only; the agents act with their own token)` - a workflow in
+runs on pull_request/pull_request_target` - a PR could trade the OIDC token for cloud access. `permission <scope>: write
+is not allowed in <file> (its job token is read-only; the agents act with their own token)` - a workflow in
   `read_only_workflows` (`agent-manager.yml`, `guards.yml`) may hold no write scope at any level.
 - `runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)` - no step may
   mention `/tmp/pr` (other than `/tmp/pr-meta`), the PR head, `head_ref`, `merge_commit_sha`, `refs/pull/`, `pull/<n>`,
@@ -188,12 +210,13 @@ Jobs with a claude step
   `checkout`, `switch`, `worktree`, `pull`, `clone`, `reset`, `restore` or `submodule` in a run step (the prepare step does its
   own, reviewed).
 - `no local action after the claude step (its files could have changed)`; `a step after the claude step must check its pinned
-  files (sha256sum --check --strict) before running repo scripts` - steps after Claude may run `scripts/...` or
+files (sha256sum --check --strict) before running repo scripts` - steps after Claude may run `scripts/...` or
   `/tmp/gitleaks` only after checking the sha256 values a step before Claude wrote (the `pin` step).
 
 Claude steps
+
 - `claude action must be one of [...], got <x>` - use the pinned `anthropics/claude-code-action@<sha>`.
-- `key '<x>' not allowed on a claude step` - only id, name, uses, with, if and timeout-minutes (no `continue-on-error`).
+- `key '<x>' not allowed on a claude step` - only id, name, uses, with, if, env and timeout-minutes (no `continue-on-error`).
   `env not allowed on a claude step (job env names: ...)` - put allowed names in the job's env.
 - `a claude step may not run after a failure (no always()/failure()/cancelled() in its if)`.
 - `input '<x>' not allowed (allowed: ...)` - only `claude_code_oauth_token`, `github_token`, `prompt`, `claude_args`,
@@ -208,14 +231,14 @@ Claude steps
   (only with `allowed_non_write_users`), the SSH-signing cleanup (unused) and "Revoke app token" (only without a
   `github_token` input, which every step here sets).
 - `path_to_claude_code_executable must be ${{ steps.<lock id>.outputs.claude-path }}` / `path_to_bun_executable must be ${{
-  steps.<lock id>.outputs.bun-path }}` - the binaries the lock installed and checked (it writes those outputs only after its
+steps.<lock id>.outputs.bun-path }}` - the binaries the lock installed and checked (it writes those outputs only after its
   self-test passed; the action's own Bun download would need hosts the lock closes).
 - `a claude step without a prompt (tag mode) may run only on issue_comment, issues (found ...)` / `... needs the job if to
-  contain '!github.event.issue.pull_request'` - without a prompt the action checks out an open PR's code itself and restores
+contain '!github.event.issue.pull_request'` - without a prompt the action checks out an open PR's code itself and restores
   only the top-level rule files, so nested `CLAUDE.md` files from the PR would load. No workflow uses tag mode any more
   (`claude.yml` passes a prompt and posts through its `post` job); the rule stays for any step that drops its prompt.
 - `claude_args cannot be parsed (...)` - fix the quoting. `claude_args flag '<x>' not allowed (allowed: ...)` / `claude_args flag
-  <x> needs a value` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`,
+<x> needs a value` - only `--model`, `--max-turns`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`,
   each with a value.
 - `needs exactly one --disallowedTools (found N)`; `--disallowedTools does not deny Skill(<name>)` - add `Skill(<name>)` for
   `payload` and every third-party skill in the base or PR manifest.
