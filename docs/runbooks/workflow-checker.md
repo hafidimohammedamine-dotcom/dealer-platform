@@ -156,7 +156,9 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     `CDPATH`, `BASH_XTRACEFD`, `POSIXLY_CORRECT`; the loader and libc: `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`,
     `LD_DEBUG`, `LD_DEBUG_OUTPUT`, `LD_PROFILE`, `LD_BIND_NOW`, `GCONV_PATH`, `GLIBC_TUNABLES`, the `MALLOC_*` tunables;
     locale and time: `LOCPATH`, `NLSPATH`, `LANGUAGE`, `LC_ALL`, `LANG`, `TZ`, `TZDIR`, `TEXTDOMAINDIR`; the resolver:
-    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the proxy variables; `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
+    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` - GitHub reads env
+    names without regard to case, so the lowercase twins cannot be listed as well: `env names X and x differ only by
+    case`; no command in a hardened step uses the network); `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
     `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GH_CONFIG_DIR`; a `null`, list or mapping value is refused) and
     `post_claude_fixed_env` (`HOME`, `TMPDIR`), so neither the shell nor `/usr/bin/sha256sum` loads anything planted.
     `must set env PINS_SHA256 to the sha256 of .github/pins.txt itself (never from $GITHUB_ENV)` - the pin check reads

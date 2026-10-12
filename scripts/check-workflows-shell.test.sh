@@ -53,6 +53,7 @@ for v in BASH_ENV CDPATH LD_PRELOAD LD_AUDIT LD_DEBUG GLIBC_TUNABLES MALLOC_CHEC
   fx; hs "$(noenv $v)\n$RUN"; expect fail "the hardened shell without env $v" "must set env $v: \"\""
 done
 fx; hs "$(setenv LD_PRELOAD /tmp/x.so)\n$RUN"; expect fail "the hardened shell with LD_PRELOAD set" 'must set env LD_PRELOAD: ""'
+fx; hs "$EV\n          http_proxy: \"\"\n$RUN"; expect fail "two env names that differ only by case (GitHub refuses the file)" "env names HTTP_PROXY and http_proxy differ only by case"
 fx; hs "$(setenv LD_PRELOAD null)\n$RUN"; expect fail "the hardened shell with LD_PRELOAD null" 'must set env LD_PRELOAD: ""'
 fx; hs "$(setenv LD_PRELOAD '[]')\n$RUN"; expect fail "the hardened shell with LD_PRELOAD a list" 'must set env LD_PRELOAD: ""'
 fx; hs "$(noenv HOME)\n$RUN"; expect fail "the hardened shell without HOME fixed" "must set env HOME: /nonexistent"

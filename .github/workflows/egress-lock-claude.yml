@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -99,10 +99,6 @@ jobs:
           HTTPS_PROXY: ""
           ALL_PROXY: ""
           NO_PROXY: ""
-          http_proxy: ""
-          https_proxy: ""
-          all_proxy: ""
-          no_proxy: ""
           GIT_CONFIG_PARAMETERS: ""
           GIT_CONFIG_GLOBAL: ""
           GIT_CONFIG_SYSTEM: ""
@@ -110,7 +106,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -134,7 +130,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -201,10 +197,6 @@ jobs:
           HTTPS_PROXY: ""
           ALL_PROXY: ""
           NO_PROXY: ""
-          http_proxy: ""
-          https_proxy: ""
-          all_proxy: ""
-          no_proxy: ""
           GIT_CONFIG_PARAMETERS: ""
           GIT_CONFIG_GLOBAL: ""
           GIT_CONFIG_SYSTEM: ""
@@ -212,7 +204,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -238,7 +230,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -305,10 +297,6 @@ jobs:
           HTTPS_PROXY: ""
           ALL_PROXY: ""
           NO_PROXY: ""
-          http_proxy: ""
-          https_proxy: ""
-          all_proxy: ""
-          no_proxy: ""
           GIT_CONFIG_PARAMETERS: ""
           GIT_CONFIG_GLOBAL: ""
           GIT_CONFIG_SYSTEM: ""
@@ -316,7 +304,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -344,7 +332,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "bf9c3da0694532fe0859a78cf3287aa45331fb6b1f43968730a759625e8db7bc"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
