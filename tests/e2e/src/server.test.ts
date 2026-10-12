@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { Server } from 'node:http';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHealthServer } from './server.js';
 
 describe('startHealthServer', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('answers GET /health with ok', async () => {
     const server = await startHealthServer();
     try {
@@ -27,5 +32,24 @@ describe('startHealthServer', () => {
     const server = await startHealthServer();
     await server.close();
     await expect(fetch(`${server.url}/health`)).rejects.toThrow();
+  });
+
+  it('rejects a second close', async () => {
+    const server = await startHealthServer();
+    await server.close();
+    await expect(server.close()).rejects.toThrow();
+  });
+
+  it('rejects when the port cannot be opened', async () => {
+    vi.spyOn(Server.prototype, 'listen').mockImplementation(function (this: Server) {
+      queueMicrotask(() => this.emit('error', new Error('listen failed')));
+      return this;
+    });
+    await expect(startHealthServer()).rejects.toThrow('listen failed');
+  });
+
+  it('fails when the server has no TCP address', async () => {
+    vi.spyOn(Server.prototype, 'address').mockReturnValue('/tmp/pipe');
+    await expect(startHealthServer()).rejects.toThrow('test server has no TCP address');
   });
 });

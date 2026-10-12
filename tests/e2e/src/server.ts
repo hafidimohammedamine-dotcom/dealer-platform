@@ -29,8 +29,8 @@ export async function startHealthServer(): Promise<TestServer> {
   return {
     url: `http://127.0.0.1:${port}`,
     close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
+      new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
       }),
   };
 }
