@@ -11,29 +11,69 @@ export function formatMoney(cents: number): string {
   return `${cents < 0 ? '-' : ''}$${dollars}.${rest}`;
 }
 
-/** US phone numbers as (555) 123-4567. Anything else is shown as "Phone not valid" so a rep notices. */
+/**
+ * US phone numbers as (555) 123-4567. Anything else (letters, extensions, wrong length,
+ * area code or exchange starting with 0 or 1) is shown as "Phone not valid" so a rep notices.
+ */
 export function formatPhone(input: string): string {
   let digits = input.replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
-  if (digits.length !== 10) return 'Phone not valid';
+  if (digits.length !== 10 || /^[01]/.test(digits)) {
+    return 'Phone not valid';
+  }
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-/** Dates as "Oct 12, 2026". The dealer's time zone is required so a date never shifts a day. */
+const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Dates as "Oct 12, 2026". A date with no time ("2026-10-12") is a calendar date and never shifts.
+ * A moment in time is shown in the dealer's time zone. A bad date or time zone gives "Date not valid".
+ * Display only: never use this for quiet-hours checks, which depend on the customer's local time.
+ */
 export function formatDate(value: Date | string, timeZone: string): string {
-  const date = typeof value === 'string' ? new Date(value) : value;
+  let date: Date;
+  let zone = timeZone;
+  if (typeof value === 'string') {
+    date = new Date(value);
+    if (dateOnly.test(value)) {
+      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+        return 'Date not valid';
+      }
+      zone = 'UTC';
+    }
+  } else {
+    date = value;
+  }
   if (Number.isNaN(date.getTime())) return 'Date not valid';
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  } catch {
+    return 'Date not valid';
+  }
 }
 
-/** Show only the last 4 characters of a sensitive value, e.g. SSN or account number: "•••• 6789". */
-export function maskSensitive(value: string): string {
-  const clean = value.replace(/[\s-]/g, '');
-  if (clean.length < 4) return '••••';
-  return `•••• ${clean.slice(-4)}`;
+/**
+ * DISPLAY ONLY, for an SSN or account number. Pass ONLY the last 4 digits, already
+ * masked by services/desking. The full number must never reach the browser.
+ * Throws if it is not exactly 4 digits, so a full value can never be passed by mistake.
+ */
+export function maskLast4(last4: string): string {
+  if (!/^\d{4}$/.test(last4)) throw new RangeError('Pass only the last 4 digits');
+  return `•••• ${last4}`;
+}
+
+/** Date of birth is never shown, not even the year. Takes no value so nothing can leak. */
+export function maskDob(): string {
+  return '••••';
+}
+
+/** Income is never shown. Takes no value so nothing can leak. */
+export function maskIncome(): string {
+  return '••••';
 }
