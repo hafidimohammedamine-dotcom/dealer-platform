@@ -29,6 +29,13 @@ Postgres roles (reserved, named in `.env.example`):
 Setup and commands: [Developer setup](dev/setup.md). Every variable and its status:
 [Environment variables](dev/env-vars.md).
 
+### Record ids
+
+Every record id in `packages/contracts` is a UUID string (`IdSchema`), so an id can never climb out of a storage path or URL.
+Payload must be configured with `idType: 'uuid'`, because its Postgres adapter uses numeric ids by default. That config
+change is not in place yet: it is routed to PR #55 / issue #5. Until it lands, CRM records read through `packages/data`
+would carry numeric ids and fail the contracts.
+
 ## CI and review
 
 ```
