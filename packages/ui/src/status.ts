@@ -1,3 +1,4 @@
+import { requireText } from './text.js';
 import { colors } from './tokens.js';
 
 // Badge tones are generic. Mapping a real lender answer or deal state to a tone
@@ -17,9 +18,8 @@ export function badge(
   label: string,
   symbol: string,
 ): { text: string; color: string; background: string } {
-  if (label.trim() === '' || symbol.trim() === '') {
-    throw new Error('Every badge needs a word and a symbol');
-  }
+  requireText(label, 'Every badge needs a word and a symbol');
+  requireText(symbol, 'Every badge needs a word and a symbol');
   const t = badgeTones[tone];
   return { text: `${symbol} ${label}`, color: t.color, background: t.background };
 }

@@ -1,3 +1,4 @@
+import { requireText, isBlank } from './text.js';
 import { breakpoints, colors, focusRing, minTapTarget } from './tokens.js';
 
 // Style and wording rules shared by buttons, inputs, tables and screens.
@@ -82,9 +83,9 @@ export function inputAttributes(p: InputProps): {
   message: string | undefined;
   messagePrefix: string;
 } {
-  if (p.id.trim() === '') throw new Error('Every input needs an id');
-  if (p.label.trim() === '') throw new Error('Every input needs a label');
-  const error = p.error !== undefined && p.error.trim() !== '' ? p.error : undefined;
+  requireText(p.id, 'Every input needs an id');
+  requireText(p.label, 'Every input needs a label');
+  const error = p.error !== undefined && !isBlank(p.error) ? p.error : undefined;
   const message = error ?? p.hint;
   return {
     id: p.id,
@@ -104,20 +105,16 @@ export interface ScreenState {
   action?: string;
 }
 
-function requireText(value: string, what: string): void {
-  if (value.trim() === '') throw new Error(`${what} cannot be empty`);
-}
-
 /** Empty state: say what is missing and what to do next. */
 export function emptyState(thing: string, action: string): ScreenState {
-  requireText(thing, 'What is missing');
-  requireText(action, 'The next step');
+  requireText(thing, 'What is missing cannot be empty');
+  requireText(action, 'The next step cannot be empty');
   return { title: `No ${thing} yet`, message: `There are no ${thing} to show.`, action };
 }
 
 /** Error state: plain words, never error codes. A failed save must not claim the work is safe. */
 export function errorState(what: string, kind: 'load' | 'save' = 'load'): ScreenState {
-  requireText(what, 'What failed');
+  requireText(what, 'What failed cannot be empty');
   if (kind === 'save') {
     return {
       title: `We could not save ${what}`,
@@ -134,7 +131,7 @@ export function errorState(what: string, kind: 'load' | 'save' = 'load'): Screen
 
 /** Loading state. Nothing to press. */
 export function loadingState(what: string): ScreenState {
-  requireText(what, 'What is loading');
+  requireText(what, 'What is loading cannot be empty');
   return { title: `Loading ${what}`, message: 'One moment.' };
 }
 
@@ -157,21 +154,28 @@ export const tableStyles = {
 /** Shown for a value a row does not have, so a gap is never blank. */
 export const missingValue = '—';
 
+const reservedKeys = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Tables need a caption and column labels. On a phone each row becomes a card with the label beside each value. */
 export function tableModel(
   caption: string,
   columns: TableColumn[],
   rows: Record<string, string>[],
 ): { caption: string; columns: TableColumn[]; rows: Record<string, string>[]; empty: boolean } {
-  if (caption.trim() === '') throw new Error('Every table needs a caption');
+  requireText(caption, 'Every table needs a caption');
   const keys = new Set<string>();
   for (const c of columns) {
+    if (reservedKeys.has(c.key)) throw new Error(`"${c.key}" cannot be used as a column key`);
     if (keys.has(c.key)) throw new Error(`Two columns share the key "${c.key}"`);
     keys.add(c.key);
   }
   const filled = rows.map((row) => {
-    const out: Record<string, string> = {};
-    for (const c of columns) out[c.key] = row[c.key] ?? missingValue;
+    // No prototype, so a column can never read an inherited value or change the row's type.
+    const out: Record<string, string> = Object.create(null);
+    for (const c of columns) {
+      const cell = Object.hasOwn(row, c.key) ? row[c.key] : undefined;
+      out[c.key] = typeof cell === 'string' ? cell : missingValue;
+    }
     return out;
   });
   return { caption, columns, rows: filled, empty: rows.length === 0 };

@@ -47,7 +47,7 @@ export const focusRing = {
 
 const px = (n: number): string => `${n}px`;
 
-/** CSS custom properties for every token, e.g. `--color-brand`. Used by the app and the Payload admin theme. */
+/** CSS custom properties for every token, e.g. `--color-brand`. For the app stylesheet and the Payload admin theme. Not wired up yet (tracked in #65). */
 export function cssVariables(): Record<string, string> {
   const kebab = (s: string): string => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
   const vars: Record<string, string> = {};
