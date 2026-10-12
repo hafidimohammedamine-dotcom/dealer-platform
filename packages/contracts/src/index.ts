@@ -1,23 +1,30 @@
 export const packageName = '@dealer/contracts';
 
 export {
+  AprBasisPointsSchema,
+  CentsNonNegativeSchema,
+  CentsSchema,
+  DealerIdSchema,
+  EmailSchema,
+  IdSchema,
+  IsoDateSchema,
+  IsoDateTimeSchema,
+  ModelYearSchema,
+  PhoneE164Schema,
   SENSITIVE_META_KEY,
-  cents,
-  centsNonNegative,
-  dealerId,
-  email,
-  id,
+  TermMonthsSchema,
+  TimeZoneSchema,
+  contactFields,
   isSensitive,
-  isoDate,
-  isoDateTime,
-  phoneE164,
   recordBase,
   sensitive,
   sensitiveFields,
 } from './common.js';
 export { DealerSchema, type Dealer } from './dealer.js';
 export {
+  ConsentCaptureContextSchema,
   ConsentChannelSchema,
+  ConsentPurposeSchema,
   ConsentSchema,
   ConsentStatusSchema,
   type Consent,
@@ -31,11 +38,19 @@ export {
   LeadVehicleInterestSchema,
   type Lead,
 } from './lead.js';
-export { DealSchema, DealStatusSchema, type Deal } from './deal.js';
+export {
+  DealSchema,
+  DealStatusSchema,
+  IdentityVerificationSchema,
+  OfacScreeningSchema,
+  OtherFeeSchema,
+  type Deal,
+} from './deal.js';
 export {
   CREDIT_APP_SENSITIVE_FIELDS,
   CreditAppSchema,
-  maskCreditApp,
+  CreditPullAuthorizationSchema,
+  JointIntentEvidenceSchema,
   type CreditApp,
 } from './credit-app.js';
 export {
