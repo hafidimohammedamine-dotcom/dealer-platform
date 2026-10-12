@@ -182,6 +182,26 @@
  ],
  "tag_mode_job_if": "!github.event.issue.pull_request",
  "post_pin_check": "sha256sum --check --strict",
+ "post_claude_shell": "/usr/bin/bash --noprofile --norc -p -eo pipefail {0}",
+ "post_claude_require_shell": false,
+ "post_claude_run_first": "export PATH=/usr/bin:/bin",
+ "post_claude_run_prefix": [
+  "set -u",
+  "echo \"$PINS_SHA256  .github/pins.txt\" | /usr/bin/sha256sum --check --strict --quiet",
+  "/usr/bin/sha256sum --check --strict --quiet .github/pins.txt"
+ ],
+ "post_claude_script_line": "/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp( [A-Z0-9_]+=[A-Za-z0-9_./:-]*)* (/usr/bin/bash|/usr/bin/python3 -I) scripts/check-[a-z-]+\\.(sh|py)( [a-z-]+| \"\\$[A-Z_]+\")*( >> \"\\$GITHUB_OUTPUT\")?",
+ "post_claude_script_env": ["GITLEAKS_BIN", "GITLEAKS_SHA256"],
+ "post_claude_empty_env": [
+  "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "GLOBIGNORE", "CDPATH", "BASH_XTRACEFD", "POSIXLY_CORRECT",
+  "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG", "LD_DEBUG_OUTPUT", "LD_PROFILE", "LD_BIND_NOW", "GCONV_PATH", "GLIBC_TUNABLES",
+  "MALLOC_CHECK_", "MALLOC_PERTURB_", "MALLOC_TOP_PAD_", "MALLOC_MMAP_THRESHOLD_", "MALLOC_TRIM_THRESHOLD_", "MALLOC_ARENA_MAX",
+  "LOCPATH", "NLSPATH", "LANGUAGE", "LC_ALL", "LANG", "TZ", "TZDIR", "TEXTDOMAINDIR",
+  "HOSTALIASES", "RES_OPTIONS", "LOCALDOMAIN",
+  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+  "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_EXEC_PATH", "GH_CONFIG_DIR"
+ ],
+ "post_claude_fixed_env": {"HOME": "/nonexistent", "TMPDIR": "/tmp"},
  "agent_token_secret": "AGENT_GH_TOKEN_V2",
  "agent_token_guard": "bash scripts/check-agent-token.sh .github/accounts.txt",
  "agent_token_required_in": [

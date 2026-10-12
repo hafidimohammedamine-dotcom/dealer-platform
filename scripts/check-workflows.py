@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checks the agent workflows and local actions; fails closed. Shared state: scripts/check-workflows-lib.py; rules for jobs
-with a claude step: scripts/check-workflows-claude.py; identity rules: scripts/check-workflows-people.py. Rules and messages:
+with a claude step: scripts/check-workflows-claude.py (the shape of a run step after it: scripts/check-workflows-hardened.py);
+identity rules: scripts/check-workflows-people.py. Rules and messages:
 docs/runbooks/workflow-checker.md."""
 import glob
 import importlib.util
@@ -28,6 +29,7 @@ def _load(name, filename):
 
 
 LIB = _load("check_workflows_lib", "check-workflows-lib.py")
+HARDENED = _load("check_workflows_hardened", "check-workflows-hardened.py")
 CLAUDE = _load("check_workflows_claude", "check-workflows-claude.py")
 PEOPLE = _load("check_workflows_people", "check-workflows-people.py")
 P, err, errors, is_claude, secrets_problems = LIB.P, LIB.err, LIB.errors, LIB.is_claude, LIB.secrets_problems
@@ -212,6 +214,8 @@ def check_file(path, required, accounts):
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
+    if count and "defaults" in doc:
+        err(f"{name}: no workflow-level defaults in a workflow with a claude step (a default shell or working-directory would apply to every step)")
     for t in sorted(triggers & {"pull_request", "workflow_run", "push"}) if count else []:
         err(f"{name}: a workflow with a claude step must not run on {t} (PR code, its artifacts or a fresh push next to a Claude token)")
     return count

@@ -6,6 +6,7 @@ import re
 import shlex
 
 import check_workflows_lib as core  # loaded into sys.modules by check-workflows.py before this module
+import check_workflows_hardened as hardened  # the shape of a run step after the claude step
 
 LOCK_OUTPUTS = {"path_to_claude_code_executable": "claude-path", "path_to_bun_executable": "bun-path"}   # action input -> lock output
 LOCK_OUT_RE = {key: re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\." + out + r"\s*\}\}$") for key, out in LOCK_OUTPUTS.items()}
@@ -169,31 +170,44 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
     and post steps that check their pinned files before running repo scripts."""
     P = core.P
     for i, step in enumerate(steps, 1):
-        if not isinstance(step, dict) or core.is_claude(step) or i <= 4:
+        if not isinstance(step, dict) or core.is_claude(step):
             continue
         sw = f"{jw} step {i}"
+        if i <= 4:   # the fixed start (checkout, pin step, main-head check, lock) is checked by shape in check_job_start
+            for key in ("working-directory", "shell"):
+                if key in step:
+                    core.err(f"{sw}: '{key}' not allowed in a job with a claude step")
+            continue
         uses = str(step.get("uses", ""))
+        run = str(step.get("run", ""))
         core.require_pinned(sw, uses)
         if claude_at and i < claude_at:
             check_pre_claude_step(sw, step)
         if uses.startswith("actions/checkout@"):
             check_checkout(sw, step, ok_refs)
-        for key in ("working-directory", "shell"):
-            if key in step:
-                core.err(f"{sw}: '{key}' not allowed in a job with a claude step")
+        after = bool(claude_at) and i > claude_at
+        is_hardened = after and step.get("shell") == P["post_claude_shell"]
+        if "working-directory" in step:
+            core.err(f"{sw}: 'working-directory' not allowed in a job with a claude step")
+        if "shell" in step and not is_hardened:
+            core.err(f"{sw}: 'shell' not allowed in a job with a claude step" + (f" (after the claude step only shell: {P['post_claude_shell']})" if after else ""))
+        if is_hardened:
+            hardened.check_hardened_step(sw, step)
+        elif after and "run" in step and P["post_claude_require_shell"]:
+            core.err(f"{sw}: a run step after the claude step must set shell: {P['post_claude_shell']} (policy post_claude_require_shell)")
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
-        reviewed = str(step.get("run", "")).strip() in P["pr_data_runs"]
+        reviewed = run.strip() in P["pr_data_runs"]
         if PR_DATA.search(body) and not reviewed:
             core.err(f"{sw}: runs or checks out PR code in a job with a claude step (only the reviewed prepare step may touch /tmp/pr)")
-        m = GIT_MOVE.search(str(step.get("run", "")))
+        m = GIT_MOVE.search(run)
         if m and not reviewed:
             core.err(f"{sw}: 'git {m.group(1)}' not allowed in a job with a claude step (the checkout must stay on the default branch)")
-        if claude_at and i > claude_at:
-            run = str(step.get("run", ""))
+        if after:
             if uses.startswith("./"):
                 core.err(f"{sw}: no local action after the claude step (its files could have changed)")
-            m = re.search(r"scripts/|/tmp/gitleaks", run)
-            if m and P["post_pin_check"] not in run[:m.start()]:
+            code = "\n".join(l for l in run.split("\n") if not l.lstrip(" \t").startswith("#"))   # a comment is not a pin check
+            m = re.search(r"scripts/|/tmp/gitleaks", code)
+            if m and P["post_pin_check"] not in code[:m.start()]:
                 core.err(f"{sw}: a step after the claude step must check its pinned files ({P['post_pin_check']}) before running repo scripts")
 
 
@@ -240,6 +254,8 @@ def check_job(fname, jw, job, steps, required, triggers):
             count += 1
             check_claude_step(fname, f"{jw} step {i}", step, required, lock_id)
             check_tag_mode(f"{jw} step {i}", job, step, triggers)
+    if count > 1:   # "after the claude step" must mean one thing: a second session after the hand-off could taint what follows it
+        core.err(f"{jw}: only one claude step per job (found {count})")
     return count
 
 
