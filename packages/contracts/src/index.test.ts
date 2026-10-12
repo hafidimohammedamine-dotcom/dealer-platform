@@ -8,10 +8,44 @@ describe('@dealer/contracts', () => {
   });
 
   // Guard: the shared shapes are security-critical. Everything `index.ts` exports must be listed here, so a new
-  // export cannot slip in unseen. The real tests arrive with the shapes (issue #3): each new export is added to
-  // this list in that PR, with its own tests (integer cents, `dealer_id`, sensitive-field marks).
+  // export cannot slip in unseen. Each new export is added to this list with its own tests
+  // (integer cents, `dealer_id`, sensitive-field marks: see shapes.test.ts).
   it('exports exactly the reviewed names', () => {
-    expect(Object.keys(api).sort()).toEqual(['packageName']);
+    expect(Object.keys(api).sort()).toEqual([
+      'CREDIT_APP_SENSITIVE_FIELDS',
+      'ConsentChannelSchema',
+      'ConsentSchema',
+      'ConsentStatusSchema',
+      'CreditAppSchema',
+      'CustomerSchema',
+      'DealSchema',
+      'DealStatusSchema',
+      'DealerSchema',
+      'LeadSchema',
+      'LeadSourceSchema',
+      'LeadStatusSchema',
+      'LeadVehicleInterestSchema',
+      'LenderDecisionSchema',
+      'LenderDecisionStatusSchema',
+      'SENSITIVE_META_KEY',
+      'VehicleSchema',
+      'VehicleStatusSchema',
+      'VinSchema',
+      'cents',
+      'centsNonNegative',
+      'dealerId',
+      'email',
+      'id',
+      'isSensitive',
+      'isoDate',
+      'isoDateTime',
+      'maskCreditApp',
+      'packageName',
+      'phoneE164',
+      'recordBase',
+      'sensitive',
+      'sensitiveFields',
+    ]);
   });
 
   it('exports no database client or query helper (shapes only)', () => {
