@@ -16,6 +16,7 @@ pin check between the Claude session and the repository scripts it runs (and `sh
 already in review and merges next; the two cannot be one PR, and the window is hours, during which the agents' jobs run
 as they have since the first shift. This PR defines, in the checker, the shape of a step that is immune to the problem
 (runbook `docs/runbooks/workflow-checker.md`, "After the claude step"):
+
 - The one shell allowed after the Claude step: `/usr/bin/bash --noprofile --norc -p -eo pipefail {0}` (policy
   `post_claude_shell`; near-misses, lists, mappings, the shell before the Claude step, on a `uses` step, with
   `working-directory`, or as a job or workflow default are refused). An absolute bash is not found through `PATH`; `-p`
@@ -26,14 +27,14 @@ as they have since the first shift. This PR defines, in the checker, the shape o
   (from the environment it has no effect with or without `-p` on bash 5.2; the step env empties it anyway).
 - A step with that shell must: set every name in `post_claude_empty_env` to `""` (bash, loader and libc, locale and
   time, resolver, proxy and git variables - the full list is in the runbook) and `post_claude_fixed_env` (`HOME:
-  /nonexistent`, `TMPDIR: /tmp`) in its own `env:` (which wins over `$GITHUB_ENV`); set `PINS_SHA256` there to the hash
+/nonexistent`, `TMPDIR: /tmp`) in its own `env:` (which wins over `$GITHUB_ENV`); set `PINS_SHA256` there to the hash
   of `.github/pins.txt` (never from `$GITHUB_ENV`) and every other `$NAME` its body reads (`GITHUB_OUTPUT` excepted:
   `GITHUB_*` cannot be overridden - "the assignment is ignored", GitHub Docs, "Variables reference"); hold only
   printable ASCII, tabs and newlines in its `run:` (bash and the checker split the same lines; `\r`, `\v`, `\f`,
   U+0085, U+2028, U+2029 are refused); start with `export PATH=/usr/bin:/bin`, `set -u` and the two pin lines with
   `/usr/bin/sha256sum`, in that order (`post_claude_run_first`, `post_claude_run_prefix`; a comment is not a pin
   check); and have no other line than pinned scripts started under `/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent
-  TMPDIR=/tmp ...` (`post_claude_script_line`; extra `NAME=value` only from `post_claude_script_env`, so no second `PATH`,
+TMPDIR=/tmp ...` (`post_claude_script_line`; extra `NAME=value` only from `post_claude_script_env`, so no second `PATH`,
   `HOME`, `TMPDIR` or loader variable). So no command in the step is found through `PATH` or inherits anything, and a
   child `bash scripts/...` runs in a fresh environment.
 - `post_claude_require_shell` (`false` here, `true` in #44): every run step after the Claude step must be a hardened one.
