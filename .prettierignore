@@ -1,0 +1,20 @@
+.yarn
+.nx
+dist
+coverage
+yarn.lock
+CLAUDE.md
+.claude
+SETUP.md
+# Founder-only files (formatted by founders, never by agents)
+.github
+scripts/check-*
+scripts/gitleaks-config*
+.gitleaks.toml
+.gitleaksignore
+.yarnrc.yml
+.mcp.json
+CLAUDE.local.md
+
+# Founder-written changelog line that Prettier would re-flow inside an inline code span (kept byte for byte)
+docs/changelog/2026-10-10-guard-scripts.md

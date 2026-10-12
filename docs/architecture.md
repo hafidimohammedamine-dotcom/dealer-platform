@@ -3,7 +3,33 @@
 The product architecture (Payload admin, NestJS services, Postgres, queues) is described in `CLAUDE.md` until the docs agent
 writes the full version here.
 
+## Repo layout and where data lives
+
+**Built** means code exists in this repo today. **Reserved** means the folder, name or variable is set aside and
+documented, but nothing uses it yet.
+
+| Part                      | Where                                                          | Status                                                                    |
+| ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Yarn workspaces + Nx      | `apps/*`, `services/*`, `packages/*`, `infra/*`                | Built: every workspace has `typecheck`, `test` and `build`                |
+| Repo checks               | `infra/checks`, `eslint.config.mjs`                            | Built: config tests and lint. The Payload lint ban is not built yet (#36) |
+| Payload admin (CRM, site) | `apps/admin`                                                   | Reserved: Payload is not installed yet                                    |
+| Business services         | `services/*` (intake, ai, messaging, voice, desking, ...)      | Reserved: placeholder workspaces only                                     |
+| Shared packages           | `packages/data`, `contracts`, `platform`, `ui`                 | Reserved: placeholder workspaces only                                     |
+| CRM tables                | Postgres, owned by Payload, row-level security per dealer      | Reserved: no tables, roles or policies yet                                |
+| Credit and finance data   | Separate encrypted Postgres schema owned by `services/desking` | Reserved: never in Payload collections; the schema does not exist yet     |
+| Queues                    | Redis, used by BullMQ                                          | Reserved: `REDIS_URL` only                                                |
+
+Postgres roles (reserved, named in `.env.example`):
+
+- `app_user` (`DATABASE_URL`): the app. Does not own the tables, so row-level security applies to it.
+- `owner_user` (`MIGRATION_DATABASE_URL`): the one migration job in CI only. Never the app, never at container start.
+- `desking_user` (`DESKING_DATABASE_URL`): `services/desking` only, for the encrypted credit and finance schema.
+
+Setup and commands: [Developer setup](dev/setup.md). Every variable and its status:
+[Environment variables](dev/env-vars.md).
+
 ## CI and review
+
 ```
 PR opened / pushed
  ├─ CI (ci.yml; pull_request: from the PR; push to main: from main; no secrets)
@@ -28,6 +54,7 @@ a commit a founder accepts by running the workflow by hand, carry the `guards/ma
 Manager shift (agent-manager.yml, hourly): job shift (token check, event check, Claude with the agents' token) → job after
 (fresh runner, always): token and guard-workflow check again, the account's events in the last 24 hours all in this repository.
 ```
+
 Agents (manager and builders) open and push PRs with the agents' own GitHub account (`mohammedaminehafidi-ctrl`, the `agent`
 line of `.github/accounts.txt`); founders use their own accounts. People are identified by numeric user ID, never by login.
 Before Claude starts, every job holding the agents' token checks that it belongs to that account and is limited (classic with
@@ -36,6 +63,7 @@ secrets to an old workflow version). Details: `docs/runbooks/agent-network-lock.
 Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-guards.md`, `docs/runbooks/workflow-checker.md`.
 
 ### Guard checks for skills and agent workflows
+
 - `scripts/check-skills.sh`: skill manifest, checksums, license, NOTICE and lock rows, and agent `skills:` lines (an agent that
   preloads a skill with `requires=<other>` must also list `<other>`).
 - `scripts/check-skills-vs-base.sh`: vendored (third-party) skills keep their kind and source repo compared with `main`.
@@ -100,6 +128,7 @@ Failure handling: `docs/runbooks/ci-guards.md` (overview), `docs/runbooks/skill-
   script's tests through `scripts/check-coverage.sh` (each guard script at least 90% line coverage).
 
 ### Agent network lock
+
 Agent jobs (manager, review, daily report, weekly audit, founder mentions) check out `main` and then run
 `.github/actions/agent-egress-lock`: pinned, checksum-verified gitleaks, Claude Code and Bun; outbound HTTPS only to allow-listed host names
 through a local SNI-checking proxy; no plain HTTP, raw IPs, outside DNS or IPv6; no sudo, no Docker. Claude Code's subprocess
