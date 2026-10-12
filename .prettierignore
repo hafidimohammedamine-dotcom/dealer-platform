@@ -16,5 +16,10 @@ scripts/gitleaks-config*
 .mcp.json
 CLAUDE.local.md
 
-# Founder-written changelog line that Prettier would re-flow inside an inline code span (kept byte for byte)
+# Founder-written runbooks and changelogs whose inline code spans cross line breaks: Prettier would re-flow them and
+# break the spans (kept byte for byte; the workflow checker and the guard scripts quote them verbatim)
 docs/changelog/2026-10-10-guard-scripts.md
+docs/changelog/2026-10-11-post-claude-shell.md
+docs/changelog/2026-10-11-post-long-answer.md
+docs/runbooks/ci-guards.md
+docs/runbooks/workflow-checker.md

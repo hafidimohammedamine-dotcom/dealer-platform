@@ -17,9 +17,21 @@ out=$(GITLEAKS_BIN="$W/gitleaks" scan_answer "$W/clean" 2>&1); rc=$?; [ $rc = 1 
 # The private copy: a stub that replaces the original on its first run; the scan still used the checked copy.
 S3=$(mktemp -d "$W/swap.XXXXXX"); printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 0\\n" > "%s/gitleaks"; src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done; grep -q LEAKME "$src"/* && exit 3; exit 0\n' "$S3" > "$S3/gitleaks"; chmod +x "$S3/gitleaks"
 GITLEAKS_BIN="$S3/gitleaks" GITLEAKS_SHA256=$(sha256sum "$S3/gitleaks" | cut -c1-64) scan_answer "$W/leak"; [ $? = 3 ] && t PASS "the scan runs a private copy (a self-replacing original still scans)" || t FAIL "private copy"
-[ -z "$(ls -d "${TMPDIR:-/tmp}"/tmp.* 2>/dev/null | head -c1)" ] && t PASS "no work directory is left behind" || t PASS "work directories are cleaned (other tmp.* entries may be the runner's own)"
+# No work directory is left behind: a fresh TMPDIR for one clean scan and one refused scan must be empty afterwards.
+T2=$(mktemp -d "$W/tmpdir.XXXXXX"); TMPDIR="$T2" GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256="$STUB_SHA" scan_answer "$W/clean" >/dev/null 2>&1
+TMPDIR="$T2" GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000000000 scan_answer "$W/clean" >/dev/null 2>&1
+[ -z "$(ls -A "$T2")" ] && t PASS "no work directory is left behind (clean scan and refused hash)" || { t FAIL "work directory left behind: $(ls -A "$T2")"; }
+# The failure paths of the private copy: an unreadable binary (it is executable, so the -x check passes) and an unwritable TMPDIR.
+UNREAD=$(mktemp -d "$W/unread.XXXXXX"); cp "$W/gitleaks" "$UNREAD/gitleaks"; chmod 111 "$UNREAD/gitleaks"
+if [ "$(id -u)" = 0 ]; then t PASS "unreadable binary: skipped (root reads everything)"; else
+  GITLEAKS_BIN="$UNREAD/gitleaks" GITLEAKS_SHA256="$STUB_SHA" scan_answer "$W/clean" >/dev/null 2>&1; [ $? = 1 ] && t PASS "an unreadable binary cannot be copied: 1" || t FAIL "unreadable binary"; fi
+RO=$(mktemp -d "$W/ro.XXXXXX"); chmod 500 "$RO"
+if [ "$(id -u)" = 0 ]; then t PASS "unwritable TMPDIR: skipped (root writes everywhere)"; else
+  TMPDIR="$RO" GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256="$STUB_SHA" scan_answer "$W/clean" >/dev/null 2>&1; [ $? = 1 ] && t PASS "an unwritable TMPDIR (no work directory): 1" || t FAIL "unwritable TMPDIR"; fi
+chmod 700 "$RO"
 # The pinned constant matches the real binary when it is installed (CI installs it at /tmp/gitleaks); skipped otherwise.
 REAL="${GITLEAKS:-/tmp/gitleaks}"
 if [ -x "$REAL" ]; then [ "$(sha256sum "$REAL" | cut -c1-64)" = "$GITLEAKS_PINNED_SHA256" ] && t PASS "the pinned constant is the installed gitleaks 8.18.4 binary's sha256" || t FAIL "GITLEAKS_PINNED_SHA256 does not match $REAL"
-else t PASS "pinned constant vs real binary: skipped (no binary at $REAL)"; fi
+elif [ -n "${CI:-}" ]; then t FAIL "pinned constant vs real binary: no binary at $REAL under CI (install-gitleaks must run first)"
+else t PASS "pinned constant vs real binary: skipped (no binary at $REAL; CI fails here)"; fi
 summary

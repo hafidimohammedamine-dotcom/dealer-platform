@@ -71,11 +71,22 @@ are gone.
   proxy and git variable emptied and `HOME`/`TMPDIR` fixed in the step's own `env:` (policy `post_claude_empty_env`,
   `post_claude_fixed_env`); `export PATH=/usr/bin:/bin` as the first line; and no other line than `set -u`, the two pin
   lines with `/usr/bin/sha256sum` and pinned scripts under `/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent
-  TMPDIR=/tmp ...` (`post_claude_run_lines`, `post_claude_script_line`). With `post_claude_require_shell: true` every
+  TMPDIR=/tmp ...` (`post_claude_run_first`, `post_claude_run_prefix`, `post_claude_script_line`, `post_claude_script_env`). With `post_claude_require_shell: true` every
   run step after a Claude step must look like that, so the three egress-lock probe steps are hardened too (their
   `python3 -I` runs under `env -i` as `/usr/bin/python3`), and the hand-off rule of round 19 is gone (the flag covers
   it). Stated plainly: the Claude step can write `$GITHUB_ENV` and `$GITHUB_PATH` (the lock does not block those files;
   the manager runs with bypassPermissions); what follows it is built so that neither is read. The checker also refuses
   a workflow-level `defaults:` in a workflow with a Claude step, more than one Claude step per job, and `shell` or
   `working-directory` on steps 1-4. The checker tests cover each rule against the fixture and the real workflows
-  (349 pass); the blocked-line text in this changelog was corrected (count-only line).
+  (CI runs them); the blocked-line text in this changelog was corrected (count-only line).
+- Review round 22 (founder decisions): the 48-line hardened `env:` block appears in all eight post-Claude steps and
+  `egress-lock-claude.yml` is over 300 lines. Not changed, on purpose: YAML anchors are not used (GitHub Actions'
+  support for anchors in workflow files and the checker's reading of them are unverified; the eight copies are read by
+  the checker exactly as written), and the three egress-lock probe jobs stay in one file (one schedule, one founder gate,
+  one guarded surface). `scripts/check-scan-lib.test.sh` and `scripts/check-review-post.test.sh` now fail under CI when
+  the pinned gitleaks is not installed (the CI `checks` job installs it first), so the "pinned constant equals the
+  8.18.4 binary" and "real gitleaks end to end" cases are proven on every run; `check-scan-lib.test.sh` also covers the
+  leftover-directory case with its own `TMPDIR`, and the copy failure paths (unreadable binary, unwritable `TMPDIR`).
+  `scripts/check-claude-answer.test.sh` runs the hand-off under the workflow's exact `env -i` line with the real binary.
+  Four founder docs whose inline code spans cross line breaks are listed in `.prettierignore` (Prettier would break the
+  spans); `yarn lint` runs on the whole tree since #19.

@@ -7,7 +7,9 @@
 #                       GITLEAKS_BIN may point to a stub (tests); the default /tmp/gitleaks is installed by the egress
 #                       lock action and by the post jobs' install step. A missing scanner is an error (returns 1 after
 #                       a message on stderr), and so is a binary whose sha256 is not the pinned one. Sourced, never run.
-# The binary's sha256 (gitleaks 8.18.4, linux x64, the file inside the tarball install-gitleaks verifies). The scan runs
+# The binary's sha256: gitleaks 8.18.4, linux x64, the `gitleaks` file inside the release tarball whose own sha256 is the
+# GITLEAKS_SHA256 in .github/actions/install-gitleaks/action.yml (ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d);
+# CI proves the two agree (scripts/check-scan-lib.test.sh, last case, fails when the binary is missing under CI). The scan runs
 # after a Claude step, so a private copy of the binary is hashed and run here: a swapped or edited /tmp/gitleaks is an
 # error, never a scan.
 # GITLEAKS_SHA256 may name another hash (tests, with a stub); the workflow steps run this under `env -i` with GITLEAKS_BIN

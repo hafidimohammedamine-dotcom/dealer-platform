@@ -140,7 +140,8 @@ if [ -x "$REAL" ]; then
   ANSWER="$A" GH_BIN="$W/gh" GITLEAKS_BIN="$REAL" GITLEAKS_SHA256= bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?
   [ $rc = 0 ] && ! grep -q "sk-ant\|BEGIN\|MIIE" "$W/posted.md" && grep -q "add-label changes-requested" "$W/gh.log" \
     && t PASS "real gitleaks: a fake Claude token across the 60000 cut and a key block across the 120000 cap never reach the comment" || t FAIL "real gitleaks end to end (rc=$rc)"
-else t PASS "real gitleaks end to end: skipped (no binary at $REAL)"; fi
+elif [ -n "${CI:-}" ]; then t FAIL "real gitleaks end to end: no binary at $REAL under CI (install-gitleaks must run first)"
+else t PASS "real gitleaks end to end: skipped (no binary at $REAL; CI fails here)"; fi
 out=$(ANSWER="$A" GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" other 2 2>&1); [ $? != 0 ] && { t PASS "bad mode rejected"; } || { t FAIL "bad mode"; }
 # The answer from the environment (the post jobs), and the daily-reports target
 rm -f "$W/gh.log" "$W/posted.md"; ANSWER=$'REVIEW TEAM RESULT: PASS\nfrom env' GH_BIN="$W/gh" GITLEAKS_BIN="$W/gitleaks" bash "$SCRIPT" pr 21 >/dev/null 2>&1; rc=$?

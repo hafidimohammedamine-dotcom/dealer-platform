@@ -147,4 +147,15 @@ out=$(PATH="$S:$PATH" TMPDIR="$E" bash "$SCRIPT" answer "$W/mid.json" 2>&1); rc=
 rm -f "$S/python3"; printf '#!/usr/bin/env bash\n[ "$1" = -r ] && exit 1\nexec %s "$@"\n' "$(command -v jq)" > "$S/jq"; chmod +x "$S/jq"
 out=$(PATH="$S:$PATH" TMPDIR="$E" bash "$SCRIPT" answer "$W/mid.json" 2>&1); rc=$?
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result" <<<"$out" && [ -z "$(ls -A "$E")" ] && t PASS "answer: jq failing on the text exits non-zero, prints no output block, leaves no file" || { t FAIL "answer: jq failure (rc=$rc)"; echo "$out"; }
+# The exact workflow shape, with the real pinned gitleaks (CI installs it at /tmp/gitleaks; fails under CI when missing):
+# `env -i` with only PATH, HOME, TMPDIR and GITLEAKS_BIN proves jq, python3, mktemp, od and sha256sum resolve from /usr/bin:/bin.
+REAL="${GITLEAKS:-/tmp/gitleaks}"
+if [ -x "$REAL" ]; then
+  { echo "REVIEW TEAM RESULT: PASS"; echo "a short clean answer"; } | mk_exec "$W/e2e.json"
+  out=$(cd "$(dirname "$SCRIPT")/.." && /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN="$REAL" /usr/bin/bash scripts/check-claude-answer.sh answer "$W/e2e.json" 2>&1); rc=$?
+  [ $rc = 0 ] && [ "$(handoff_text "$out")" = $'REVIEW TEAM RESULT: PASS\na short clean answer' ] && t PASS "end to end under the workflow's env -i with the real gitleaks: the answer is handed over" || { t FAIL "end to end env -i ($rc)"; echo "$out" | head -5; }
+  out=$(cd "$(dirname "$SCRIPT")/.." && /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN="$REAL" /usr/bin/bash scripts/check-claude-answer.sh blocked "$W/e2e.json" 2>&1); rc=$?
+  [ $rc = 0 ] && [ -z "$out" ] && t PASS "end to end under env -i: the blocked listing of a result with no denials is empty" || { t FAIL "end to end blocked ($rc): $out"; }
+elif [ -n "${CI:-}" ]; then t FAIL "end to end with the real gitleaks: no binary at $REAL under CI"
+else t PASS "end to end with the real gitleaks: skipped (no binary at $REAL; CI fails here)"; fi
 summary
