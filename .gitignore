@@ -1,3 +1,14 @@
+node_modules/
+dist/
+.nx/
+coverage/
+.env
+.env.*
+!.env.example
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+*.tsbuildinfo
 # Builder worktrees used by the manager
 .worktrees/
 __pycache__/

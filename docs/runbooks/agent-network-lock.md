@@ -4,6 +4,7 @@ Founder-owned action. Every job with a Claude step runs it after checking out `m
 (`scripts/check-workflows.sh` enforces that order). Other CI runbook topics: `docs/runbooks/ci-guards.md`.
 
 ## What it does
+
 1. Installs Node 20 (`actions/setup-node`, the runner image no longer caches it), gitleaks
    (`.github/actions/install-gitleaks`), Claude Code from `downloads.claude.ai` and Bun from Bun's GitHub release; the last
    three are checked against a sha256 pinned in the action. The claude-code-action uses these binaries
@@ -43,6 +44,7 @@ sink address for `actions.githubusercontent.com` and everything under it so the 
 only to the exact names and that pattern.
 
 ## Tests
+
 - `scripts/check-egress-lock.test.sh`: every failure branch, with stubbed system commands; it also checks the generated
   dnsmasq, nginx, iptables and AppArmor setup and the order of the sudo removal.
 - `.github/workflows/egress-lock-test.yml`: runs the PR's lock on a real runner with no secrets and a read-only token
@@ -59,44 +61,48 @@ only to the exact names and that pattern.
   generated name is allowed and nginx accepts it.
 
 ## Messages and fixes
+
 - `Linux x64 runners only` / `must run inside GitHub Actions` - only for GitHub-hosted Ubuntu x64 runners.
 - `bad CLAUDE_CODE_VERSION`, `bad CLAUDE_CODE_SHA256`, `Claude Code download does not match its pinned sha256`, `Claude Code
-  <v> not installed`, `bad BUN_VERSION`, `bad BUN_SHA256`, `Bun download does not match its pinned sha256`, `Bun <v> not
-  installed` - fix the pins in `action.yml` (see "Bumping the pins"). `could not download Claude Code <v> from
-  downloads.claude.ai` / `could not download Bun <v> from github.com` / `the Bun archive did not unpack (corrupt zip ...)` -
+<v> not installed`, `bad BUN_VERSION`, `bad BUN_SHA256`, `Bun download does not match its pinned sha256`, `Bun <v> not
+installed` - fix the pins in `action.yml` (see "Bumping the pins"). `could not download Claude Code <v> from
+downloads.claude.ai` / `could not download Bun <v> from github.com` / `the Bun archive did not unpack (corrupt zip ...)` -
   the download failed before the network closed; re-run once, then check the vendor's release.
 - `empty allow-list` / `not a plain host name: '<x>'` - fix `allow-domains.txt` (exact names only, no wildcards).
 - `unexpected OIDC host: '<host>'` - the runner's `ACTIONS_ID_TOKEN_REQUEST_URL` is not
   `https://run-actions-<n>-azure-<region>.actions.githubusercontent.com/...` (the run service's name pattern).
   Re-run once; if it persists, GitHub changed its OIDC service: a founder checks the new host and updates `lock.sh`.
 - `no www-data user for nginx`, `nginx stream module missing`, `nginx config invalid`, `could not install dnsmasq-base nginx
-  libnginx-mod-stream bubblewrap socat`, `could not load the AppArmor profile for bubblewrap` - the runner image changed. Re-run
+libnginx-mod-stream bubblewrap socat`, `could not load the AppArmor profile for bubblewrap` - the runner image changed. Re-run
   once, then a founder checks the packages and the AppArmor setup.
 - `self-test: allowed host api.github.com not reachable` / `allowed name <name> not reachable through the lock` - the proxy
-  or DNS is not working, or a name in the list is wrong. The log shows the proxy log and a verbose curl. Every self-test
+  or DNS is not working, or a name in the list is wrong. The `api.github.com` probe (`GET /zen`) sends the job's `GH_TOKEN`
+  (or `GITHUB_TOKEN`) as a Bearer token when the job has one and is anonymous otherwise: anonymous calls share GitHub's
+  60-an-hour limit with every other job on the runner's address, and a 403 from that killed a review job on 2026-10-11
+  (`docs/changelog/2026-10-11-lock-selftest-token.md`). The log shows the proxy log and a verbose curl. Every self-test
   failure ends with `self-test failed; see errors above`.
 - Any other `self-test: ...` message means the lock is not doing its job on this runner. Do not bypass it; open an
   `area:security` issue for the founders. The messages: `sudo still works`, `sudo still lists rules for this user (a
-  command-limited rule is left)`, `Docker still reachable`, `systemd lets this user run a transient unit as root` (`systemd-run -p User=root`),
+command-limited rule is left)`, `Docker still reachable`, `systemd lets this user run a transient unit as root` (`systemd-run -p User=root`),
   `systemd lets this user start a system service` (`systemctl start systemd-tmpfiles-clean.service`, an unmasked unit:
   the Docker and containerd units are masked before sudo goes, so starting those would fail for anyone and prove
   nothing), `polkit (pkexec) lets this user run commands as root`, `group-writable admin
-  socket still there`, `blocked host
-  example.com reachable`, `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another
-  name (SNI)`, `raw IP without a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not
-  resolve`, `DNS for a blocked name resolves`, `outside DNS server reachable`, `IPv6 reachable`, `bubblewrap cannot start
-  (subprocess isolation would fail)`, `unprivileged user namespaces are not restricted`, `a program started by bubblewrap
-  can create user namespaces`, `AppArmor profiles that allow user namespaces are still loaded: <names>`, `a program outside
-  bubblewrap can become root in a user namespace`, `<path> is still setuid/setgid (maps root into a user namespace)`,
+socket still there`, `blocked host
+example.com reachable`, `gist.github.com reachable`, `uploads.github.com reachable`, `allowed IP reachable under another
+name (SNI)`, `raw IP without a name reachable`, `plain HTTP (port 80) reachable`, `DNS for an allowed name does not
+resolve`, `DNS for a blocked name resolves`, `outside DNS server reachable`, `IPv6 reachable`, `bubblewrap cannot start
+(subprocess isolation would fail)`, `unprivileged user namespaces are not restricted`, `a program started by bubblewrap
+can create user namespaces`, `AppArmor profiles that allow user namespaces are still loaded: <names>`, `a program outside
+bubblewrap can become root in a user namespace`, `<path> is still setuid/setgid (maps root into a user namespace)`,
   `podman can still become root in a user namespace`, and `domain fronting through <name> answers for another host
-  (Host: <host>, HTTP <code> <location>)`. `could not remove setuid from <path>` is a lock error before the self-test (chmod failed).
+(Host: <host>, HTTP <code> <location>)`. `could not remove setuid from <path>` is a lock error before the self-test (chmod failed).
   `self-test: deliberate break` appears only in the break-on-purpose test run.
 - A tool in an agent job cannot download something it needs: add its exact host to `allow-domains.txt` in a founder PR. First
   run the domain-fronting check for it (see "Measured limits").
 - `Claude answered under the lock, and Skill(payload) was denied` fails (job `probe`) - either Claude could not reach
   `api.anthropic.com` through the lock, or the Skill deny did not hold. Read the printed result and denials.
 - Job `scrub` fails - Claude ran `bash scripts/check-scrub-probe.sh` as a tool, and the check step (`scripts/check-claude-probe.py
-  scrub`) printed `probe: SCRUB-PROBE env-tokens=<n> proc-tokens=<n> file-tokens=<n> pid=<n>` with a count above 0, or
+scrub`) printed `probe: SCRUB-PROBE env-tokens=<n> proc-tokens=<n> file-tokens=<n> pid=<n>` with a count above 0, or
   `probe: did not run`. The probe counts Claude tokens (`sk-ant-<kind><nn>-...`) visible to a tool: in its own environment,
   in every readable `/proc/<pid>/environ`, and in every readable text file under the home folder, `/tmp` and the runner's
   temp folder (a token on disk would get around the environment scrub). It prints counts only. A count above 0 means the
@@ -110,7 +116,9 @@ only to the exact names and that pattern.
   (it failed before running); read that step's log.
 
 ## Bumping the pins
+
 Bump them in a founder PR, together with the claude-code-action SHA:
+
 - **Claude Code:** the action's `src/entrypoints/run.ts` names the version it expects. Copy that version's `linux-x64`
   `checksum` from `https://downloads.claude.ai/claude-code-releases/<version>/manifest.json` into `action.yml`.
 - **Bun:** the action's `action.yml` (setup-bun step) names the Bun version. Copy the sha256 of `bun-linux-x64.zip` from
@@ -119,6 +127,7 @@ Bump them in a founder PR, together with the claude-code-action SHA:
 The reviewers check the pins, and `egress-lock-test.yml` / `egress-lock-claude.yml` prove the result.
 
 ## The agents' GitHub token
+
 Claude Code's subprocess isolation keeps the Claude token out of every tool the agents run. `GH_TOKEN` stays visible to those
 tools, because they need it to push and comment. So the GitHub token's scope is the real limit, and it must come from the
 agents' own account, `mohammedaminehafidi-ctrl` (an `agent` row in `.github/accounts.txt`, a collaborator on this repository
@@ -129,6 +138,7 @@ a classic `repo` token until the repository moves to an organization.
 
 Every job that holds the agents' token runs `bash scripts/check-agent-token.sh .github/accounts.txt` as its first step after
 checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the job with:
+
 - `GH_TOKEN is not a fine-grained (github_pat_...) or classic (ghp_...) token` - wrong kind of token, or none.
 - `GH_TOKEN carries classic OAuth scopes (...)` - a fine-grained token must have no classic scopes.
 - `the classic GH_TOKEN must have exactly the scope 'repo' (has: '...')` - remove every other scope.
@@ -143,15 +153,15 @@ checkout and the lock (`scripts/check-workflows.sh` enforces it). It fails the j
 - `workflow <name> is '<state>', not active` - one of `main-guard.yml`, `pusher-ledger.yml`, `guards.yml` or `review.yml`
   is disabled. Nobody but a founder should do that: a founder reads the repository's audit log for who disabled it, and
   re-enables it (Actions -> the workflow -> Enable); agents do not run until then. `the default branch's head (<sha>) has no
-  successful main-guard run (runs: ...)` - a push to the default branch whose main-guard run was cancelled, failed or never
+successful main-guard run (runs: ...)` - a push to the default branch whose main-guard run was cancelled, failed or never
   happened: a founder reads that push (who, what) before any agent runs; `has not finished after <n>s; re-run this job
-  later` - the run is still going (right after a merge), re-run. `could not read the state of workflow ...` / `could not
-  read the default branch's head commit` / `could not list the main-guard runs ...` - the token could not call GitHub;
+later` - the run is still going (right after a merge), re-run. `could not read the state of workflow ...` / `could not
+read the default branch's head commit` / `could not list the main-guard runs ...` - the token could not call GitHub;
   re-run once. `GH_REPO or GITHUB_REPOSITORY (owner/repo) is not set` / `bad GH_REPO` - the job environment is wrong.
 - `accounts file not found: <file>`, `bad line <n> in <file> ...`, `no founder listed in <file>` - fix `.github/accounts.txt`.
 
 **What the agents' own token can do, and what catches it.** A classic `repo` token on a collaborator account can push to any
-branch of this repository, `main` included, and the free plan cannot block that with a ruleset. So `main` is guarded after
+branch of this repository, `main` included, and no ruleset blocks that (see "Known limits" in `docs/runbooks/ci-guards.md`). So `main` is guarded after
 the fact: `main-guard.yml` runs on every push to `main` (`scripts/check-main-push.sh`); when the pusher's user ID is not a
 `founder` row of `.github/accounts.txt` it undoes the push with one commit carrying the previous tip's tree (never a force push), cancels and
 disables every workflow that holds a secret or write scope and opens an `area:security` + `blocked` issue for the founders
@@ -169,17 +179,20 @@ The command deny lists are a second layer. They block `npm`, `npx`, `yarn npm pu
 auth`, `gh secret`, `curl` and `wget` in the manager. They match command prefixes, so they are not a boundary on their own.
 
 ## Measured limits
+
 Measured from GitHub runners on 2026-10-09 and 2026-10-10 while PR #30 was built (the run logs under Actions are the
 record; they are not reproducible from this repository alone, see "Founder decisions" 2). The test sent
 `curl -H 'Host: <other site>' https://<allowed name>/` through the lock.
 
 **Not used for fronting.** These did not answer for another site, and the self-test repeats the check against every exact
 allowed name on every run:
+
 - `api.github.com` and `codeload.github.com` returned 400.
 - `api.anthropic.com` and the npm/Yarn registries were refused by Cloudflare (403).
 - `github.com` redirected to itself (301).
 
 **Exceptions with a note:**
+
 - `github.com` with `Host: gist.github.com` reached the gist service (302). Gists are the documented GitHub route below either
   way, since `api.github.com` is allowed.
 - The Actions service names (`*.actions.githubusercontent.com`, including the per-run OIDC host) answered a bare `OK` or 400
@@ -204,10 +217,11 @@ another site. The self-test now repeats five of these Host values on every allow
 
 **AppArmor policy sources (2026-10-10).** The lock unloads every loaded profile whose source grants `userns`, searching
 `/etc/apparmor.d` and snapd's `/var/lib/snapd/apparmor/profiles` recursively; on GitHub's image the snapd folder is empty
-and the grants (1password, Discord, chrome, podman, rootlesskit, lxc-*, sbuild-*, ...) all sit in `/etc/apparmor.d`. The
+and the grants (1password, Discord, chrome, podman, rootlesskit, `lxc-*`, `sbuild-*`, ...) all sit in `/etc/apparmor.d`. The
 self-test fails if any of those profiles is still loaded.
 
 **Removed after the test:**
+
 - `objects.githubusercontent.com` and `release-assets.githubusercontent.com` served another site's page (200).
 - The Azure log-storage names `productionresultssa*.blob.core.windows.net` routed by the Host header to other storage accounts
   (`AccountNotFound` for an unknown account).
@@ -234,11 +248,13 @@ needs an organization-owned repository with a fine-grained token limited to this
 
 The job's processes keep the groups they started with (sudo, docker, adm); Linux cannot take them away mid-job. The lock makes
 them powerless instead:
+
 - no sudoers rule remains for the user, `ALL` or those groups;
 - Docker is stopped and its socket is gone;
 - the self-test fails if `sudo -n -l` still works or a docker/lxd/containerd socket is writable.
 
 ## Evidence for the Skill deny and the pins
+
 - Versions: Claude Code 2.1.295 and Bun 1.3.14. Tag v1.0.247 of claude-code-action is commit 2dca132f; its
   `src/entrypoints/run.ts` pins Claude Code 2.1.295 and its `action.yml` installs Bun 1.3.14.
 - Compared on 2026-10-10 with the vendors' sources, in the session that built PR #30 (a founder re-checks them before merging;
@@ -261,16 +277,18 @@ them powerless instead:
   1. In an empty folder, create `.claude/skills/probe/SKILL.md`, a skill telling Claude to reply `PROBE-LOADED-7731`.
   2. Add two agents in `.claude/agents/`: `subprobe` (`skills: probe`) and `subskill` (`tools: Skill`, told to load `probe`).
   3. Run `claude -p "Use the Skill tool to load the skill named probe ..." --permission-mode bypassPermissions --disallowedTools
-     "Skill(probe)" --output-format json`. It gives `permission_denials: [{'tool_name': 'Skill', ... 'skill': 'probe'}]`.
+"Skill(probe)" --output-format json`. It gives `permission_denials: [{'tool_name': 'Skill', ... 'skill': 'probe'}]`.
   4. Ask it, with the same flags, to run both subagents. It gives `SUBPROBE: PROBE-LOADED-7731` (the preload still works) and
      `SUBSKILL: SUB-SKILL-DENIED` (the deny holds in a subagent).
 
 Re-check when a pin changes.
 
 ## Founder decisions (proposed here; accepted by merging PR #30)
+
 Proposed in PR #30 and accepted by its merge, which is the record of acceptance (the PR's own thread holds the review
 rounds). Open follow-ups live in issue #35. Owner: the merging founder. Review by 2026-11-08, or earlier if any of them
 changes.
+
 1. **Open exit routes.** The agents' own token can comment on or open issues in any repository its account can see
    through `api.github.com`, which the lock allows: an agent misled by an injected instruction, or a dependency's install
    script, could post data (the token itself included) to a repository an attacker reads, with no credentials of its

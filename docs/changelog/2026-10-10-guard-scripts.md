@@ -223,6 +223,7 @@
   main-guard run within 75 minutes (`main_guard_heartbeat`), so cancelling the hourly run no longer hides anything.
 
 ## Founder steps before and after merging this PR
+
 1. Before merge: the repository secret `GUARDS_LEDGER_KEY` (any random string of 32+ characters) must exist, or the pusher
    ledger and the guards' ledger step fail on every PR. Also before merge, create `CLAUDE_TOKEN_BUILD_V2`,
    `CLAUDE_TOKEN_REVIEW_V2` and `AGENT_GH_TOKEN_V2` with fresh (rotated) tokens, then delete `CLAUDE_TOKEN_BUILD`,
