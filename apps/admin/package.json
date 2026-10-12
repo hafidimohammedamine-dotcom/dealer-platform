@@ -9,5 +9,10 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --coverage --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "@payloadcms/db-postgres": "3.90.2",
+    "@payloadcms/plugin-multi-tenant": "3.90.2",
+    "payload": "3.90.2"
   }
 }
