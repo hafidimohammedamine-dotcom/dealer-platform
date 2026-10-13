@@ -134,8 +134,8 @@ export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
   return problems;
 }
 
-/** Top-level folders that hold workspaces (`<folder>/<workspace>/`), as in the root `package.json`. */
-const workspaceFolders: readonly string[] = ['apps', 'services', 'packages', 'infra'];
+/** Top-level folders that hold workspaces (`<folder>/<workspace>/`), as in the root `package.json`, plus `tests`, which lands with the e2e workspace (PR #53) and is not listed there yet. */
+const workspaceFolders: readonly string[] = ['apps', 'services', 'packages', 'infra', 'tests'];
 
 /**
  * Is this path in a folder lint never looks at (the ignores in `eslint.config.mjs`): `node_modules` at any depth, the

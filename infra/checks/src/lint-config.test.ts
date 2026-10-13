@@ -23,6 +23,8 @@ describe('lint ignores', () => {
       'apps/admin/dist/index.js',
       'services/intake/dist/deep/x.js',
       'packages/data/coverage/x.js',
+      'tests/e2e/dist/x.js',
+      'tests/e2e/coverage/x.js',
       'node_modules/x/index.js',
       'services/ai/src/node_modules/x/index.js',
       '.nx/cache/x.js',
@@ -36,6 +38,7 @@ describe('lint ignores', () => {
     for (const file of [
       'apps/admin/src/x/dist/y.ts',
       'services/intake/src/coverage/y.ts',
+      'tests/e2e/src/dist/y.ts',
       'packages/data/src/.nx/y.ts',
       'services/ai/.yarn/y.js',
     ]) {

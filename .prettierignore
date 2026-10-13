@@ -2,6 +2,8 @@
 .nx
 dist
 coverage
+test-results
+playwright-report
 yarn.lock
 CLAUDE.md
 .claude

@@ -74,4 +74,11 @@ describe('.prettierignore', () => {
   ])('skips the founder-only file %s', (entry) => {
     expect(lines).toContain(entry);
   });
+
+  it.each(['dist', 'coverage', 'test-results', 'playwright-report'])(
+    'skips the build or test output %s',
+    (entry) => {
+      expect(lines).toContain(entry);
+    },
+  );
 });

@@ -14,8 +14,8 @@ export default defineConfig(
   {
     // Install, cache and build output only. A config test fails if any file in these folders is committed.
     ignores: [
-      '{apps,services,packages,infra}/*/dist/**',
-      '{apps,services,packages,infra}/*/coverage/**',
+      '{apps,services,packages,infra,tests}/*/dist/**',
+      '{apps,services,packages,infra,tests}/*/coverage/**',
       '**/node_modules/**',
       '.nx/**',
       '.yarn/**',
