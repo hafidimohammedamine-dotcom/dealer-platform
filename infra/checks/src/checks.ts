@@ -150,10 +150,22 @@ const playwrightOutputFolders: readonly string[] = [
   'blob-report',
 ];
 
-/** Is this path under `playwright/.auth` (saved login state), at any depth? */
-function inPlaywrightAuth(path: string): boolean {
-  const folders = path.split('/').slice(0, -1);
-  return folders.some((folder, i) => folder === 'playwright' && folders[i + 1] === '.auth');
+/** A Playwright `storageState` file name (saved cookies and tokens), e.g. `storageState.json`, `storage-state-admin.json`. */
+const storageStateName = /storage-?state[^/]*\.json$/i;
+
+/**
+ * Is this path Playwright login state or a recording, wherever the config sends it? Any file under a `.auth` folder,
+ * any `*.har` (from `recordHar`), any `trace.zip`, and any `storageState` / `storage-state` JSON file.
+ */
+function isPlaywrightSecret(path: string): boolean {
+  const parts = path.split('/');
+  const name = parts[parts.length - 1] ?? '';
+  return (
+    parts.slice(0, -1).includes('.auth') ||
+    name.toLowerCase().endsWith('.har') ||
+    name === 'trace.zip' ||
+    storageStateName.test(name)
+  );
 }
 
 /**
@@ -177,15 +189,16 @@ const eslintConfigName = /^(?:eslint\.config\.[cm]?[jt]s|\.eslintrc(?:\..+)?)$/;
 
 /**
  * Problems with the list of files git tracks (repo-relative, `/`-separated). Nothing may be committed where lint
- * never looks, no saved Playwright login state (`playwright/.auth`) at any depth, and the root `eslint.config.mjs` is
+ * never looks, no saved Playwright login state, HAR or trace (`.auth` folders, `*.har`, `trace.zip`, `storageState` files) at any
+ * depth, and the root `eslint.config.mjs` is
  * the only ESLint config.
  */
 export function trackedFileProblems(paths: readonly string[]): string[] {
   const problems: string[] = [];
   for (const path of paths) {
     if (inUnlintedFolder(path)) problems.push(`${path}: committed in a folder lint skips`);
-    else if (inPlaywrightAuth(path)) {
-      problems.push(`${path}: saved Playwright login state must not be committed`);
+    else if (isPlaywrightSecret(path)) {
+      problems.push(`${path}: saved Playwright login state, HAR or trace must not be committed`);
     }
     const name = path.slice(path.lastIndexOf('/') + 1);
     if (eslintConfigName.test(name) && path !== 'eslint.config.mjs') {

@@ -84,20 +84,32 @@ describe('.prettierignore', () => {
     'test-results',
     'playwright-report',
     'blob-report',
-    '**/playwright/.auth',
+    '**/.auth',
+    '*.har',
+    '**/trace.zip',
   ])('skips the build or test output %s', (entry) => {
     expect(lines).toContain(entry);
   });
 
-  it.each(['tests/e2e/playwright/.auth/user.json', 'playwright/.auth/user.json'])(
-    'Prettier ignores the saved login state %s',
-    async (path) => {
-      const info = await prettier.getFileInfo(join(root, path), {
-        ignorePath: join(root, '.prettierignore'),
-      });
-      expect(info.ignored).toBe(true);
-    },
-  );
+  it.each([
+    'tests/e2e/playwright/.auth/user.json',
+    'playwright/.auth/user.json',
+    'tests/e2e/.auth/user.json',
+    'tests/e2e/net.har',
+    'tests/e2e/out/trace.zip',
+  ])('Prettier ignores the saved login state or recording %s', async (path) => {
+    const info = await prettier.getFileInfo(join(root, path), {
+      ignorePath: join(root, '.prettierignore'),
+    });
+    expect(info.ignored).toBe(true);
+  });
+
+  it.each(['src/auth/x.ts', 'docs/har.md'])('Prettier still formats %s', async (path) => {
+    const info = await prettier.getFileInfo(join(root, path), {
+      ignorePath: join(root, '.prettierignore'),
+    });
+    expect(info.ignored).toBe(false);
+  });
 });
 
 describe('.gitignore', () => {
@@ -109,16 +121,26 @@ describe('.gitignore', () => {
     'test-results/',
     'playwright-report/',
     'blob-report/',
-    '**/playwright/.auth/',
+    '**/.auth/',
+    '*.har',
+    '**/trace.zip',
   ])('ignores the build or test output %s', (entry) => {
     expect(lines).toContain(entry);
   });
 
-  it.each(['tests/e2e/playwright/.auth/user.json', 'playwright/.auth/user.json'])(
-    'git ignores the saved login state %s',
-    (path) => {
-      const result = spawnSync('git', ['check-ignore', '-q', '--no-index', path], { cwd: root });
-      expect(result.status).toBe(0);
-    },
-  );
+  it.each([
+    'tests/e2e/playwright/.auth/user.json',
+    'playwright/.auth/user.json',
+    'tests/e2e/.auth/user.json',
+    'tests/e2e/net.har',
+    'tests/e2e/out/trace.zip',
+  ])('git ignores the saved login state or recording %s', (path) => {
+    const result = spawnSync('git', ['check-ignore', '-q', '--no-index', path], { cwd: root });
+    expect(result.status).toBe(0);
+  });
+
+  it.each(['src/auth/x.ts', 'docs/har.md'])('git does not ignore %s', (path) => {
+    const result = spawnSync('git', ['check-ignore', '-q', '--no-index', path], { cwd: root });
+    expect(result.status).toBe(1);
+  });
 });

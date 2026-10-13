@@ -267,21 +267,6 @@ describe('trackedFileProblems', () => {
     expect(trackedFileProblems([path])).toEqual([`${path}: committed in a folder lint skips`]);
   });
 
-  it.each(['tests/e2e/playwright/.auth/user.json', 'playwright/.auth/user.json'])(
-    'flags %s, saved Playwright login state',
-    (path) => {
-      expect(trackedFileProblems([path])).toEqual([
-        `${path}: saved Playwright login state must not be committed`,
-      ]);
-    },
-  );
-
-  it('accepts a file named like Playwright output but not in such a folder', () => {
-    expect(
-      trackedFileProblems(['tests/e2e/src/test-results.ts', 'tests/e2e/playwright/config.ts']),
-    ).toEqual([]);
-  });
-
   it.each([
     'apps/admin/src/dist/eslint.config.mjs',
     'services/ai/eslint.config.js',

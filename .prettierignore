@@ -5,7 +5,9 @@ coverage
 test-results
 playwright-report
 blob-report
-**/playwright/.auth
+**/.auth
+*.har
+**/trace.zip
 yarn.lock
 CLAUDE.md
 .claude
