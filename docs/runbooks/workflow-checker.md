@@ -156,7 +156,9 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     `CDPATH`, `BASH_XTRACEFD`, `POSIXLY_CORRECT`; the loader and libc: `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`,
     `LD_DEBUG`, `LD_DEBUG_OUTPUT`, `LD_PROFILE`, `LD_BIND_NOW`, `GCONV_PATH`, `GLIBC_TUNABLES`, the `MALLOC_*` tunables;
     locale and time: `LOCPATH`, `NLSPATH`, `LANGUAGE`, `LC_ALL`, `LANG`, `TZ`, `TZDIR`, `TEXTDOMAINDIR`; the resolver:
-    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the proxy variables; `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
+    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` - GitHub reads env
+    names without regard to case, so the lowercase twins cannot be listed as well: `env names X and x differ only by
+    case`; no command in a hardened step uses the network); `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
     `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GH_CONFIG_DIR`; a `null`, list or mapping value is refused) and
     `post_claude_fixed_env` (`HOME`, `TMPDIR`), so neither the shell nor `/usr/bin/sha256sum` loads anything planted.
     `must set env PINS_SHA256 to the sha256 of .github/pins.txt itself (never from $GITHUB_ENV)` - the pin check reads
@@ -182,12 +184,10 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     absolute path, or a pinned script in a fresh environment: a child `bash scripts/...` never sees `BASH_ENV`,
     `SHELLOPTS` or a planted function either.
   - `a run step after the claude step must set shell: ... (policy post_claude_require_shell)` - when the policy flag is
-    `true`, every run step after the claude step must be a hardened one. It is `false` on main today: the post-Claude
-    steps (the hand-off steps and the egress-lock probe steps) still run in the default shell, with none of the above.
-    PR #44 hardens those steps and sets the flag; until it merges, a step without the hardened shell gets no protection
-    from `$GITHUB_ENV` or `$GITHUB_PATH` beyond its pin check (`sha256sum` is then found through `PATH`). Founder
-    decision (changelog `2026-10-11-post-claude-shell.md`): the two PRs cannot be one, because the guards run main's
-    checker over a PR's tree.
+    `true`, every run step after the claude step must be a hardened one. It is `true`: the five hand-off steps and the
+    three egress-lock probe steps are hardened, and no other run step may follow a claude step (a step without the
+    hardened shell would get no protection from `$GITHUB_ENV` or `$GITHUB_PATH` beyond its pin check, with `sha256sum`
+    itself found through `PATH`).
   - The other post-claude rules apply to every step after the claude step, hardened or not: no local action, the pin
     check before any `scripts/` or `/tmp/gitleaks` (comment lines do not count), no PR data, no `git` moves.
 - `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with

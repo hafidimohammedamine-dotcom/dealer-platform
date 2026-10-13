@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -57,14 +57,62 @@ jobs:
             --allowedTools "Skill,TodoWrite"
             --disallowedTools "Skill(payload),Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: Claude answered under the lock, and Skill(payload) was denied
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell)
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          GLOBIGNORE: ""
+          CDPATH: ""
+          BASH_XTRACEFD: ""
+          POSIXLY_CORRECT: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          LD_DEBUG: ""
+          LD_DEBUG_OUTPUT: ""
+          LD_PROFILE: ""
+          LD_BIND_NOW: ""
+          GCONV_PATH: ""
+          GLIBC_TUNABLES: ""
+          MALLOC_CHECK_: ""
+          MALLOC_PERTURB_: ""
+          MALLOC_TOP_PAD_: ""
+          MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_TRIM_THRESHOLD_: ""
+          MALLOC_ARENA_MAX: ""
+          LOCPATH: ""
+          NLSPATH: ""
+          LANGUAGE: ""
+          LC_ALL: ""
+          LANG: ""
+          TZ: ""
+          TZDIR: ""
+          TEXTDOMAINDIR: ""
+          HOSTALIASES: ""
+          RES_OPTIONS: ""
+          LOCALDOMAIN: ""
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          ALL_PROXY: ""
+          NO_PROXY: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_CONFIG_GLOBAL: ""
+          GIT_CONFIG_SYSTEM: ""
+          GIT_EXEC_PATH: ""
+          GH_CONFIG_DIR: ""
+          HOME: /nonexistent
+          TMPDIR: /tmp
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
-          set -euo pipefail
-          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
-          sha256sum --check --strict --quiet .github/pins.txt
-          python3 -I scripts/check-claude-probe.py skill-deny "$EXEC_FILE"
+          export PATH=/usr/bin:/bin
+          set -u
+          echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
+          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/python3 -I scripts/check-claude-probe.py skill-deny "$EXEC_FILE"
   scrub:
     # Claude Code's subprocess isolation under the lock: a Bash tool started by Claude must not see the Claude token, either
     # in its environment or in any process environment it can read (scripts/check-scrub-probe.sh prints counts only).
@@ -82,7 +130,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -107,14 +155,62 @@ jobs:
             --allowedTools "Bash(bash scripts/check-scrub-probe.sh)"
             --disallowedTools "Skill(payload),Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: The tools saw no Claude token
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell)
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          GLOBIGNORE: ""
+          CDPATH: ""
+          BASH_XTRACEFD: ""
+          POSIXLY_CORRECT: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          LD_DEBUG: ""
+          LD_DEBUG_OUTPUT: ""
+          LD_PROFILE: ""
+          LD_BIND_NOW: ""
+          GCONV_PATH: ""
+          GLIBC_TUNABLES: ""
+          MALLOC_CHECK_: ""
+          MALLOC_PERTURB_: ""
+          MALLOC_TOP_PAD_: ""
+          MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_TRIM_THRESHOLD_: ""
+          MALLOC_ARENA_MAX: ""
+          LOCPATH: ""
+          NLSPATH: ""
+          LANGUAGE: ""
+          LC_ALL: ""
+          LANG: ""
+          TZ: ""
+          TZDIR: ""
+          TEXTDOMAINDIR: ""
+          HOSTALIASES: ""
+          RES_OPTIONS: ""
+          LOCALDOMAIN: ""
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          ALL_PROXY: ""
+          NO_PROXY: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_CONFIG_GLOBAL: ""
+          GIT_CONFIG_SYSTEM: ""
+          GIT_EXEC_PATH: ""
+          GH_CONFIG_DIR: ""
+          HOME: /nonexistent
+          TMPDIR: /tmp
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
-          set -euo pipefail
-          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
-          sha256sum --check --strict --quiet .github/pins.txt
-          python3 -I scripts/check-claude-probe.py scrub "$EXEC_FILE"
+          export PATH=/usr/bin:/bin
+          set -u
+          echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
+          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/python3 -I scripts/check-claude-probe.py scrub "$EXEC_FILE"
   reads:
     # The reviewers' tool rules (review.yml, claude.yml, the reports): Read is allowed only under the checkout, and Grep and
     # Glob follow the Read rules, so the process that holds the Claude token cannot be made to read its own environment
@@ -134,7 +230,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -159,14 +255,62 @@ jobs:
             --allowedTools "Read(./**),Grep,Glob,TodoWrite"
             --disallowedTools "Skill(payload),Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: Every read outside the checkout was denied, and no tool result holds a token
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell)
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          GLOBIGNORE: ""
+          CDPATH: ""
+          BASH_XTRACEFD: ""
+          POSIXLY_CORRECT: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          LD_DEBUG: ""
+          LD_DEBUG_OUTPUT: ""
+          LD_PROFILE: ""
+          LD_BIND_NOW: ""
+          GCONV_PATH: ""
+          GLIBC_TUNABLES: ""
+          MALLOC_CHECK_: ""
+          MALLOC_PERTURB_: ""
+          MALLOC_TOP_PAD_: ""
+          MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_TRIM_THRESHOLD_: ""
+          MALLOC_ARENA_MAX: ""
+          LOCPATH: ""
+          NLSPATH: ""
+          LANGUAGE: ""
+          LC_ALL: ""
+          LANG: ""
+          TZ: ""
+          TZDIR: ""
+          TEXTDOMAINDIR: ""
+          HOSTALIASES: ""
+          RES_OPTIONS: ""
+          LOCALDOMAIN: ""
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          ALL_PROXY: ""
+          NO_PROXY: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_CONFIG_GLOBAL: ""
+          GIT_CONFIG_SYSTEM: ""
+          GIT_EXEC_PATH: ""
+          GH_CONFIG_DIR: ""
+          HOME: /nonexistent
+          TMPDIR: /tmp
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
-          set -euo pipefail
-          echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
-          sha256sum --check --strict --quiet .github/pins.txt
-          python3 -I scripts/check-claude-probe.py read-deny "$EXEC_FILE"
+          export PATH=/usr/bin:/bin
+          set -u
+          echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
+          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/python3 -I scripts/check-claude-probe.py read-deny "$EXEC_FILE"
   oidc:
     # The only job anywhere with id-token: write: the lock must allow exactly this run's OIDC token host, and nginx must
     # accept its long generated name. Prints the token's length only, never the token. From main only, first attempt
@@ -188,7 +332,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
