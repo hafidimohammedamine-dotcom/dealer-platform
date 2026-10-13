@@ -1,3 +1,4 @@
+import { requireText } from './text.js';
 import { breakpoints, colors, focusRing, minTapTarget } from './tokens.js';
 
 // Style and wording rules shared by buttons, inputs, tables and screens.
@@ -82,8 +83,8 @@ export function inputAttributes(p: InputProps): {
   message: string | undefined;
   messagePrefix: string;
 } {
-  if (p.id.trim() === '') throw new Error('Every input needs an id');
-  if (p.label.trim() === '') throw new Error('Every input needs a label');
+  requireText(p.id, 'Every input needs an id, and it');
+  requireText(p.label, 'Every input needs a label, and it');
   const error = p.error !== undefined && p.error.trim() !== '' ? p.error : undefined;
   const message = error ?? p.hint;
   return {
@@ -102,10 +103,6 @@ export interface ScreenState {
   message: string;
   /** Button text. Left out when there is nothing to press. */
   action?: string;
-}
-
-function requireText(value: string, what: string): void {
-  if (value.trim() === '') throw new Error(`${what} cannot be empty`);
 }
 
 /** Empty state: say what is missing and what to do next. */
@@ -157,22 +154,29 @@ export const tableStyles = {
 /** Shown for a value a row does not have, so a gap is never blank. */
 export const missingValue = '—';
 
+/** Keys that could change an object's prototype instead of making a cell. */
+const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Tables need a caption and column labels. On a phone each row becomes a card with the label beside each value. */
 export function tableModel(
   caption: string,
   columns: TableColumn[],
   rows: Record<string, string>[],
 ): { caption: string; columns: TableColumn[]; rows: Record<string, string>[]; empty: boolean } {
-  if (caption.trim() === '') throw new Error('Every table needs a caption');
+  requireText(caption, 'Every table needs a caption, and it');
   const keys = new Set<string>();
   for (const c of columns) {
+    if (unsafeKeys.has(c.key)) throw new Error(`"${c.key}" cannot be used as a column key`);
     if (keys.has(c.key)) throw new Error(`Two columns share the key "${c.key}"`);
     keys.add(c.key);
   }
-  const filled = rows.map((row) => {
-    const out: Record<string, string> = {};
-    for (const c of columns) out[c.key] = row[c.key] ?? missingValue;
-    return out;
-  });
+  const filled = rows.map((row) =>
+    Object.fromEntries(
+      columns.map((c) => {
+        const cell = Object.hasOwn(row, c.key) ? row[c.key] : undefined;
+        return [c.key, typeof cell === 'string' ? cell : missingValue];
+      }),
+    ),
+  );
   return { caption, columns, rows: filled, empty: rows.length === 0 };
 }

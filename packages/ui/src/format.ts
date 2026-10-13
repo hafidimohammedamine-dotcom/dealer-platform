@@ -12,16 +12,25 @@ export function formatMoney(cents: number): string {
 }
 
 /**
- * US phone numbers as (555) 123-4567. Anything else (letters, extensions, wrong length,
- * area code or exchange starting with 0 or 1) is shown as "Phone not valid" so a rep notices.
+ * US phone numbers as (555) 234-5678. A leading 1 or +1 is accepted. Anything else (letters,
+ * extensions, wrong length, an area code or exchange starting with 0 or 1) is shown as "Phone not valid" so a rep notices.
  */
 export function formatPhone(input: string): string {
   let digits = input.replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
-  if (digits.length !== 10 || /^[01]/.test(digits)) {
+  if (digits.length !== 10 || /^[01]/.test(digits) || /^[01]/.test(digits.slice(3))) {
     return 'Phone not valid';
   }
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function isValidZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,6 +41,7 @@ const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
  * Display only: never use this for quiet-hours checks, which depend on the customer's local time.
  */
 export function formatDate(value: Date | string, timeZone: string): string {
+  if (!isValidZone(timeZone)) return 'Date not valid';
   let date: Date;
   let zone = timeZone;
   if (typeof value === 'string') {
