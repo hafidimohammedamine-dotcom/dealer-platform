@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false   # git pushes authenticate through gh (GH_TOKEN), set up below
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "0b7a969d8cbe3720d9db57b9c9723e403a13f4ff388a7ee8a73aac6f7d6a3426"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -93,6 +93,7 @@ jobs:
           # `Skill(payload)` is denied ahead of the vendored Payload skill (#22), which agents get only as a preload
           # together with its override.
       - name: Show blocked tool calls (names and commands only, pinned script)
+        id: blocked
         if: always()
         shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell): absolute, -p
         env:
@@ -114,13 +115,26 @@ jobs:
           LD_DEBUG: ""
           LD_DEBUG_OUTPUT: ""
           LD_PROFILE: ""
+          LD_PROFILE_OUTPUT: ""
           LD_BIND_NOW: ""
+          LD_BIND_NOT: ""
+          LD_TRACE_LOADED_OBJECTS: ""
+          LD_SHOW_AUXV: ""
+          LD_WARN: ""
+          LD_VERBOSE: ""
+          LD_ORIGIN_PATH: ""
+          LD_HWCAP_MASK: ""
+          LD_ASSUME_KERNEL: ""
+          LD_DYNAMIC_WEAK: ""
+          LD_USE_LOAD_BIAS: ""
+          LD_PREFER_MAP_32BIT_EXEC: ""
           GCONV_PATH: ""
           GLIBC_TUNABLES: ""
           MALLOC_CHECK_: ""
           MALLOC_PERTURB_: ""
           MALLOC_TOP_PAD_: ""
           MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_MMAP_MAX_: ""
           MALLOC_TRIM_THRESHOLD_: ""
           MALLOC_ARENA_MAX: ""
           LOCPATH: ""
@@ -145,7 +159,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "0b7a969d8cbe3720d9db57b9c9723e403a13f4ff388a7ee8a73aac6f7d6a3426"
         run: |
           # First line (the checker requires it): entries the Claude session could have added to the GITHUB_PATH file never apply.
           export PATH=/usr/bin:/bin
@@ -155,7 +169,7 @@ jobs:
           # against the pinned hash (a wrong one fails the step).
           echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet
           /usr/bin/sha256sum --check --strict --quiet .github/pins.txt
-          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= /usr/bin/bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks /usr/bin/bash scripts/check-claude-answer.sh blocked "$EXEC_FILE"
   after:
     # A fresh job after the shift (the shift's Claude ran with bypassPermissions and could have written $GITHUB_ENV or
     # $GITHUB_PATH of its own job): the pinned scripts re-check the agents' token and the guard workflows, and that the
@@ -176,7 +190,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "0b7a969d8cbe3720d9db57b9c9723e403a13f4ff388a7ee8a73aac6f7d6a3426"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

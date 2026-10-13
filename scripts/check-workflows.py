@@ -81,7 +81,7 @@ def check_other(where, obj):
 def check_pins_position(fname, jw, steps):
     """Every job outside pins_exempt runs the exact pin step right after its first checkout (before the lock, before any
     repo script): a push that changed a pinned file fails the job before any secret or sudo is used."""
-    if fname in P["pins_exempt"] or not isinstance(steps, list):
+    if fname in P["pins_exempt"] or jw.endswith(f" job {P['hardened_check_job']}") or not isinstance(steps, list):   # the check job runs no repository file
         return
     at = next((i for i, st in enumerate(steps) if isinstance(st, dict) and str(st.get("uses", "")).startswith("actions/checkout@")), None)
     if at is None:
@@ -211,7 +211,9 @@ def check_file(path, required, accounts):
         for jn, job in doc["jobs"].items():
             if isinstance(job, dict) and job.get("permissions") is None:
                 err(f"{name} job {jn}: no permissions (set them on the job or the workflow; the repository's default token is not allowed)")
+    HARDENED.FOUND.clear()
     count = sum(check_job(name, jn, job, required, triggers) for jn, job in doc["jobs"].items())
+    HARDENED.check_hardened_check_job(name, doc)
     if count and doc.get("env"):
         err(f"{name}: no workflow-level env in a workflow with a claude step (use the job's env)")
     if count and "defaults" in doc:
