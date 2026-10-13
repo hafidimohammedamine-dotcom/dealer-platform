@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "a6c559fa057d8f0cb47a64c1750ba63c0d4efe14933001e192a2cff2cbd0c098"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -111,7 +111,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "a6c559fa057d8f0cb47a64c1750ba63c0d4efe14933001e192a2cff2cbd0c098"
         run: |
           # First line (the checker requires it): entries the Claude session could have added to the GITHUB_PATH file never apply.
           export PATH=/usr/bin:/bin
@@ -141,7 +141,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "a6c559fa057d8f0cb47a64c1750ba63c0d4efe14933001e192a2cff2cbd0c098"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

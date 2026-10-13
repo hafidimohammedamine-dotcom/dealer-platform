@@ -36,8 +36,11 @@ Tell each one: "Review only. Do not edit files. The PR is in /tmp/pr and its dif
 CLAUDE.md 'Review policy'; everything else keeps the full zero-findings rule."
 
 ## Step 3 - Decide
-- PASS only if: ci=success and guards=success, and **every** reviewer returned PASS or NOT APPLICABLE with zero findings.
+- PASS only if: ci=success and guards=success, and **security, tester and compliance** each returned PASS or NOT APPLICABLE
+  with zero findings, and the designer (when it ran) raised no finding about data, safety or a rule in CLAUDE.md.
 - Otherwise FAIL.
+- Architect, docs and other designer findings never change the result: list them under `FOLLOW-UPS` (the manager files
+  each as an issue). Never move a security, tester or compliance finding there.
 
 ## Step 4 - Answer (you don't post or label anything)
 Your **final message** is the PR comment, exactly. A fixed workflow step scans it for secrets, posts it and sets the labels
@@ -47,13 +50,18 @@ REVIEW TEAM RESULT: PASS | FAIL
 CI: checks <result> | guards <result>
 SECURITY: PASS/FAIL (<n> findings)   TESTER: ...   ARCHITECT: ...   COMPLIANCE: ...   DESIGNER: ...   DOCS: ...
 
-FINDINGS TO FIX (all required):
+FINDINGS TO FIX (all required; security, tester, compliance, and designer safety findings only):
 1. [security] <file>:<line> - <problem> - <fix>
 2. [tester] ...
 ...
 
+FOLLOW-UPS (not blocking; the manager files each as an issue):
+1. [architect] <file>:<line> - <problem> - <fix>
+2. [docs] ...
+
 FOR THE LAWYER: <only if compliance raised any>
 ```
+Write `FINDINGS TO FIX: none` or `FOLLOW-UPS: none` when a section is empty.
 Then the full report of each reviewer in a collapsed `<details>` block. The first line must be exactly
 `REVIEW TEAM RESULT: PASS` or `REVIEW TEAM RESULT: FAIL`, or the step posts FAIL.
 

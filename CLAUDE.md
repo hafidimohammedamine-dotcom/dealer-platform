@@ -94,14 +94,20 @@ issue with `REQUEST: <folder> - <change> - <why>` and stop. The manager routes i
 9. **Every change ships with tests.** No test, no merge.
 10. **Match `packages/contracts`.** Never invent new shapes for leads, customers, vehicles or deals.
 
-## Review policy: block on everything
-A pull request merges only when **all** of these say PASS with **zero findings at any level**:
-security, tester, architect, compliance, designer (if screens changed). Plus CI is green and a founder merges (by hand,
-or the founders' auto-merge under the conditions above).
-There is no "fix it later". Every finding is fixed in the same pull request.
-Escalation: builder fixes for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1; Opus while Fable usage is unavailable) finds the root cause and fixes it
-itself -> if that still fails review, the PR is `blocked` for the founders.
-The Chief Engineer may edit any folder to fix a root cause, except founders-only files.
+## Review policy: block on safety, file the rest
+A pull request merges only when **security, tester and compliance** say PASS with **zero findings** (designer too when
+it reviewed screens and found a safety or data problem), CI is green, and a founder merges (by hand, or the founders'
+auto-merge under the conditions above). Those findings are fixed in the same pull request; there is no "fix it later"
+for them.
+**Architect, docs and designer findings do not block a merge.** The review lists them under `FOLLOW-UPS`; the manager
+files each as an issue (`follow-up`, the PR's `area:*` and `agent:*` labels, a link to the PR and the finding's text)
+for the same builder, and a follow-up issue is worked like any other issue. A builder may fix a follow-up inside the
+open PR while it is still in a fix round for a blocking finding.
+Escalation: builder fixes blocking findings for 3 rounds -> the **Chief Engineer** (Claude Fable 5.1; Opus while Fable
+usage is unavailable) finds the root cause and fixes it itself -> if blocking findings remain after that, the PR is
+`blocked` for the founders. The Chief Engineer may edit any folder to fix a root cause, except founders-only files.
+(Founder decision 2026-10-13: the first product PRs spent days in review rounds over style and wording while security
+findings were already fixed; safety stays absolute, the rest is tracked, not blocking.)
 
 **Outside (third-party) skills in `.claude/skills/`** (marked `third-party` in `.claude/skills/manifest.txt`) are reviewed for
 risks, not for the quality of their example code. A finding on a third-party skill is only one of: (1) anything that runs, installs or

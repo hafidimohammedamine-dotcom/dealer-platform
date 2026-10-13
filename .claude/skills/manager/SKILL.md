@@ -20,13 +20,20 @@ and never print the environment.
 - If you hit a usage or rate limit, stop cleanly, post the log, and leave the rest for the next shift.
 
 ## Step 1 - Fix what reviewers rejected (always first)
+0. Follow-ups first, for every open PR whose latest `REVIEW TEAM RESULT` comment has a `FOLLOW-UPS` section with items:
+   for each item not yet filed (search open issues for the PR number and the item's `<file>:<line>`), open one issue:
+   title `[follow-up] #<pr>: <problem, short>`, body = the finding's text and a link to the PR comment, labels `follow-up`,
+   the PR's issue `area:*` and `agent:*` labels, `priority:3`, `status:todo`. Comment once on the PR: "Follow-ups filed:
+   #a, #b". A follow-up issue is normal work for Step 2 once the PR is merged.
 1. `gh pr list --label changes-requested --json number,headRefName,labels,title`
 2. For each (oldest first, within the limit):
-   - Find the latest PR comment that starts with `REVIEW TEAM RESULT`.
+   - Find the latest PR comment that starts with `REVIEW TEAM RESULT`. Send the builder the `FINDINGS TO FIX` items
+     (the blocking ones); it may also take the `FOLLOW-UPS` if they are small.
    - Read the round label (`round-1`, `round-2`, `round-3`, `escalated`).
      - Already `round-3` -> **escalate to the Chief Engineer** (Step 1b) instead of the builder.
-     - Already `escalated` (the Chief Engineer's fix also failed review) -> label the PR and its issue `blocked`,
-       comment "Blocked after Chief Engineer - founders please decide" with the remaining findings, and skip it.
+     - Already `escalated` (the Chief Engineer's fix also failed review on blocking findings) -> label the PR and its
+       issue `blocked`, comment "Blocked after Chief Engineer - founders please decide" with the remaining findings,
+       and skip it.
    - `git clone -q --branch <branch> --single-branch "https://github.com/$GITHUB_REPOSITORY" .worktrees/wt-<pr>` (a separate
      clone per builder: in the hosted job `.git` is read-only, so `git worktree add` fails there; a clone works everywhere).
    - Send the owning builder (from the issue's `agent:*` label) **every** finding as a numbered list, the worktree path,
