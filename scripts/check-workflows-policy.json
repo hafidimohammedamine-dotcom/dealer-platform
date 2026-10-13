@@ -183,7 +183,7 @@
  "tag_mode_job_if": "!github.event.issue.pull_request",
  "post_pin_check": "sha256sum --check --strict",
  "post_claude_shell": "/usr/bin/bash --noprofile --norc -p -eo pipefail {0}",
- "post_claude_require_shell": false,
+ "post_claude_require_shell": true,
  "post_claude_run_first": "export PATH=/usr/bin:/bin",
  "post_claude_run_prefix": [
   "set -u",

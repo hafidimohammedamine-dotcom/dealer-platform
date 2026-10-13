@@ -184,12 +184,10 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     absolute path, or a pinned script in a fresh environment: a child `bash scripts/...` never sees `BASH_ENV`,
     `SHELLOPTS` or a planted function either.
   - `a run step after the claude step must set shell: ... (policy post_claude_require_shell)` - when the policy flag is
-    `true`, every run step after the claude step must be a hardened one. It is `false` on main today: the post-Claude
-    steps (the hand-off steps and the egress-lock probe steps) still run in the default shell, with none of the above.
-    PR #44 hardens those steps and sets the flag; until it merges, a step without the hardened shell gets no protection
-    from `$GITHUB_ENV` or `$GITHUB_PATH` beyond its pin check (`sha256sum` is then found through `PATH`). Founder
-    decision (changelog `2026-10-11-post-claude-shell.md`): the two PRs cannot be one, because the guards run main's
-    checker over a PR's tree.
+    `true`, every run step after the claude step must be a hardened one. It is `true`: the five hand-off steps and the
+    three egress-lock probe steps are hardened, and no other run step may follow a claude step (a step without the
+    hardened shell would get no protection from `$GITHUB_ENV` or `$GITHUB_PATH` beyond its pin check, with `sha256sum`
+    itself found through `PATH`).
   - The other post-claude rules apply to every step after the claude step, hardened or not: no local action, the pin
     check before any `scripts/` or `/tmp/gitleaks` (comment lines do not count), no PR data, no `git` moves.
 - `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with
