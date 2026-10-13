@@ -9,11 +9,13 @@ describe('@dealer/data exports', () => {
       'DEFAULT_LIMIT',
       'MAX_DEPTH',
       'MAX_LIMIT',
+      'MAX_PAGE',
       'NotFoundError',
       'TENANT_FIELD',
       'TenantAccessError',
       'forTenant',
       'packageName',
+      'tenantIdsOf',
     ]);
   });
 

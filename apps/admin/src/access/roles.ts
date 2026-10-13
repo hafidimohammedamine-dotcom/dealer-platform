@@ -24,29 +24,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-/** The role of a logged-in user, or null (no user, or an unknown value: deny by default). */
+/**
+ * The role of a logged-in user, or null (no user, an unknown value, or a deactivated user: deny by default). Users are
+ * never deleted; setting `active` to false removes every right at once.
+ */
 export function roleOf(user: unknown): Role | null {
-  if (!isRecord(user)) return null;
+  if (!isRecord(user) || user['active'] === false) return null;
   const role = user['role'];
   return isRole(role) ? role : null;
-}
-
-/** The dealer IDs on a user, read from the fixed `tenants` array (never from the email or any editable text). */
-export function tenantIdsOf(user: unknown): Array<string | number> {
-  if (!isRecord(user)) return [];
-  const rows = user['tenants'];
-  if (!Array.isArray(rows)) return [];
-  const ids: Array<string | number> = [];
-  for (const row of rows) {
-    if (!isRecord(row)) continue;
-    const tenant = row['tenant'];
-    if (typeof tenant === 'string' || typeof tenant === 'number') ids.push(tenant);
-    else if (isRecord(tenant)) {
-      const id = tenant['id'];
-      if (typeof id === 'string' || typeof id === 'number') ids.push(id);
-    }
-  }
-  return ids;
 }
 
 export function userIdOf(user: unknown): string | number | null {
@@ -61,13 +46,3 @@ export const denyAll = (): boolean => false;
 export const isStaff = ({ req }: UserArgs): boolean => roleOf(req.user) !== null;
 
 export const isAdmin = ({ req }: UserArgs): boolean => roleOf(req.user) === 'admin';
-
-export const hasRole =
-  (...allowed: Role[]) =>
-  ({ req }: UserArgs): boolean => {
-    const role = roleOf(req.user);
-    return role !== null && allowed.includes(role);
-  };
-
-export const adminFieldAccess = ({ req }: UserArgs): boolean => roleOf(req.user) === 'admin';
-export const denyFieldAccess = (): boolean => false;

@@ -1,6 +1,6 @@
 # Runbook: PAYLOAD_SECRET or FIELD_ENCRYPTION_KEY leaked or lost
 
-**Status: partly planned.** Both keys are reserved environment variables, and no code reads them yet. There is no
+**Status: partly planned.** `PAYLOAD_SECRET` is read by `apps/admin` at start-up (issue #5). `FIELD_ENCRYPTION_KEY` is still a reserved variable that no code reads. There is no
 rotation script, no re-encryption tool, no key version field and no backup check. Steps marked **(not built)** need
 tooling that does not exist yet. Do the rest by hand, and tell the founders which parts you could not do.
 
@@ -18,7 +18,7 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 
 - **`PAYLOAD_SECRET`** signs Payload logins and encrypts the Payload API keys stored in the database. Anyone who has it may
   be able to forge a login, and with a copy of the database can read the stored API keys. If it changes, every Payload
-  API key must be regenerated. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. This repo does not install Payload yet, so it is re-checked against the pinned version's source in issue #5.
+  API key must be regenerated. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. Re-checked against the pinned version (Payload 3.90.2) in issue #5: API keys are not enabled on any collection today, so nothing is stored under this encryption yet; rotation still logs everyone out.
 - **`FIELD_ENCRYPTION_KEY`** encrypts sensitive fields at rest (`CLAUDE.md`, non-negotiable rule 7). Someone with the key
   and a copy of the database can read those fields. If the key is lost, the fields cannot be read at all.
 

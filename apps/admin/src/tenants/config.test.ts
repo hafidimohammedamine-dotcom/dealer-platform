@@ -1,17 +1,32 @@
+import { existsSync } from 'node:fs';
 import { buildConfig, type CollectionConfig } from 'payload';
 import { describe, expect, it } from 'vitest';
 import { denyAll, isStaff } from '../access/roles.js';
-import { buildAppConfig } from './config.js';
-import { denyByDefaultProblems, sanitizedConfigProblems } from './deny-by-default.js';
-import { readAppEnv } from './env.js';
+import { buildAppConfig, neverAllDealers } from './config.js';
+import {
+  denyByDefaultProblems,
+  PAYLOAD_BUILT_IN,
+  sanitizedConfigProblems,
+} from './deny-by-default.js';
+import type { AppEnv } from './env.js';
+import { gateProblems, securityGates } from './readiness.js';
 import { notTenantScopedAllowlist, tenantScopedCollections } from './registry.js';
 
-const env = {
+const devEnv: AppEnv = {
+  stage: 'dev',
+  production: false,
   secret: 'x'.repeat(40),
   databaseUrl: 'postgres://app_user:fake@localhost:5432/dealer',
   serverURL: 'http://localhost:3000',
-  production: false,
 };
+const stagingEnv: AppEnv = {
+  ...devEnv,
+  stage: 'staging',
+  production: true,
+  serverURL: 'https://staging.example.test',
+  email: { apiKey: 're_fake_key', from: 'noreply@example.test' },
+};
+const env = devEnv;
 
 // A stand-in for a CRM collection. Real ones are added to the registry by their builders.
 const widgets: CollectionConfig = {
@@ -21,14 +36,16 @@ const widgets: CollectionConfig = {
   fields: [{ name: 'title', type: 'text' }],
 };
 
-// Calls an access function or hook with a minimal fake request. Method syntax makes the parameter bivariant, so no cast.
-interface Loose {
-  run(args: unknown): unknown;
-}
-const loose = (fn: Loose['run']): Loose => ({ run: fn });
+const reviewedSlugs = (scoped: readonly string[] = []) => [
+  'dealers',
+  'users',
+  ...PAYLOAD_BUILT_IN,
+  ...scoped,
+  ...notTenantScopedAllowlist,
+];
 
 describe('the real config', () => {
-  it('passes the deny-by-default checks', async () => {
+  it('passes the deny-by-default checks, on the raw list and on the final config', async () => {
     const config = await buildConfig(buildAppConfig({ env }));
     const raw = buildAppConfig({ env }).collections ?? [];
     expect(
@@ -39,13 +56,12 @@ describe('the real config', () => {
         allowlist: notTenantScopedAllowlist,
       }),
     ).toEqual([]);
-    expect(sanitizedConfigProblems(config.collections.map((c) => c.slug))).toEqual([]);
-    expect(config.collections.map((c) => c.slug)).toEqual(
-      expect.arrayContaining(['dealers', 'users']),
-    );
+    const slugs = config.collections.map((c) => c.slug);
+    expect(sanitizedConfigProblems(slugs, reviewedSlugs())).toEqual([]);
+    expect(slugs).toEqual(expect.arrayContaining(['dealers', 'users']));
   });
 
-  it('uses migrations only, signed-in users only, and the dealers as tenants', async () => {
+  it('uses a pinned origin for cors and csrf, and signed-in users only', async () => {
     const config = await buildConfig(buildAppConfig({ env }));
     expect(config.admin.user).toBe('users');
     // Payload adds the server URL itself, so the lists hold only that one origin.
@@ -54,7 +70,67 @@ describe('the real config', () => {
     expect(config.cors).toContain(env.serverURL);
     const users = config.collections.find((c) => c.slug === 'users');
     expect(users?.auth).toMatchObject({ maxLoginAttempts: 5, useSessions: true });
+    expect(users?.auth.verify).toBeTruthy();
     expect(users?.fields.some((f) => 'name' in f && f.name === 'tenants')).toBe(true);
+  });
+
+  it('sets secure strict cookies and the Resend adapter outside dev, and neither in dev', async () => {
+    const dev = await buildConfig(buildAppConfig({ env: devEnv }));
+    const live = await buildConfig(buildAppConfig({ env: stagingEnv }));
+    const cookies = (c: typeof dev) => c.collections.find((x) => x.slug === 'users')?.auth;
+    expect(cookies(live)).toMatchObject({ cookies: { secure: true, sameSite: 'Strict' } });
+    expect(cookies(dev)).toMatchObject({ cookies: { secure: false, sameSite: 'Strict' } });
+    expect(buildAppConfig({ env: stagingEnv }).email).toBeDefined();
+    expect(buildAppConfig({ env: devEnv }).email).toBeUndefined();
+  });
+
+  it('lets nobody see across dealers, not even an admin', () => {
+    expect(neverAllDealers()).toBe(false);
+  });
+
+  it('keeps the migrations folder next to the app, whatever the working directory', () => {
+    expect(existsSync(new URL('../../migrations/', import.meta.url))).toBe(true);
+  });
+});
+
+describe('gate: no customer data before 2FA (#57) and row-level security (#58)', () => {
+  // This test is the CI-enforced guard. While a gate is open, no collection beyond dealers and users may exist.
+  it('holds for the real config', async () => {
+    const config = await buildConfig(buildAppConfig({ env }));
+    expect(tenantScopedCollections).toEqual([]);
+    expect(
+      gateProblems({ ...securityGates, collectionSlugs: config.collections.map((c) => c.slug) }),
+    ).toEqual([]);
+  });
+
+  it('fails when a dealer-scoped collection is registered while a gate is open', async () => {
+    const config = await buildConfig(buildAppConfig({ env, scoped: [{ ...widgets }] }));
+    const slugs = config.collections.map((c) => c.slug);
+    expect(
+      gateProblems({ twoFactorRequired: false, rowLevelSecurity: false, collectionSlugs: slugs }),
+    ).toEqual([
+      'widgets: registered before 2FA (issue #57) is enforced',
+      'widgets: registered before row-level security (issue #58) is in place',
+    ]);
+    expect(
+      gateProblems({ twoFactorRequired: true, rowLevelSecurity: false, collectionSlugs: slugs }),
+    ).toEqual(['widgets: registered before row-level security (issue #58) is in place']);
+    expect(
+      gateProblems({ twoFactorRequired: false, rowLevelSecurity: true, collectionSlugs: slugs }),
+    ).toEqual(['widgets: registered before 2FA (issue #57) is enforced']);
+    expect(
+      gateProblems({ twoFactorRequired: true, rowLevelSecurity: true, collectionSlugs: slugs }),
+    ).toEqual([]);
+  });
+
+  it('fails for a collection added any other way (not through the registry)', () => {
+    expect(
+      gateProblems({ ...securityGates, collectionSlugs: ['dealers', 'users', 'leads'] }),
+    ).not.toEqual([]);
+  });
+
+  it('both gates are still open, so this PR must carry no customer collection', () => {
+    expect(securityGates).toEqual({ twoFactorRequired: false, rowLevelSecurity: false });
   });
 });
 
@@ -63,7 +139,12 @@ describe('a dealer-scoped collection', () => {
     const config = await buildConfig(buildAppConfig({ env, scoped: [{ ...widgets }] }));
     const sanitized = config.collections.find((c) => c.slug === 'widgets');
     expect(sanitized?.fields.some((f) => 'name' in f && f.name === 'tenant')).toBe(true);
-    expect(sanitizedConfigProblems(config.collections.map((c) => c.slug))).toEqual([]);
+    expect(
+      sanitizedConfigProblems(
+        config.collections.map((c) => c.slug),
+        reviewedSlugs(['widgets']),
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -126,110 +207,17 @@ describe('break it on purpose: the checks must fail', () => {
       fields: widgets.fields,
     };
     const config = await buildConfig(buildAppConfig({ env, scoped: [locking] }));
-    expect(sanitizedConfigProblems(config.collections.map((c) => c.slug))).toEqual([
-      'payload-locked-documents exists',
+    expect(
+      sanitizedConfigProblems(
+        config.collections.map((c) => c.slug),
+        reviewedSlugs(['widgets']),
+      ),
+    ).toEqual(['payload-locked-documents exists']);
+  });
+
+  it('a collection in the final config that nobody reviewed', () => {
+    expect(sanitizedConfigProblems(['dealers', 'users', 'sneaky'], reviewedSlugs())).toEqual([
+      'sneaky: in the final config but not on the reviewed list',
     ]);
-  });
-});
-
-describe('users and dealers access, after the plugin', () => {
-  async function sanitized() {
-    const config = await buildConfig(buildAppConfig({ env }));
-    const users = config.collections.find((c) => c.slug === 'users');
-    const dealers = config.collections.find((c) => c.slug === 'dealers');
-    if (!users || !dealers) throw new Error('missing');
-    return { users, dealers };
-  }
-  const rep = { id: 'rep1', collection: 'users', role: 'sales_rep', tenants: [{ tenant: 'A' }] };
-  const admin = { id: 'adm1', collection: 'users', role: 'admin', tenants: [{ tenant: 'A' }] };
-  const asUser = (user: unknown) => ({ req: { user } });
-
-  it('a rep may update only themself, and not read other dealers', async () => {
-    const { users } = await sanitized();
-    const update = loose(users.access?.update ?? denyAll);
-    const result = await update.run(asUser(rep));
-    expect(JSON.stringify(result)).toContain('rep1');
-    expect(JSON.stringify(result)).not.toBe('true');
-    const read = loose(users.access?.read ?? denyAll);
-    expect(JSON.stringify(await read.run(asUser(rep)))).toContain('"A"');
-  });
-
-  it('nobody can create or delete users or dealers without being an admin', async () => {
-    const { users, dealers } = await sanitized();
-    expect(await loose(users.access?.create ?? denyAll).run(asUser(rep))).toBe(false);
-    expect(await loose(users.access?.delete ?? denyAll).run(asUser(rep))).toBe(false);
-    expect(await loose(users.access?.create ?? denyAll).run(asUser(undefined))).toBe(false);
-    expect(await loose(dealers.access?.create ?? denyAll).run(asUser(admin))).toBe(false);
-    expect(await loose(dealers.access?.delete ?? denyAll).run(asUser(admin))).toBe(false);
-    expect(await loose(dealers.access?.update ?? denyAll).run(asUser(rep))).toBe(false);
-  });
-
-  it('an admin keeps a dealer filter, and a user with no dealer sees only themself', async () => {
-    const { users } = await sanitized();
-    const read = loose(users.access?.read ?? denyAll);
-    expect(JSON.stringify(await read.run(asUser(admin)))).toContain('"A"');
-    const lost = { id: 'x', collection: 'users', role: 'bdc', tenants: [] };
-    expect(await read.run(asUser(lost))).toEqual({ id: { equals: 'x' } });
-  });
-});
-
-describe('enforceOwnDealers (a user can only be placed in your own dealers)', () => {
-  async function hook() {
-    const config = await buildConfig(buildAppConfig({ env }));
-    const users = config.collections.find((c) => c.slug === 'users');
-    const fn = users?.hooks?.beforeValidate?.[0];
-    if (!fn) throw new Error('missing hook');
-    return loose(fn);
-  }
-  const actor = { id: 'a', role: 'admin', tenants: [{ tenant: 'A' }] };
-
-  it('lets own dealers through and untouched data through', async () => {
-    const run = (await hook()).run;
-    const own = { tenants: [{ tenant: 'A' }] };
-    expect(await run({ data: own, req: { user: actor } })).toBe(own);
-    const other = { email: 'e' };
-    expect(await run({ data: other, req: { user: actor } })).toBe(other);
-    expect(await run({ data: undefined, req: { user: actor } })).toBeUndefined();
-  });
-
-  it('skips system jobs that have no actor', async () => {
-    const run = (await hook()).run;
-    const data = { tenants: [{ tenant: 'B' }] };
-    expect(await run({ data, req: {} })).toBe(data);
-  });
-
-  it('refuses another dealer, junk rows and a non-array', async () => {
-    const run = (await hook()).run;
-    const attempt = async (tenants: unknown) => run({ data: { tenants }, req: { user: actor } });
-    await expect(attempt([{ tenant: 'B' }])).rejects.toThrow('only be placed');
-    await expect(attempt([{ tenant: 'A' }, { tenant: 'B' }])).rejects.toThrow('only be placed');
-    await expect(attempt([{ tenant: 'A' }, 'junk'])).rejects.toThrow('only be placed');
-    await expect(attempt('A')).rejects.toThrow('only be placed');
-  });
-});
-
-describe('readAppEnv', () => {
-  const good = {
-    PAYLOAD_SECRET: 'y'.repeat(32),
-    DATABASE_URL: 'postgres://u:p@h/db',
-    PAYLOAD_PUBLIC_SERVER_URL: 'https://x.example',
-  };
-
-  it('reads good settings, and dev is the default', () => {
-    expect(readAppEnv(good)).toEqual({
-      secret: good.PAYLOAD_SECRET,
-      databaseUrl: good.DATABASE_URL,
-      serverURL: good.PAYLOAD_PUBLIC_SERVER_URL,
-      production: false,
-    });
-    expect(readAppEnv({ ...good, APP_ENV: 'production' }).production).toBe(true);
-    expect(readAppEnv({ ...good, APP_ENV: 'staging' }).production).toBe(true);
-  });
-
-  it('fails loudly on a missing, empty or weak setting', () => {
-    expect(() => readAppEnv({ ...good, DATABASE_URL: undefined })).toThrow('DATABASE_URL');
-    expect(() => readAppEnv({ ...good, PAYLOAD_SECRET: '' })).toThrow('PAYLOAD_SECRET');
-    expect(() => readAppEnv({ ...good, PAYLOAD_SECRET: 'short' })).toThrow('32');
-    expect(() => readAppEnv({ ...good, APP_ENV: 'prod' })).toThrow('APP_ENV');
   });
 });

@@ -1,11 +1,13 @@
 export {
   forTenant,
+  tenantIdsOf,
   TenantAccessError,
   NotFoundError,
   TENANT_FIELD,
   MAX_DEPTH,
   DEFAULT_LIMIT,
   MAX_LIMIT,
+  MAX_PAGE,
 } from './tenant-data.js';
 export type {
   TenantData,

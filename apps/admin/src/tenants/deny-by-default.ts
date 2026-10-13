@@ -36,7 +36,30 @@ export function denyByDefaultProblems(input: DenyByDefaultInput): string[] {
   return problems;
 }
 
-/** Problems in the final config: Payload's locked-documents collection (open to every logged-in user) must not exist. */
-export function sanitizedConfigProblems(collectionSlugs: readonly string[]): string[] {
-  return collectionSlugs.includes(LOCKED_DOCUMENTS_SLUG) ? [`${LOCKED_DOCUMENTS_SLUG} exists`] : [];
+/**
+ * Collections Payload adds by itself (bookkeeping, no customer data). Reviewed one by one in Payload 3.90.2:
+ * `payload-kv` has create, read, update and delete set to false in Payload's own source.
+ */
+export const PAYLOAD_BUILT_IN: readonly string[] = [
+  'payload-preferences',
+  'payload-migrations',
+  'payload-kv',
+];
+
+/**
+ * Problems in the final config, after Payload and the plugins added their own collections: the locked-documents
+ * collection (open to every logged-in user) must not exist, and every collection must be on the reviewed list.
+ */
+export function sanitizedConfigProblems(
+  collectionSlugs: readonly string[],
+  reviewed: readonly string[],
+): string[] {
+  const problems: string[] = [];
+  if (collectionSlugs.includes(LOCKED_DOCUMENTS_SLUG))
+    problems.push(`${LOCKED_DOCUMENTS_SLUG} exists`);
+  for (const slug of collectionSlugs) {
+    if (slug !== LOCKED_DOCUMENTS_SLUG && !reviewed.includes(slug))
+      problems.push(`${slug}: in the final config but not on the reviewed list`);
+  }
+  return problems;
 }

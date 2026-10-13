@@ -65,13 +65,17 @@ Notes:
   workspace's own `dist/` and `coverage/`. A config test fails if git tracks any file in those folders (apart from the founder-owned
   `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.
 - Inline `eslint-disable` comments are off (`noInlineConfig`). A rule exception goes in `eslint.config.mjs`, where review sees it.
-- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are not enforced by lint yet.** There is no Payload ban rule in
-  this repo today. Payload is not installed (issue #5 adds it), so no code here can reach a Payload instance or its Local
-  API. The ban is built in issue [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36) as a
-  type-aware rule (it flags any value whose type is the Payload instance, however it was reached), and #36 must be done
-  before the PR that adds `payload` may merge. Until then, Payload rule 1 rests on the security reviewer alone.
-- The other locks are planned, not built: Postgres row-level security (Payload rule 2) and the cross-dealer leak tests
-  (Payload rule 3) do not exist yet. Today nothing in the repo holds dealer data, so there is nothing for them to guard.
+- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are not enforced by lint yet.** Payload 3.90.2 is installed
+  (issue #5, `apps/admin`), so code can now reach a Payload instance. The ban is built in issue
+  [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36) as a type-aware rule (it flags any value
+  whose type is the Payload instance, however it was reached). **#36 must land before the pull request that adds `payload`
+  may be labeled `ready-to-merge`**; the founders keep that block in place. Until then, Payload rule 1 rests on the
+  security reviewer alone. `packages/data` is the only intended caller of the Local API.
+- The other locks are planned, not built: Postgres row-level security (Payload rule 2, issue #58), the cross-dealer leak and
+  attack suite on real Postgres (Payload rules 3 and 13, issue #60) and 2FA (Payload rule 9, issue #57). Today the app has
+  only the `dealers` and `users` collections, and no customer data is stored. A config test (`apps/admin/src/tenants/config.test.ts`,
+  using `readiness.ts`) **fails CI if any other collection is registered** while #57 or #58 is open, so customer data cannot
+  land before them.
 - `eslint.config.mjs` and the root `lint` script are not founder-only files today, so an agent PR can change them and
   only review would see it. The founders track making the lint guard founder-only in issue #46.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.

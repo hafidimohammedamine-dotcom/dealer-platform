@@ -1,17 +1,28 @@
 # Environment variables
 
-The template is `.env.example` in the repo root. It lists 26 variables. This page explains each one.
+The template is `.env.example` in the repo root. It lists 27 variables. This page explains each one.
 The tests in `infra/checks` (`src/repo-files.test.ts`) check that the template, its expected-names list and this page match,
 and that the values in the template follow the rules below.
 
 Placeholders on this page look like `<password>`. Never write a real-looking value in docs, issues, PR comments, logs or chat.
 
-## Status today: all 26 are reserved
+## Status today: four variables are read, the rest are reserved
 
-No code reads any of the 26 listed variables yet. This was checked with a search of `apps/`, `services/`, `packages/`,
-`infra/` and `scripts/`. (A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads
-none of these names.) So every variable below is **reserved**: named and documented, but no code uses it.
-Setting one changes nothing yet.
+`apps/admin` (issue #5, slice 1) reads four variables when it starts, in `apps/admin/src/tenants/env.ts`
+(`readAppEnv`). Plus two email variables outside dev. The app **refuses to start** when one is wrong; nothing has a default.
+(A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads none of these names.)
+Every other variable below is **reserved**: named and documented, but no code uses it. Setting one changes nothing yet.
+
+Start-up rules, checked by tests in `apps/admin/src/tenants/env.test.ts`:
+
+- `APP_ENV` must be `dev`, `staging` or `production`. There is no default: a missing value stops the app (fail closed).
+  Outside `dev` the app uses secure, same-site-strict cookies and needs the email settings.
+- `PAYLOAD_SECRET` must be at least 32 characters.
+- `DATABASE_URL` must not be empty or blank.
+- `PAYLOAD_PUBLIC_SERVER_URL` must be a full URL. Outside `dev` it must use `https`. The app allows only this one
+  origin for CORS and CSRF.
+- `RESEND_API_KEY` and `EMAIL_FROM` are required outside `dev` (verification and password-reset emails). In `dev` Payload
+  writes emails to the console.
 
 ## Rules for values
 
@@ -32,15 +43,16 @@ Setting one changes nothing yet.
 
 | Variable                      | Secret?                      | What it is for                                                       | Used by code today? |
 | ----------------------------- | ---------------------------- | -------------------------------------------------------------------- | ------------------- |
-| `APP_ENV`                     | No                           | `dev`, `staging` or `production`                                     | No (reserved)       |
-| `PAYLOAD_PUBLIC_SERVER_URL`   | No                           | Public address of the admin app, used for links                      | No (reserved)       |
-| `DATABASE_URL`                | Yes                          | App connection to Postgres. Under row-level security. See below      | No (reserved)       |
+| `APP_ENV`                     | No                           | `dev`, `staging` or `production`                                     | Yes (required)      |
+| `PAYLOAD_PUBLIC_SERVER_URL`   | No                           | Public address of the admin app, used for links                      | Yes (required)      |
+| `DATABASE_URL`                | Yes                          | App connection to Postgres. Under row-level security. See below      | Yes (required)      |
 | `MIGRATION_DATABASE_URL`      | Yes                          | Owner connection for the migration job only. See below               | No (reserved)       |
 | `DESKING_DATABASE_URL`        | Yes                          | Connection to the encrypted credit and finance schema. See below     | No (reserved)       |
 | `REDIS_URL`                   | Yes in production            | Redis for BullMQ queues. Local default has no password               | No (reserved)       |
-| `PAYLOAD_SECRET`              | Yes                          | Signs Payload logins and encrypts stored Payload API keys. See below | No (reserved)       |
+| `PAYLOAD_SECRET`              | Yes                          | Signs Payload logins and encrypts stored Payload API keys. See below | Yes (required)      |
 | `FIELD_ENCRYPTION_KEY`        | Yes                          | 32-byte key (base64) for sensitive fields at rest. See backup below  | No (reserved)       |
-| `RESEND_API_KEY`              | Yes                          | Sends email through Resend                                           | No (reserved)       |
+| `RESEND_API_KEY`              | Yes                          | Sends email through Resend                                           | Yes (outside dev)   |
+| `EMAIL_FROM`                  | No                           | Sender address for Payload emails. Required outside dev              | Yes (outside dev)   |
 | `RESEND_WEBHOOK_SECRET`       | Yes                          | Checks Resend webhooks                                               | No (reserved)       |
 | `TELNYX_API_KEY`              | Yes                          | Sends and receives texts through Telnyx                              | No (reserved)       |
 | `TELNYX_PUBLIC_KEY`           | No (public key)              | Checks Telnyx webhooks. Keep it in env anyway                        | No (reserved)       |
@@ -69,13 +81,19 @@ Format: `postgres://<role>:<password>@<host>:5432/<database>`
 - The app connects with this role. **The role must not own the tables.**
 - Postgres row-level security on the dealer (tenant) column is the second lock. Every CRM table gets
   `FORCE ROW LEVEL SECURITY`, and the app sets the dealer for each transaction.
-- Status: the roles, tables and policies do not exist in this repo yet. The variable is reserved.
+- Status: the app reads this variable and passes it to Payload's Postgres adapter. The roles, the `FORCE ROW LEVEL SECURITY`
+  policies and the per-transaction dealer setting do **not** exist yet (issue #58). Until then the app role is whatever
+  role the URL names, and the only protection between dealers is the access code and the tenant-safe helper. A config test
+  fails CI if any customer-data collection is registered before issue #58 and 2FA (issue #57) are done.
 
 **`MIGRATION_DATABASE_URL` (owner role)**
 
 - Only the one migration job in CI uses it, before deploy. It runs schema changes.
 - The app never uses it. It is never used at container start.
-- Status: there is no migration job in `ci.yml` yet. Planned, not built.
+- Status: the migration **path is not built**. Payload's `push` is off and the first migration is committed in
+  `apps/admin/migrations/`, but there is no CI job that runs it, and the app has no second connection for it
+  (it passes `DATABASE_URL` to the adapter). Until a founder or devops decides the migration role and the CI job
+  (issue #58), nobody applies migrations in staging or production, and no dealer data is stored.
 
 **`DESKING_DATABASE_URL` (credit and finance schema)**
 
@@ -92,7 +110,7 @@ Format: `postgres://<role>:<password>@<host>:5432/<database>`
   password manager. Do not paste it in chat or in an issue.
 - Restart the container so it reads the new value. Users sign in again, with 2FA.
 - Payload also uses this secret to encrypt the API keys it stores. After rotation, re-issue all Payload API keys; treat
-  stored API keys as exposed. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. This repo does not install Payload yet, so it is re-checked against the pinned version's source in issue #5.
+  stored API keys as exposed. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. Re-checked against the pinned version (Payload 3.90.2) in issue #5: API keys are not enabled on any collection, so no API key is encrypted with this secret today. The secret still signs logins and reset links.
 - Payload may use this secret for other signed values, such as reset links. Expect those to stop working after rotation.
 - Status: this is a manual procedure. No rotation script exists.
 - If the secret leaked, follow [Key leak or loss](../runbooks/key-leak-or-loss.md).

@@ -1,15 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  adminFieldAccess,
-  denyAll,
-  denyFieldAccess,
-  hasRole,
-  isAdmin,
-  isStaff,
-  roleOf,
-  tenantIdsOf,
-  userIdOf,
-} from './roles.js';
+import { denyAll, isAdmin, isStaff, roleOf, userIdOf } from './roles.js';
 
 // The access functions only read `req.user`, so the tests hand them just that.
 function args(user: unknown): { req: { user: unknown } } {
@@ -24,25 +14,10 @@ describe('roleOf', () => {
     expect(roleOf(null)).toBeNull();
     expect(roleOf('admin')).toBeNull();
   });
-});
 
-describe('tenantIdsOf', () => {
-  it('reads IDs from ids and populated objects, and ignores junk', () => {
-    expect(
-      tenantIdsOf({
-        tenants: [
-          { tenant: 'a' },
-          { tenant: 2 },
-          { tenant: { id: 'c' } },
-          { tenant: { id: {} } },
-          { tenant: null },
-          5,
-          null,
-        ],
-      }),
-    ).toEqual(['a', 2, 'c']);
-    expect(tenantIdsOf({ tenants: 'x' })).toEqual([]);
-    expect(tenantIdsOf(undefined)).toEqual([]);
+  it('gives a deactivated user no role at all', () => {
+    expect(roleOf({ role: 'admin', active: false })).toBeNull();
+    expect(roleOf({ role: 'admin', active: true })).toBe('admin');
   });
 });
 
@@ -56,10 +31,11 @@ describe('userIdOf', () => {
 });
 
 describe('access functions', () => {
-  it('deny with no user or an unknown role', () => {
-    for (const fn of [isStaff, isAdmin, hasRole('admin', 'bdc')]) {
+  it('deny with no user, an unknown role or a deactivated user', () => {
+    for (const fn of [isStaff, isAdmin]) {
       expect(fn(args(undefined))).toBe(false);
       expect(fn(args({ role: 'hacker' }))).toBe(false);
+      expect(fn(args({ role: 'admin', active: false }))).toBe(false);
     }
     expect(denyAll()).toBe(false);
   });
@@ -68,13 +44,5 @@ describe('access functions', () => {
     expect(isStaff(args({ role: 'sales_rep' }))).toBe(true);
     expect(isAdmin(args({ role: 'admin' }))).toBe(true);
     expect(isAdmin(args({ role: 'bdc' }))).toBe(false);
-    expect(hasRole('desking_manager')(args({ role: 'desking_manager' }))).toBe(true);
-    expect(hasRole('desking_manager')(args({ role: 'bdc' }))).toBe(false);
-  });
-
-  it('field access follows the same rules', () => {
-    expect(adminFieldAccess(args({ role: 'admin' }))).toBe(true);
-    expect(adminFieldAccess(args({ role: 'bdc' }))).toBe(false);
-    expect(denyFieldAccess()).toBe(false);
   });
 });
