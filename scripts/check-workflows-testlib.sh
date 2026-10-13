@@ -42,9 +42,47 @@ SH='/usr/bin/bash --noprofile --norc -p -eo pipefail {0}'
 EV=$(python3 -I -c 'import json, sys; P = json.load(open(sys.argv[1])); print("        env:\n" + "".join(f"          {k}: \"\"\n" for k in P["post_claude_empty_env"]) + "".join(f"          {k}: {v}\n" for k, v in P["post_claude_fixed_env"].items()) + f"          PINS_SHA256: \"{sys.argv[2]}\"\n          EXEC_FILE: f\n", end="")' "$(dirname "$PY")/check-workflows-policy.json" "$PINS_HASH")   # the full env block of a hardened step (real newlines, no trailing one)
 repin() { bash "$T/scripts/check-pins.sh" update "$T" >/dev/null; }   # after editing a pinned file in the copy
 PIN1='          echo "$PINS_SHA256  .github/pins.txt" | /usr/bin/sha256sum --check --strict --quiet\n          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt\n'
-SCR='          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks GITLEAKS_SHA256= /usr/bin/bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"\n'
-RUN="        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1$SCR"
-hs() { printf '%b' "      - shell: $SH\n$1" >> "$T/$W/t.yml"; }   # a step with the hardened shell after the claude step, then the given keys
+SCR='          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks /usr/bin/bash scripts/check-claude-answer.sh answer "$EXEC_FILE" >> "$GITHUB_OUTPUT"\n'
+MARK='          echo "hardened=ok" >> "$GITHUB_OUTPUT"\n'
+RUN="        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1$SCR"   # a hand-off body without the marker (allowed while post_claude_require_marker is false)
+MRUN="$RUN$MARK"   # the same body ending with the marker line
+marker_on() { sed -i 's|"post_claude_require_marker": false|"post_claude_require_marker": true|' "$T/scripts/check-workflows-policy.json"; repin; }   # then run the COPY's checker: SCRIPT="$T/scripts/check-workflows.sh" expect ...
+# sync_hardened: give every step of job `a` that has the hardened shell an id (h1, h2, ...) if it has none; for the steps
+# that end with the marker line, write the job's outputs (<id>_ran) and the hardened-check job at the end of the file
+# (replacing an old one), as the checker expects.
+sync_hardened() { python3 -I - "$T/$W/t.yml" "$SH" "${1:-}" <<'PYSYNC'   # [step text to append to job a first]
+import re, sys
+p, sh, add = sys.argv[1:4]; s = open(p).read()
+s = s.split("\n  hardened-check:\n", 1)[0].rstrip("\n") + "\n" + add
+s = re.sub(r"\n    outputs:\n(?:      \S+_ran: .*\n)+", "\n", s)
+lines = s.split("\n"); steps = []   # [first line index, has the shell, id]
+for i, line in enumerate(lines):
+    if line.startswith("      - "):
+        steps.append([i, False, None])
+    if steps and line.lstrip(" -") == "shell: " + sh:
+        steps[-1][1] = True
+    if steps and line.strip() == 'echo "hardened=ok" >> "$GITHUB_OUTPUT"':
+        steps[-1].append("marked")
+    m = re.match(r" {6}[ -] id: ([a-z][a-z0-9-]*)$", line)
+    if m and steps:
+        steps[-1][2] = m.group(1)
+ids = []
+for n, (i, hard, sid, *marked) in enumerate(reversed(steps)):
+    if hard and sid is None:
+        sid = f"h{len(steps) - n}"; lines.insert(i + 1, f"        id: {sid}")
+    if hard and marked:   # only a step that ends with the marker line is read by the check job
+        ids.insert(0, sid)
+s = "\n".join(lines)
+if ids:
+    s = s.replace("  a:\n", "  a:\n    outputs:\n" + "".join(f"      {i}_ran: ${{{{ steps.{i}.outputs.hardened }}}}\n" for i in ids), 1)
+    env = "      a_result: ${{ needs.a.result }}\n" + "".join(f"      a_{i}: ${{{{ needs.a.outputs.{i}_ran }}}}\n" for i in ids)
+    run = "".join(f'          [ "$a_result" = skipped ] || [ "$a_{i}" = ok ] || {{ echo "hardened step a/{i} did not run"; exit 1; }}\n' for i in ids)
+    s += "  hardened-check:\n    needs: [a]\n    if: always()\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    env:\n" + env + "    steps:\n      - run: |\n" + run
+open(p, "w").write(s)
+PYSYNC
+}
+hs() { sync_hardened "$(printf '%b' "      - shell: $SH\n$1")
+"; }   # a hardened step after the claude step (id h<n>), then the given keys; outputs and the check job kept in step
 noenv() { printf '%s' "$EV" | grep -v "^          $1:"; }   # the env block without one name
 setenv() { printf '%s' "$EV" | sed "s|^          $1: .*|          $1: $2|"; }   # the env block with one name changed
 
@@ -85,6 +123,7 @@ PIN_STEP_HERE
             --disallowedTools "Skill(payload),Write,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: After
         if: always() && steps.claude.outputs.execution_file != ''
+        id: after
         shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
 ENV_HERE
 RUN_HERE

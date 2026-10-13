@@ -30,4 +30,16 @@ out=$(run_step "$T/pipe.sh"); rc=$?
 # The same planted environment WITHOUT -p (what a default-shell step gets): shows the difference is real on this bash.
 out=$(/usr/bin/env -i 'BASH_FUNC_f%%=() { echo planted; }' BASH_ENV="$T/planted.sh" /usr/bin/bash --noprofile --norc -eo pipefail "$T/step.sh" 2>&1)
 grep -q '^bash_env=yes$' <<<"$out" && grep -q '^function=imported$' <<<"$out" && t PASS "without -p the same environment is honoured (the control case)" || { t FAIL "control case"; echo "$out"; }
+# A full hardened body against a planted environment (what $GITHUB_ENV and $GITHUB_PATH could do). PATH and LD_PRELOAD are
+# harmless once the step env blanks them and the body resets PATH; LD_TRACE_LOADED_OBJECTS is not: the loader makes bash
+# print its libraries and exit 0 before line 1, even with an empty value, so the marker line is never written. That is why
+# the hardened-check job exists (scripts/check-workflows-hardened.py): the step going green proves nothing on its own.
+printf 'export PATH=/usr/bin:/bin\nset -u\necho "hardened=ok" >> "$GITHUB_OUTPUT"\n' > "$T/body.sh"
+mkdir -p "$T/fakebin"; printf '#!/usr/bin/env bash\necho FAKE\n' > "$T/fakebin/sha256sum"; chmod +x "$T/fakebin/sha256sum"
+: > "$T/out1"; out=$(/usr/bin/env -i PATH="$T/fakebin:/usr/bin:/bin" LD_PRELOAD="" LD_LIBRARY_PATH="" BASH_ENV="$T/planted.sh" GITHUB_OUTPUT="$T/out1" /usr/bin/bash --noprofile --norc -p -eo pipefail "$T/body.sh" 2>&1); rc=$?
+[ $rc = 0 ] && grep -q '^hardened=ok$' "$T/out1" && t PASS "planted PATH/BASH_ENV, blanked loader names: the body runs and writes the marker" || { t FAIL "planted env: rc=$rc"; echo "$out"; }
+: > "$T/out2"; out=$(/usr/bin/env -i PATH=/usr/bin:/bin LD_TRACE_LOADED_OBJECTS="" GITHUB_OUTPUT="$T/out2" /usr/bin/bash --noprofile --norc -p -eo pipefail "$T/body.sh" 2>&1); rc=$?
+if [ $rc = 0 ] && ! grep -q '^hardened=ok$' "$T/out2"; then t PASS "LD_TRACE_LOADED_OBJECTS (even empty): bash exits 0 without running the body, no marker - the check job is what catches it"
+elif grep -q '^hardened=ok$' "$T/out2"; then t PASS "LD_TRACE_LOADED_OBJECTS has no effect on this loader (the marker was written)"
+else t FAIL "LD_TRACE_LOADED_OBJECTS: rc=$rc"; echo "$out"; fi
 summary
