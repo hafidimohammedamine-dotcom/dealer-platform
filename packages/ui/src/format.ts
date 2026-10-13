@@ -12,8 +12,9 @@ export function formatMoney(cents: number): string {
 }
 
 /**
- * US phone numbers as (555) 234-5678. A leading 1 or +1 is accepted. Anything else (letters,
- * extensions, wrong length, an area code or exchange starting with 0 or 1) is shown as "Phone not valid" so a rep notices.
+ * US phone numbers as (555) 234-5678. Letters and symbols are dropped first, then a leading 1 or +1
+ * is accepted. A number that is not 10 digits, or whose area code or exchange starts with 0 or 1,
+ * is shown as "Phone not valid" so a rep notices.
  */
 export function formatPhone(input: string): string {
   let digits = input.replace(/\D/g, '');

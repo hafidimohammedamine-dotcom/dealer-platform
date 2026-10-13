@@ -21,6 +21,7 @@ describe('formatters', () => {
     expect(formatPhone('5552345678')).toBe('(555) 234-5678');
     expect(formatPhone('+1 555-234-5678')).toBe('(555) 234-5678');
     expect(formatPhone('(555) 234-5678')).toBe('(555) 234-5678');
+    expect(formatPhone('5552345678abc')).toBe('(555) 234-5678');
     expect(formatPhone('123')).toBe('Phone not valid');
   });
 
