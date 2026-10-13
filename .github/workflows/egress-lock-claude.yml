@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -59,7 +59,7 @@ jobs:
       - name: Claude answered under the lock, and Skill(payload) was denied
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -82,7 +82,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -109,7 +109,7 @@ jobs:
       - name: The tools saw no Claude token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -161,7 +161,7 @@ jobs:
       - name: Every read outside the checkout was denied, and no tool result holds a token
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           set -euo pipefail
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
@@ -188,7 +188,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "22e30fe4ac8339542517b3b3175cba153e36e1b57d168261ddc706606b324338"
+          PINS_SHA256: "e4afe8cabaeff1ccbf56a04db20d3eda7a7e1a505f44e2db12c6523c665ec3f2"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
