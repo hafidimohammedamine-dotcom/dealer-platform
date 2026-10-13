@@ -163,6 +163,8 @@ def check_job_settings(fname, jw, job):
         core.err(f"{jw}: runs-on must be {P['runs_on']}")
     if "defaults" in job:
         core.err(f"{jw}: 'defaults' not allowed in a job with a claude step")
+    if "continue-on-error" in job:
+        core.err(f"{jw}: 'continue-on-error' not allowed on a job with a claude step (a failed pin check or probe must fail the job)")
 
 
 def check_other_steps(jw, steps, claude_at, ok_refs):
@@ -173,6 +175,8 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
         if not isinstance(step, dict) or core.is_claude(step):
             continue
         sw = f"{jw} step {i}"
+        if "continue-on-error" in step:
+            core.err(f"{sw}: 'continue-on-error' not allowed in a job with a claude step (a failed pin check or probe must fail the job)")
         if i <= 4:   # the fixed start (checkout, pin step, main-head check, lock) is checked by shape in check_job_start
             for key in ("working-directory", "shell"):
                 if key in step:
@@ -192,7 +196,7 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
         if "shell" in step and not is_hardened:
             core.err(f"{sw}: 'shell' not allowed in a job with a claude step" + (f" (after the claude step only shell: {P['post_claude_shell']})" if after else ""))
         if is_hardened:
-            hardened.check_hardened_step(sw, step)
+            hardened.check_hardened_step(sw, jw.split(" job ", 1)[1], step)
         elif after and "run" in step and P["post_claude_require_shell"]:
             core.err(f"{sw}: a run step after the claude step must set shell: {P['post_claude_shell']} (policy post_claude_require_shell)")
         body = json.dumps({k: v for k, v in step.items() if k not in ("if", "name")})
@@ -205,7 +209,7 @@ def check_other_steps(jw, steps, claude_at, ok_refs):
         if after:
             if uses.startswith("./"):
                 core.err(f"{sw}: no local action after the claude step (its files could have changed)")
-            code = "\n".join(l for l in run.split("\n") if not l.lstrip(" \t").startswith("#"))   # a comment is not a pin check
+            code = "\n".join(l.split(" #", 1)[0] for l in hardened.code_lines(run))   # a comment, full-line or inline, is not a pin check
             m = re.search(r"scripts/|/tmp/gitleaks", code)
             if m and P["post_pin_check"] not in code[:m.start()]:
                 core.err(f"{sw}: a step after the claude step must check its pinned files ({P['post_pin_check']}) before running repo scripts")

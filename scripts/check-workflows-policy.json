@@ -183,7 +183,7 @@
  "tag_mode_job_if": "!github.event.issue.pull_request",
  "post_pin_check": "sha256sum --check --strict",
  "post_claude_shell": "/usr/bin/bash --noprofile --norc -p -eo pipefail {0}",
- "post_claude_require_shell": false,
+ "post_claude_require_shell": true,
  "post_claude_run_first": "export PATH=/usr/bin:/bin",
  "post_claude_run_prefix": [
   "set -u",
@@ -191,14 +191,20 @@
   "/usr/bin/sha256sum --check --strict --quiet .github/pins.txt"
  ],
  "post_claude_script_line": "/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp( [A-Z0-9_]+=[A-Za-z0-9_./:-]*)* (/usr/bin/bash|/usr/bin/python3 -I) scripts/check-[a-z-]+\\.(sh|py)( [a-z-]+| \"\\$[A-Z_]+\")*( >> \"\\$GITHUB_OUTPUT\")?",
- "post_claude_script_env": ["GITLEAKS_BIN", "GITLEAKS_SHA256"],
+ "post_claude_run_last": "echo \"hardened=ok\" >> \"$GITHUB_OUTPUT\"",
+ "post_claude_require_marker": false,
+ "post_claude_script_env": {"GITLEAKS_BIN": "/tmp/gitleaks"},
+ "post_claude_step_keys": ["name", "if", "id", "shell", "env", "run"],
+ "hardened_check_job": "hardened-check",
  "post_claude_empty_env": [
   "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "GLOBIGNORE", "CDPATH", "BASH_XTRACEFD", "POSIXLY_CORRECT",
-  "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG", "LD_DEBUG_OUTPUT", "LD_PROFILE", "LD_BIND_NOW", "GCONV_PATH", "GLIBC_TUNABLES",
-  "MALLOC_CHECK_", "MALLOC_PERTURB_", "MALLOC_TOP_PAD_", "MALLOC_MMAP_THRESHOLD_", "MALLOC_TRIM_THRESHOLD_", "MALLOC_ARENA_MAX",
+  "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG", "LD_DEBUG_OUTPUT", "LD_PROFILE", "LD_PROFILE_OUTPUT", "LD_BIND_NOW", "LD_BIND_NOT",
+  "LD_TRACE_LOADED_OBJECTS", "LD_SHOW_AUXV", "LD_WARN", "LD_VERBOSE", "LD_ORIGIN_PATH", "LD_HWCAP_MASK", "LD_ASSUME_KERNEL", "LD_DYNAMIC_WEAK",
+  "LD_USE_LOAD_BIAS", "LD_PREFER_MAP_32BIT_EXEC", "GCONV_PATH", "GLIBC_TUNABLES",
+  "MALLOC_CHECK_", "MALLOC_PERTURB_", "MALLOC_TOP_PAD_", "MALLOC_MMAP_THRESHOLD_", "MALLOC_MMAP_MAX_", "MALLOC_TRIM_THRESHOLD_", "MALLOC_ARENA_MAX",
   "LOCPATH", "NLSPATH", "LANGUAGE", "LC_ALL", "LANG", "TZ", "TZDIR", "TEXTDOMAINDIR",
   "HOSTALIASES", "RES_OPTIONS", "LOCALDOMAIN",
-  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
   "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_EXEC_PATH", "GH_CONFIG_DIR"
  ],
  "post_claude_fixed_env": {"HOME": "/nonexistent", "TMPDIR": "/tmp"},

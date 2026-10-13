@@ -119,13 +119,13 @@ fresh;                                                  expect fail "unknown arg
 for v in "\${{ secrets[format('{0}_TOKEN_BUILD','CLAUDE')] }}" '${{ secrets[env.X] }}' '${{ secrets }}' '${{ join(secrets) }}'; do
   fx; printf '      - run: echo hi\n        env:\n          X: %s\n' "$v" >> "$T/$W/t.yml"; expect fail "dynamic secrets use: $v" "secrets used other than as secrets.<NAME>"
 done
-fx; printf '      - run: echo hi\n        env:\n          X: ${{ secrets.OTHER_TOKEN }}\n' >> "$T/$W/t.yml"; expect ok "a non-Claude secret by name is fine" "Workflow denies OK"
+fx; hs "$EV\n          X: \${{ secrets.OTHER_TOKEN }}\n$RUN"; expect ok "a non-Claude secret by name is fine (on a hardened step after the claude step)" "Workflow denies OK"
 fx; sed -i 's|^jobs:|permissions: "${{ secrets.CLAUDE_TOKEN_BUILD_V2 }}"\njobs:|' "$T/$W/t.yml"; expect fail "credential in workflow-level permissions" "t.yml permissions: Claude/Anthropic credential"
 # The pre-installed binary may only run through the action
 for cmd in '${{ steps.lock.outputs.claude-path }} -p hi' '$HOME/.local/bin/claude -p hi'; do
   fx; printf '      - run: %s\n' "$cmd" >> "$T/$W/t.yml"; expect fail "pre-installed Claude in a run step: $cmd" "runs Claude outside the pinned claude-code-action"
 done
-fx; printf '      - run: echo hi\n        env:\n          B: ${{ steps.lock.outputs.claude-path }}\n' >> "$T/$W/t.yml"; expect ok "binary path in env alone does not run it" "Workflow denies OK"
+fx; hs "$EV\n          B: \${{ steps.lock.outputs.claude-path }}\n$RUN"; expect ok "binary path in env alone does not run it" "Workflow denies OK"
 fx; printf '      - uses: anthropics/other-action@v1\n' >> "$T/$W/t.yml"; expect fail "another anthropic action" "runs Claude outside the pinned claude-code-action (anthropics/other-action@v1)"
 fx; printf '      - uses: org/repo/.github/workflows/w.yml@v1\n' >> "$T/$W/t.yml"; expect fail "reusable workflow as a step" "not allowed: org/repo/.github/workflows/w.yml@v1"
 # The checkout before the lock
@@ -171,7 +171,7 @@ fx; printf '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af
 for cmd in 'cd /tmp/pr && yarn install' 'yarn --cwd /tmp/pr install' 'bash /tmp/pr/scripts/x.sh' 'git -C /tmp/pr checkout main && make' 'git fetch origin ${{ github.event.pull_request.head.sha }}' 'echo ${{ github.head_ref }}'; do
   fx; printf '      - run: %s\n' "$cmd" >> "$T/$W/t.yml"; expect fail "PR code in a run step: $cmd" "runs or checks out PR code in a job with a claude step"
 done
-fx; printf '      - if: startsWith(github.event.pull_request.head.ref, %s)\n        run: echo ok\n' "'agent/'" >> "$T/$W/t.yml"; expect ok "reading the PR branch name in an if is fine" "Workflow denies OK"
+fx; hs "        if: startsWith(github.event.pull_request.head.ref, 'agent/')\n$EV\n$RUN"; expect ok "reading the PR branch name in an if is fine" "Workflow denies OK"
 # Round 4: checkouts, pins, PR data, post steps, job settings, manager token guard, composite actions
 fx; before '      - uses: ./.github/actions/install-gitleaks'; expect fail "a local action before the claude step (only the lock, and pre_claude_actions)" "before the claude step only actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 may be used"
 fx; before '      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        with:\n          name: npm-audit\n          path: /tmp/audit-meta'; expect ok "a downloaded artifact (data) before the claude step" "Workflow denies OK"
@@ -204,10 +204,10 @@ for cmd in 'cd "/tmp/pr" \&\& make' 'pushd /tmp/pr' 'make -C /tmp/pr' 'yarn --cw
 done
 fx; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF" origin "$HEAD_SHA"'; expect ok "the reviewed prepare step may use /tmp/pr" "Workflow denies OK"
 fx; before '      - run: bash scripts/check-review-prepare.sh "$PR_NUMBER" /tmp/pr "origin/$BASE_REF"'; expect fail "the prepare step without the expected head is not the reviewed one" "only the reviewed prepare step may touch /tmp/pr"
-fx; printf '      - run: |\n          printf x | sha256sum --check --strict\n          echo /tmp/pr-meta/log.txt\n' >> "$T/$W/t.yml"; expect ok "/tmp/pr-meta is not PR code (after the claude step)" "Workflow denies OK"
+fx; hs "$EV\n          META: /tmp/pr-meta/log.txt\n$RUN"; expect ok "/tmp/pr-meta is not PR code (after the claude step)" "Workflow denies OK"
 fx; before '      - run: echo /tmp/pr-meta/log.txt'; expect fail "a free-form run before the claude step" "must be one line 'bash scripts/check-<name>.sh ...'"
 fx; printf '      - run: bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect fail "post step without the pin check" "must check its pinned files"
-fx; printf '      - env:\n          PINS: x\n        run: |\n          printf "%%s\\n" "$PINS" | sha256sum --check --strict --quiet\n          bash scripts/check-review-post.sh pr 1 x\n' >> "$T/$W/t.yml"; expect ok "post step that checks its pins first" "Workflow denies OK"
+fx; hs "$EV\n$RUN"; expect ok "post step that checks its pins first" "Workflow denies OK"
 fx; printf '      - run: /tmp/gitleaks detect\n' >> "$T/$W/t.yml"; expect fail "gitleaks after the claude step without the pin check" "must check its pinned files"
 fx; sed -i 's|      - id: claude|      - id: claude\n        if: always()|' "$T/$W/t.yml"; expect fail "claude step running after a failure" "may not run after a failure"
 fx; sed -i 's|      - id: claude|      - id: claude\n        continue-on-error: true|' "$T/$W/t.yml"; expect fail "claude step with continue-on-error" "key 'continue-on-error' not allowed"
@@ -246,7 +246,7 @@ done
 for cmd in 'git checkout feature' 'git -C . switch x' 'git fetch origin' 'git worktree add /tmp/w' 'git reset --hard origin/x' 'git pull'; do
   fx; before "      - run: $cmd"; expect fail "git move in a claude job: $cmd" "not allowed in a job with a claude step (the checkout must stay on the default branch)"
 done
-fx; printf '      - run: git log --oneline -5\n' >> "$T/$W/t.yml"; expect ok "git log is not a checkout move (after the claude step)" "Workflow denies OK"
+fx; hs "$EV\n          LOG: git log --oneline -5\n$RUN"; expect ok "git log in an env value is not a checkout move (after the claude step; a hardened body has no free-form line)" "Workflow denies OK"
 fx; sed -i 's/^on: workflow_dispatch$/on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]/' "$T/$W/t.yml"; expect fail "claude step in a workflow_run workflow" "must not run on workflow_run"
 fresh; sed -i 's/^      issues: read$/      issues: read\n      id-token: write/' "$T/$W/agent-manager.yml"; expect fail "id-token in agent-manager.yml" "permission id-token: write not allowed"
 fresh; sed -i 's/^      contents: read$/      contents: write/' "$T/$W/agent-manager.yml"; expect fail "a write scope on the manager's job token" "permission contents: write is not allowed in agent-manager.yml (its job token is read-only"

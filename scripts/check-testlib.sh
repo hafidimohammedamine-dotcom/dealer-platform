@@ -11,6 +11,25 @@ assert_result() { # assert_result <ok|fail> <rc> <name> <message> <output>: the 
   local got; got=$([ "$2" = 0 ] && echo ok || echo fail)
   if [ "$got" = "$1" ] && grep -qF -- "$4" <<<"$5"; then t PASS "$3"; else t FAIL "$3 ($got, rc=$2)"; echo "$5" | tail -n 8; fi; }
 summary() { echo "$pass passed, $failed failed"; [ "$failed" = 0 ]; }
+rep() { head -c "$1" /dev/zero | tr '\0' "$2"; }   # rep <n> <char>: n copies of one character (test filler)
+# mk_exec <exec.json>: a claude-code-action execution file whose last result is the text on stdin
+mk_exec() { python3 -c 'import json,sys; json.dump([{"type":"result","result":sys.stdin.read()}], open(sys.argv[1],"w"))' "$1"; }
+# handoff_text <output of check-claude-answer.sh answer>: the handed answer (the lines between the delimiters)
+handoff_text() { local d; d=$(sed -n '2s/^answer<<//p' <<<"$1"); printf '%s\n' "$1" | sed -n "3,/^$d\$/p" | sed '$d'; }
+# write_gitleaks_stub <dir>: a fake gitleaks at <dir>/gitleaks for tests of the answer scan (scripts/check-scan-lib.sh):
+# LEAKME anywhere means "a secret"; TOKEN_ plus 20 upper-case or digit characters is a minimum-length rule; ENDTOK at a
+# line end is a rule anchored at a line end; GL_RC forces another exit code (a scanner error).
+write_gitleaks_stub() {
+  cat > "$1/gitleaks" <<'STUB'
+#!/usr/bin/env bash
+src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done
+grep -q "LEAKME" "$src"/* && exit 3
+grep -qE "TOKEN_[A-Z0-9]{20}" "$src"/* && exit 3
+grep -qE "ENDTOK$" "$src"/* && exit 3
+exit ${GL_RC:-0}
+STUB
+  chmod +x "$1/gitleaks"
+}
 # write_gh_stub <dir>: a fake `gh` at <dir>/gh for tests of the GitHub helpers (scripts/check-github-lib.sh), driven by
 # STUB_* variables: STUB_WHO/STUB_RC (`api user`), STUB_HEAD/STUB_HEAD_RC (main's head), STUB_REL/STUB_REL_RC (the compare
 # status), STUB_RUNS/STUB_RUNS_RC/STUB_RUNS_LATER with STUB_COUNT (the main-guard runs of a head; LATER after the first
@@ -52,3 +71,16 @@ assert_no_token() { # assert_no_token <name> <output> <token-text...>: none of t
   local name=$1 out=$2 tok; shift 2
   for tok in "$@"; do if grep -qF -- "$tok" <<<"$out"; then t FAIL "token printed by: $name"; return; fi; done
   t PASS "no token in the output of: $name"; }
+# write_swapping_gitleaks_stub <dir>: a fake gitleaks at <dir>/gitleaks that replaces ITSELF with an always-clean stub on
+# its first run (for the private-copy test of scripts/check-scan-lib.sh): LEAKME in the scanned files means "a secret".
+write_swapping_gitleaks_stub() {
+  printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 0\\n" > "%s/gitleaks"; src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done; grep -q LEAKME "$src"/* && exit 3; exit 0\n' "$1" > "$1/gitleaks"; chmod +x "$1/gitleaks"; }
+# real_gitleaks <name>: the gate for a case that needs the real pinned gitleaks. Sets REAL (GITLEAKS or /tmp/gitleaks) and
+# returns 0 when it is there; otherwise FAILs the case under CI (install-gitleaks must run first) or records a skip, and
+# returns 1.
+real_gitleaks() {
+  REAL="${GITLEAKS:-/tmp/gitleaks}"
+  [ -x "$REAL" ] && return 0
+  if [ -n "${CI:-}" ]; then t FAIL "$1: no binary at $REAL under CI (install-gitleaks must run first)"; else t PASS "$1: skipped (no binary at $REAL; CI fails here)"; fi
+  return 1
+}
