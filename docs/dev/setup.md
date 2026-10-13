@@ -82,12 +82,16 @@ Notes:
   so `yarn install --immutable` does not fail on a fresh checkout.
 - `yarn e2e` runs the Playwright specs in `tests/e2e/specs`. **CI does not run it yet**: adding an E2E step to `ci.yml`
   (a founder-only file) is tracked in issue #62. The smoke test uses Playwright's request client against a local
-  stand-in server, so it needs no browser. A browser is not downloaded at install, because lifecycle scripts are off.
-  If a future spec needs one, install it by hand once on that machine:
-  `yarn workspace @dealer/e2e playwright install chromium`. `test-results/` and `playwright-report/` are git-ignored.
-  Shared fake data (`fixtures/`) is added in issue #7, and the cross-dealer leak tests in issue #5.
-- `eslint.config.mjs`, the `infra/checks` `workspaceFolders` list and `.prettierignore` do not cover `tests/*` yet
-  (for example `tests/e2e/dist`, `test-results` and `playwright-report`). Devops tracks this in issue #66.
+  stand-in server, so it needs no browser. A browser is a one-time manual install.
+  If a future spec needs one, run `yarn workspace @dealer/e2e playwright install chromium` once. That command downloads
+  binaries from Playwright's CDN at run time, so run it only on a developer machine or in a CI job that holds no
+  secrets (never in an agent job). `PLAYWRIGHT_DOWNLOAD_HOST` must not be set. The founder-approved CI step is issue #62.
+  `test-results/` and `playwright-report/` are git-ignored.
+  `fixtures/dealers.json` holds two fake dealers. More fake data is added in issue #7, and the leak tests in issue #5.
+- Known gaps, tracked in issue #66 (devops), which must merge before this PR: `eslint.config.mjs` ignores only
+  `{apps,services,packages,infra}/**/dist` and `coverage`, so a built `tests/e2e/dist` would be linted; the
+  `workspaceFolders` list in `infra/checks/src/checks.ts` omits `tests`, so the tracked-file guard would not block a
+  committed `tests/e2e/dist` or `coverage`; and `.prettierignore` does not list `test-results` or `playwright-report`.
 - `yarn test` is the only unit test command. Coverage is part of it. There is no separate coverage script.
 
 ## What `nx run-many` does

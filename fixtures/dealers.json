@@ -1,0 +1,110 @@
+{
+  "dealers": [
+    {
+      "id": "dealer-1",
+      "name": "Alpha Motors",
+      "timeZone": "America/New_York",
+      "staff": [
+        {
+          "id": "dealer-1-staff-1",
+          "name": "Rep One Alpha Motors",
+          "role": "rep",
+          "email": "rep1@dealer-1.example.test"
+        },
+        {
+          "id": "dealer-1-staff-2",
+          "name": "Manager Alpha Motors",
+          "role": "manager",
+          "email": "manager@dealer-1.example.test"
+        }
+      ],
+      "inventory": [
+        {
+          "id": "dealer-1-veh-1",
+          "vin": "1FAFP4041XH000001",
+          "year": 2019,
+          "make": "Ford",
+          "model": "Focus",
+          "priceCents": 1505000
+        },
+        {
+          "id": "dealer-1-veh-2",
+          "vin": "2T1BURHE1JC000002",
+          "year": 2018,
+          "make": "Toyota",
+          "model": "Corolla",
+          "priceCents": 1660000
+        }
+      ],
+      "customers": [
+        {
+          "id": "dealer-1-cust-1",
+          "name": "Zoë Müller-Nguyen",
+          "phone": "+15135551001",
+          "assignedStaffId": "dealer-1-staff-1",
+          "ssn": "900-11-0001"
+        },
+        {
+          "id": "dealer-1-cust-2",
+          "name": "José O'Brien",
+          "phone": "+15135551002",
+          "assignedStaffId": "dealer-1-staff-2",
+          "ssn": "900-21-0002"
+        }
+      ]
+    },
+    {
+      "id": "dealer-2",
+      "name": "Beta Auto",
+      "timeZone": "America/New_York",
+      "staff": [
+        {
+          "id": "dealer-2-staff-1",
+          "name": "Rep One Beta Auto",
+          "role": "rep",
+          "email": "rep1@dealer-2.example.test"
+        },
+        {
+          "id": "dealer-2-staff-2",
+          "name": "Manager Beta Auto",
+          "role": "manager",
+          "email": "manager@dealer-2.example.test"
+        }
+      ],
+      "inventory": [
+        {
+          "id": "dealer-2-veh-1",
+          "vin": "1FAFP4042XH000001",
+          "year": 2019,
+          "make": "Ford",
+          "model": "Focus",
+          "priceCents": 1515000
+        },
+        {
+          "id": "dealer-2-veh-2",
+          "vin": "2T1BURHE2JC000002",
+          "year": 2018,
+          "make": "Toyota",
+          "model": "Corolla",
+          "priceCents": 1670000
+        }
+      ],
+      "customers": [
+        {
+          "id": "dealer-2-cust-1",
+          "name": "Zoë Müller-Nguyen",
+          "phone": "+15135552001",
+          "assignedStaffId": "dealer-2-staff-1",
+          "ssn": "900-12-0001"
+        },
+        {
+          "id": "dealer-2-cust-2",
+          "name": "José O'Brien",
+          "phone": "+15135552002",
+          "assignedStaffId": "dealer-2-staff-2",
+          "ssn": "900-22-0002"
+        }
+      ]
+    }
+  ]
+}

@@ -21,7 +21,10 @@ export async function startHealthServer(): Promise<TestServer> {
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
   });
   const address = server.address();
   ok(address !== null && typeof address === 'object', 'test server has no TCP address');
