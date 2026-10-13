@@ -26,7 +26,7 @@ if [ "$CMD" = blocked ]; then
   set +e; scan_answer "$T/scan"; rc=$?; set -e
   case $rc in
     0) cat "$T/scan/blocked.md";;
-    3) echo "BLOCKED: $(wc -l < "$T/scan/blocked.md" | tr -d ' ') denied tool call(s); the names and inputs are withheld (something looks like a secret)";;
+    3) echo "BLOCKED: $(jq "[$denials] | length" "$EXEC") denied tool call(s); the names and inputs are withheld (something looks like a secret)";;
     *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;;
   esac
   exit 0
@@ -36,6 +36,9 @@ if [ "$have" != 1 ]; then echo "has_result=false"; exit 0; fi
 # kill jq with SIGPIPE on a long answer and, under pipefail, fail this script (a review over 60000 characters then posted
 # nothing). The cutter reads all of stdin, so jq is never cut off.
 text=$(jq -r '[.[]? | select(.type == "result")] | last | .result // empty' "$EXEC" | python3 -I "$(dirname "$0")/check-claude-answer-cut.py")
+if [ -z "$text" ]; then   # no text at all (the session ended in an error or at its turn limit): say which, so the post job's FAIL names the cause
+  text="(no answer text: the session ended with subtype=$(jq -r '[.[]? | select(.type == "result")] | last | (.subtype // "?") | tostring | .[0:40]' "$EXEC") is_error=$(jq -r '[.[]? | select(.type == "result")] | last | (.is_error // "?") | tostring | .[0:10]' "$EXEC"); a founder re-runs the review)"
+fi
 # Secret scan BEFORE the text leaves this job: the post job gets it as a step `env:` value, and GitHub prints those in the
 # step's log header (public logs). Anything that looks like a secret is replaced by a fixed notice (the post job then posts
 # FAIL); a missing scanner or a scanner error fails this step (nothing is handed over, the post job is skipped).

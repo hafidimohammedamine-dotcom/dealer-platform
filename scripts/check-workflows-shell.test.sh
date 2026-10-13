@@ -10,10 +10,10 @@ PY='          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /
 
 # Allowed shapes
 fx; hs "$EV\n$RUN"; expect ok "the hardened shell with the full env and the hand-off body" "Workflow denies OK"
-fx; hs "$EV\n        run: |\n          # a comment and a blank line come first\n\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1"; expect ok "comments and blank lines are skipped; a body may end after the pin lines" "Workflow denies OK"
-fx; hs "$EV\n$HEAD$PIN1$PY"; expect ok "a probe body (python3 -I under env -i, the argument set in the step env)" "Workflow denies OK"
+fx; hs "$EV\n        run: |\n          # a comment and a blank line come first\n\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1$MARK"; expect ok "comments and blank lines are skipped; a body may have no script line" "Workflow denies OK"
+fx; hs "$EV\n$HEAD$PIN1$PY$MARK"; expect ok "a probe body (python3 -I under env -i, the argument set in the step env)" "Workflow denies OK"
 fx; hs "$EV\n$RUN"; hs "$EV\n$RUN"; expect ok "two hardened steps in one job" "Workflow denies OK"
-fx; hs "$EV\n        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks /usr/bin/bash scripts/check-x.sh\n"; expect ok "a script line with a reviewed extra name (post_claude_script_env)" "Workflow denies OK"
+fx; hs "$EV\n        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n$PIN1          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks /usr/bin/bash scripts/check-x.sh\n$MARK"; expect ok "a script line with a reviewed extra name and value (post_claude_script_env)" "Workflow denies OK"
 
 # The run body: the PATH reset, set -u, the two pin lines, in that order, then script lines only
 ORDER="must start its run with these lines, in this order: export PATH=/usr/bin:/bin / set -u / "
@@ -23,26 +23,33 @@ fx; hs "$EV\n        run: |\n          export PATH=/usr/bin:/bin\n$PIN1"; expect
 fx; hs "$EV\n        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n          /usr/bin/sha256sum --check --strict --quiet .github/pins.txt\n          echo \"\$PINS_SHA256  .github/pins.txt\" | /usr/bin/sha256sum --check --strict --quiet\n"; expect fail "the pin lines in the other order" "$ORDER"
 fx; hs "$EV\n        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n          echo \"\$PINS_SHA256  .github/pins.txt\" | /usr/bin/sha256sum --check --strict --quiet\n$SCR"; expect fail "only one pin line" "$ORDER"
 fx; hs "$EV\n        run: |\n          export PATH=/usr/bin:/bin\n          set -u\n          # echo \"\$PINS_SHA256  .github/pins.txt\" | /usr/bin/sha256sum --check --strict --quiet\n          # /usr/bin/sha256sum --check --strict --quiet .github/pins.txt\n$SCR"; expect fail "the pin lines as comments" "$ORDER"
-fx; hs "$EV\n$HEAD$SCR$PIN1"; expect fail "a script line before the pin lines" "$ORDER"
+fx; hs "$EV\n$HEAD$SCR$PIN1$MARK"; expect fail "a script line before the pin lines" "$ORDER"
+fx; hs "$EV\n$HEAD$PIN1$SCR"; expect ok "no marker line (allowed while post_claude_require_marker is false)" "Workflow denies OK"
+fx; hs "$EV\n$HEAD$PIN1$SCR"; marker_on; SCRIPT="$T/scripts/check-workflows.sh" expect fail "no marker line with post_claude_require_marker on" "must end its run with the marker line"
+fx; hs "$EV\n$HEAD$PIN1$MARK$SCR"; expect fail "the marker before a script line" "line not allowed in a step with the hardened shell"
+fx; hs "$EV\n$HEAD$PIN1          echo \"hardened=ok\" >> \"\$GITHUB_OUTPUT\"\n$MARK"; expect fail "the marker line twice" "line not allowed in a step with the hardened shell"
+fx; hs "$EV\n$HEAD$PIN1$SCR          # \${{ github.event.comment.body }}\n$MARK"; expect fail "an expression in a comment line" 'no ${{ ... }} in the run of a step with the hardened shell'
+fx; hs "$EV\n$HEAD$PIN1          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh \"\${{ github.event.comment.body }}\"\n$MARK"; expect fail "an expression in a script line" 'no ${{ ... }} in the run of a step with the hardened shell'
 for bad in 'export PATH=/usr/bin:/bin:/tmp/x' 'export PATH=/usr/bin:/bin;' 'export PATH=/usr/bin:/bin \\' 'export PATH=/usr/bin:/bin # c' 'Export PATH=/usr/bin:/bin'; do
   fx; hs "$EV\n        run: |\n          $bad\n          set -u\n$PIN1"; expect fail "a wrong PATH line: '$bad'" "$ORDER"
 done
 for bad in 'echo hi' 'bash scripts/check-x.sh' 'python3 -I scripts/check-claude-probe.py x f' 'sha256sum --check --strict --quiet .github/pins.txt' 'set -euo pipefail' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh; id' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp X=$(id) /usr/bin/bash scripts/check-x.sh' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent /usr/bin/bash scripts/check-x.sh' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/x.sh' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-X.sh' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh "$(id)"' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh > /tmp/out' '/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh Arg'; do
-  fx; hs "$EV\n$HEAD$PIN1          $bad\n"; expect fail "a line not on the allow-list: '$bad'" "line not allowed in a step with the hardened shell"
+  fx; hs "$EV\n$HEAD$PIN1          $bad\n$MARK"; expect fail "a line not on the allow-list: '$bad'" "line not allowed in a step with the hardened shell"
 done
-for bad in LD_PRELOAD=/tmp/x.so PATH=/tmp/x HOME=/tmp TMPDIR=/tmp/x BASH_ENV=/tmp/x X=1; do
-  fx; hs "$EV\n$HEAD$PIN1          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp $bad /usr/bin/bash scripts/check-x.sh\n"; expect fail "a script line that sets $bad" "the script line may not set ${bad%%=*} (only post_claude_script_env"
+for bad in LD_PRELOAD=/tmp/x.so PATH=/tmp/x HOME=/tmp TMPDIR=/tmp/x BASH_ENV=/tmp/x X=1 GITLEAKS_BIN=/tmp/x GITLEAKS_SHA256=; do
+  fx; hs "$EV\n$HEAD$PIN1          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp $bad /usr/bin/bash scripts/check-x.sh\n$MARK"; expect fail "a script line that sets $bad" "the script line may not set $bad (only post_claude_script_env: GITLEAKS_BIN=/tmp/gitleaks)"
 done
 # Variables the body reads come from the step's own env, never from $GITHUB_ENV
-fx; hs "$(noenv EXEC_FILE)\n$HEAD$PIN1$PY"; expect fail "a script line reading an unset \$EXEC_FILE" 'the run reads $EXEC_FILE, which the step'"'"'s own env does not set'
+fx; hs "$(noenv EXEC_FILE)\n$HEAD$PIN1$PY$MARK"; expect fail "a script line reading an unset \$EXEC_FILE" 'the run reads $EXEC_FILE, which the step'"'"'s own env does not set'
 fx; hs "$(noenv PINS_SHA256)\n$RUN"; expect fail "a hardened step without PINS_SHA256 in its own env" "must set env PINS_SHA256 to the sha256 of .github/pins.txt itself"
 fx; hs "$(setenv PINS_SHA256 '"0000000000000000000000000000000000000000000000000000000000000000"')\n$RUN"; expect fail "a hardened step with a wrong PINS_SHA256" "must set env PINS_SHA256 to the sha256 of .github/pins.txt itself"
 # Only printable ASCII, tabs and newlines: bash and the checker must split the same lines (YAML double-quoted escapes
 # put the real character into the string; a raw one would not survive the YAML reader)
+QMARK='echo \\"hardened=ok\\" >> \\"$GITHUB_OUTPUT\\"'
 QPINS='echo \\"$PINS_SHA256  .github/pins.txt\\" | /usr/bin/sha256sum --check --strict --quiet\\n/usr/bin/sha256sum --check --strict --quiet .github/pins.txt'
 for c in '\\r' '\\v' '\\f' '\\N' '\\L' '\\P' '\\0' '\\e' '\\x7f' '\\xa0'; do
   fx; hs "$EV\n        run: \"export PATH=/usr/bin:/bin$c#x\"\n"; expect fail "a control character in the PATH line: $c" "may hold only printable ASCII, tabs and newlines"
-  fx; hs "$EV\n        run: \"export PATH=/usr/bin:/bin\\\\nset -u\\\\n$QPINS\\\\n/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh$c#x\"\n"; expect fail "a control character in a script line: $c" "may hold only printable ASCII, tabs and newlines"
+  fx; hs "$EV\n        run: \"export PATH=/usr/bin:/bin\\\\nset -u\\\\n$QPINS\\\\n/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/bash scripts/check-x.sh$c#x\\\\n$QMARK\"\n"; expect fail "a control character in a script line: $c" "may hold only printable ASCII, tabs and newlines"
 done
 fx; hs "$EV\n        run: \"export PATH=/usr/bin:/bin\\\\nset -u\\\\n$QPINS\\\\n\\\\t# a tab in a comment is fine\"\n"; expect ok "a double-quoted body with a tab is fine" "Workflow denies OK"
 fx; hs "$EV\n        run: \"export PATH=/usr/bin:/bin\\\\nset -u\\\\n$QPINS\\\\n$(printf '%s' "$SCR" | sed 's/^ *//; s/"/\\\\"/g')\"\n"; expect ok "a double-quoted body with the hand-off line is fine" "Workflow denies OK"
@@ -54,6 +61,9 @@ for v in BASH_ENV CDPATH LD_PRELOAD LD_AUDIT LD_DEBUG GLIBC_TUNABLES MALLOC_CHEC
 done
 fx; hs "$(setenv LD_PRELOAD /tmp/x.so)\n$RUN"; expect fail "the hardened shell with LD_PRELOAD set" 'must set env LD_PRELOAD: ""'
 fx; hs "$EV\n          http_proxy: \"\"\n$RUN"; expect fail "two env names that differ only by case (GitHub refuses the file)" "env names HTTP_PROXY and http_proxy differ only by case"
+fx; hs "$EV\n          ld_preload: \"\"\n$RUN"; expect fail "a case-twin of a loader name" "env names LD_PRELOAD and ld_preload differ only by case"
+fx; hs "$EV\n          exec_file: x\n$RUN"; expect fail "a case-twin outside the policy lists" "env names EXEC_FILE and exec_file differ only by case"
+fx; hs "$EV\n          Http_Proxy: \"\"\n          hTTP_pROXY: \"\"\n$RUN"; expect fail "three keys that differ only by case" "env names HTTP_PROXY and Http_Proxy differ only by case"
 fx; hs "$(setenv LD_PRELOAD null)\n$RUN"; expect fail "the hardened shell with LD_PRELOAD null" 'must set env LD_PRELOAD: ""'
 fx; hs "$(setenv LD_PRELOAD '[]')\n$RUN"; expect fail "the hardened shell with LD_PRELOAD a list" 'must set env LD_PRELOAD: ""'
 fx; hs "$(noenv HOME)\n$RUN"; expect fail "the hardened shell without HOME fixed" "must set env HOME: /nonexistent"
@@ -70,12 +80,50 @@ for bad in "$SH " '/usr/bin/bash --noprofile --norc -p -eo pipefail' '/usr/bin/b
 done
 fx; printf '      - shell: [a, b]\n        run: echo hi\n' >> "$T/$W/t.yml"; expect fail "a list as the shell" "'shell' not allowed in a job with a claude step"
 fx; printf '      - shell: {a: b}\n        run: echo hi\n' >> "$T/$W/t.yml"; expect fail "a mapping as the shell" "'shell' not allowed in a job with a claude step"
-fx; printf '%b' "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        shell: $SH\n$EV\n" >> "$T/$W/t.yml"; expect fail "a uses step with the hardened shell" "a uses step may not set the hardened shell"
+fx; printf '%b' "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n        shell: $SH\n$EV\n" >> "$T/$W/t.yml"; expect fail "a uses step with the hardened shell" "a step with the hardened shell may only have name/if/id/shell/env/run (found uses)"
 fx; before "      - shell: $SH\n        run: bash scripts/check-x.sh"; expect fail "the hardened shell before the claude step" "not allowed in a job with a claude step"
 fx; sed -i "s|      - id: lock|      - shell: $SH\n        run: bash scripts/check-x.sh\n      - id: lock|" "$T/$W/t.yml"; expect fail "the hardened shell on step 4 (steps 1-4 are checked by shape)" "a job with a claude step must start with actions/checkout, the pin step"
 fx; sed -i "s|      - name: The default branch's head passed the main guard|      - shell: $SH\n        run: bash scripts/check-x.sh\n      - name: The default branch's head passed the main guard|" "$T/$W/t.yml"; expect fail "the hardened shell on step 3" "a job with a claude step must start with actions/checkout, the pin step"
 fx; sed -i "s|      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803|      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        shell: $SH|" "$T/$W/t.yml"; expect fail "the hardened shell on the checkout (step 1)" "t.yml job a step 1: 'shell' not allowed in a job with a claude step"
 fx; hs "$EV\n        working-directory: /tmp\n$RUN"; expect fail "the hardened shell with working-directory" "'working-directory' not allowed in a job with a claude step"
+for key in 'continue-on-error: true' 'timeout-minutes: 5' 'with: {a: b}' 'uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093'; do
+  fx; hs "$EV\n        $key\n$RUN"; expect fail "a hardened step with '$key'" "a step with the hardened shell may only have name/if/id/shell/env/run (found ${key%%:*})"
+done
+fx; hs "        name: n\n        if: always()\n$EV\n$RUN"; expect ok "a hardened step with name and if" "Workflow denies OK"
+fx; hs "$EV\n$RUN"; sed -i '/^        id: h7$/d' "$T/$W/t.yml"; expect fail "a hardened step without an id" "needs an id (lowercase letters, digits and hyphens)"
+fx; hs "$EV\n$RUN"; sed -i 's/^        id: h7$/        id: H7/' "$T/$W/t.yml"; expect fail "a hardened step with an uppercase id" "needs an id (lowercase letters, digits and hyphens)"
+fx; printf '      - run: bash scripts/check-x.sh\n        continue-on-error: true\n' >> "$T/$W/t.yml"; expect fail "continue-on-error on a default-shell step after the claude step" "'continue-on-error' not allowed in a job with a claude step"
+fx; before '      - run: bash scripts/check-x.sh\n        continue-on-error: true'; expect fail "continue-on-error on a step before the claude step" "'continue-on-error' not allowed in a job with a claude step"
+fx; sed -i "s|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    continue-on-error: true|" "$T/$W/t.yml"; expect fail "continue-on-error on the job" "'continue-on-error' not allowed on a job with a claude step"
+# The job outputs and the hardened-check job (for the steps that end with the marker)
+fx; hs "$EV\n$MRUN"; expect ok "a marked step: outputs and the check job in place" "Workflow denies OK"
+fx; hs "$EV\n$MRUN"; hs "$EV\n$RUN"; expect ok "a marked and an unmarked step: the check job reads only the marked one" "Workflow denies OK"
+fx; hs "$EV\n$MRUN"; sed -i '/^      h7_ran: /d' "$T/$W/t.yml"; expect fail "the job without the marker output" 'job a: needs outputs h7_ran: ${{ steps.h7.outputs.hardened }}'
+fx; hs "$EV\n$MRUN"; sed -i 's/^      h7_ran: .*/      h7_ran: ${{ steps.h7.outputs.other }}/' "$T/$W/t.yml"; expect fail "the marker output reading another output" 'job a: needs outputs h7_ran: ${{ steps.h7.outputs.hardened }}'
+fx; hs "$EV\n$RUN"; python3 - "$T/$W/t.yml" <<'PYEOF2'
+import sys; p = sys.argv[1]; s = open(p).read(); open(p, "w").write(s.split("  hardened-check:\n")[0])
+PYEOF2
+expect ok "no hardened-check job (allowed while post_claude_require_marker is false)" "Workflow denies OK"
+fx; hs "$EV\n$MRUN"; python3 - "$T/$W/t.yml" <<'PYEOF2'
+import sys; p = sys.argv[1]; s = open(p).read(); open(p, "w").write(s.split("  hardened-check:\n")[0])
+PYEOF2
+marker_on; SCRIPT="$T/scripts/check-workflows.sh" expect fail "no hardened-check job with post_claude_require_marker on" "t.yml: needs job hardened-check (fails unless every hardened step wrote its marker"
+fx; hs "$EV\n$MRUN"; sed -i 's/^    if: always()$/    if: success()/' "$T/$W/t.yml"; expect fail "the check job without always()" "job hardened-check: if must be exactly 'always()'"
+fx; hs "$EV\n$MRUN"; sed -i 's/^    needs: \[a\]$/    needs: []/' "$T/$W/t.yml"; expect fail "the check job without needs" "job hardened-check: needs must be exactly ['a']"
+fx; hs "$EV\n$MRUN"; sed -i 's/= ok \]/= okay ]/' "$T/$W/t.yml"; expect fail "the check job testing another value" "job hardened-check: steps must be exactly"
+fx; hs "$EV\n$MRUN"; sed -i '/^      a_h7: /d' "$T/$W/t.yml"; expect fail "the check job without the marker in its env" "job hardened-check: env must be exactly"
+fx; hs "$EV\n$MRUN"; python3 - "$T/$W/t.yml" <<'PYEOF2'
+import sys; p = sys.argv[1]; s = open(p).read(); a = s.index("  hardened-check:\n"); open(p, "w").write(s[:a] + s[a:].replace("    permissions:\n      contents: read\n", "    permissions:\n      contents: write\n", 1))
+PYEOF2
+expect fail "the check job with a write scope" "job hardened-check: permissions must be exactly {'contents': 'read'}"
+fx; hs "$EV\n$MRUN"; printf '      - run: echo extra\n' >> "$T/$W/t.yml"; expect fail "the check job with a second step" "job hardened-check: steps must be exactly"
+fx; hs "$EV\n$MRUN"; sed -i 's/^  hardened-check:$/  hardened-check:\n    name: Hardened steps ran/' "$T/$W/t.yml"; expect ok "the check job may have a name" "Workflow denies OK"
+fx; hs "$EV\n$RUN"; python3 - "$T/$W/t.yml" <<'PYEOF2'
+import sys; p = sys.argv[1]; s = open(p).read(); a = s.index("  hardened-check:\n"); b = s.index("    steps:\n", a); open(p, "w").write(s[:a] + s[a:].replace("    steps:\n      - run: |\n", "    steps:\n      - name: check\n        run: |\n", 1))
+PYEOF2
+expect ok "the check job's step may have a name" "Workflow denies OK"
+fx; printf '  hardened-check:\n    needs: [a]\n    if: always()\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      - run: true\n' >> "$T/$W/t.yml"; expect fail "a check job with no marked step to check" "job hardened-check: no hardened step with the marker line in this workflow to check"
+fx; printf '      - run: |\n          echo ok # sha256sum --check --strict\n          bash scripts/check-x.sh\n' >> "$T/$W/t.yml"; expect fail "an inline pin-check comment does not count (default-shell step)" "must check its pinned files"
 fx; sed -i "s|    runs-on: ubuntu-latest|    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: $SH|" "$T/$W/t.yml"; expect fail "the hardened shell as a job default" "'defaults' not allowed in a job with a claude step"
 fx; sed -i "s|^jobs:|defaults:\n  run:\n    shell: bash\njobs:|" "$T/$W/t.yml"; expect fail "a workflow-level default shell in a workflow with a claude step" "no workflow-level defaults in a workflow with a claude step"
 fx; sed -i "s|^jobs:|defaults:\n  run:\n    shell: $SH\njobs:|" "$T/$W/t.yml"; expect fail "the hardened shell as a workflow-level default" "no workflow-level defaults in a workflow with a claude step"
@@ -102,4 +150,7 @@ fresh; swap review.yml $'          export PATH=/usr/bin:/bin\n' ""; expect fail 
 fresh; swap review.yml $'          LD_PRELOAD: ""\n' ""; expect fail "the real hand-off step without LD_PRELOAD emptied" 'review.yml job review step 8: a step with the hardened shell must set env LD_PRELOAD: ""'
 fresh; swap review.yml $'          TMPDIR: /tmp\n          PINS_SHA256: "' $'          TMPDIR: /tmp\n          PINS_SHA256: "0'; expect fail "the real hand-off step with a wrong PINS_SHA256" "review.yml job review step 8: a step with the hardened shell must set env PINS_SHA256 to the sha256 of .github/pins.txt itself"
 fresh; swap egress-lock-claude.yml $'          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp /usr/bin/python3 -I scripts/check-claude-probe.py skill-deny' $'          python3 -I scripts/check-claude-probe.py skill-deny'; expect fail "a real probe step running python3 from PATH" "egress-lock-claude.yml job probe step 7: line not allowed in a step with the hardened shell"
+fresh; swap agent-manager.yml $'          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN=/tmp/gitleaks' $'          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp PATH=/tmp/x GITLEAKS_BIN=/tmp/gitleaks'; expect fail "the real manager step with a second PATH on its script line" "agent-manager.yml job shift step 9: the script line may not set PATH=/tmp/x"
+fresh; marker_on; out=$(bash "$T/scripts/check-workflows.sh" "$T" 2>&1); n=$(grep -c "must end its run with the marker line" <<<"$out")
+if [ "$n" = 8 ]; then t PASS "the real workflows with post_claude_require_marker on: all 8 hardened steps lack the marker (the next founder PR adds it)"; else t FAIL "marker on: expected 8 unmarked steps, got $n"; echo "$out"; fi; rm -rf "$T"
 summary

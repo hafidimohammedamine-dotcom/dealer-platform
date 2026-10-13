@@ -71,3 +71,16 @@ assert_no_token() { # assert_no_token <name> <output> <token-text...>: none of t
   local name=$1 out=$2 tok; shift 2
   for tok in "$@"; do if grep -qF -- "$tok" <<<"$out"; then t FAIL "token printed by: $name"; return; fi; done
   t PASS "no token in the output of: $name"; }
+# write_swapping_gitleaks_stub <dir>: a fake gitleaks at <dir>/gitleaks that replaces ITSELF with an always-clean stub on
+# its first run (for the private-copy test of scripts/check-scan-lib.sh): LEAKME in the scanned files means "a secret".
+write_swapping_gitleaks_stub() {
+  printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 0\\n" > "%s/gitleaks"; src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done; grep -q LEAKME "$src"/* && exit 3; exit 0\n' "$1" > "$1/gitleaks"; chmod +x "$1/gitleaks"; }
+# real_gitleaks <name>: the gate for a case that needs the real pinned gitleaks. Sets REAL (GITLEAKS or /tmp/gitleaks) and
+# returns 0 when it is there; otherwise FAILs the case under CI (install-gitleaks must run first) or records a skip, and
+# returns 1.
+real_gitleaks() {
+  REAL="${GITLEAKS:-/tmp/gitleaks}"
+  [ -x "$REAL" ] && return 0
+  if [ -n "${CI:-}" ]; then t FAIL "$1: no binary at $REAL under CI (install-gitleaks must run first)"; else t PASS "$1: skipped (no binary at $REAL; CI fails here)"; fi
+  return 1
+}
