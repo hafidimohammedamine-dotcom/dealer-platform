@@ -10,18 +10,7 @@ import {
   tableStyles,
   badgeTones,
 } from './index.js';
-
-function lum(hex: string): number {
-  const [r = 0, g = 0, b = 0] = [1, 3, 5].map((i) => {
-    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-function contrast(a: string, b: string): number {
-  const [hi = 0, lo = 0] = [lum(a), lum(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
+import { contrast } from './test-helpers/contrast.js';
 
 describe('tokens', () => {
   it('meets AA contrast for text pairs', () => {
@@ -48,6 +37,13 @@ describe('tokens', () => {
       expect(contrast(b.border, colors.surface)).toBeGreaterThanOrEqual(3);
       expect(contrast(b.hover.border, colors.surface)).toBeGreaterThanOrEqual(3);
     }
+    for (const bg of [colors.surface, colors.surfaceAlt]) {
+      expect(contrast(buttonStyles.primary.disabled.border, bg)).toBeGreaterThanOrEqual(3);
+    }
+    expect(contrast(colors.border, colors.surface)).toBeGreaterThanOrEqual(3);
+    expect(inputStyles.border).toBe(`1px solid ${colors.border}`);
+    expect(inputStyles.invalid.border).toBe(`3px solid ${colors.danger}`);
+    expect(contrast(colors.danger, colors.surface)).toBeGreaterThanOrEqual(3);
   });
 
   it('builds css variables with kebab-case names for every token', () => {

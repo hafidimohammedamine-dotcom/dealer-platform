@@ -11,19 +11,10 @@ import {
   tableStyles,
   missingValue,
   breakpoints,
+  columnStyle,
+  spacing,
 } from './index.js';
-
-function lum(hex: string): number {
-  const [r = 0, g = 0, b = 0] = [1, 3, 5].map((i) => {
-    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-function contrast(a: string, b: string): number {
-  const [hi = 0, lo = 0] = [lum(a), lum(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
+import { contrast } from './test-helpers/contrast.js';
 
 describe('components', () => {
   it('keeps buttons tappable and shows all their states', () => {
@@ -61,6 +52,9 @@ describe('components', () => {
     const both = inputAttributes({ id: 'a', label: 'Name', error: 'Enter a name', hint: 'Hint' });
     expect(both.message).toBe('Enter a name');
     expect(both.invalid).toBe(true);
+    const blankHint = inputAttributes({ id: 'a', label: 'Name', hint: '   ' });
+    expect(blankHint.message).toBeUndefined();
+    expect(blankHint.describedBy).toBeUndefined();
     const empty = inputAttributes({ id: 'a', label: 'Name', error: '', hint: 'Hint' });
     expect(empty.invalid).toBe(false);
     expect(empty.message).toBe('Hint');
@@ -76,7 +70,9 @@ describe('components', () => {
   });
 
   it('writes plain empty, error and loading states', () => {
-    expect(emptyState('leads', 'Add a lead').action).toBe('Add a lead');
+    const empty = emptyState('leads', 'Add a lead');
+    expect(empty.action).toBe('Add a lead');
+    expect(empty.message).toBe('There are no leads to show. To start, press "Add a lead".');
     expect(errorState('deals').action).toBe('Try again');
     expect(loadingState('deals').title).toBe('Loading deals');
   });
@@ -139,14 +135,9 @@ describe('components', () => {
   it('shows a dash, not a built-in function, for a missing cell', () => {
     const cols = [
       { key: 'toString', label: 'T' },
-      { key: 'constructor', label: 'C' },
       { key: 'hasOwnProperty', label: 'H' },
     ];
-    const t = tableModel(
-      'Deals',
-      cols.filter((c) => c.key !== 'constructor'),
-      [{}],
-    );
+    const t = tableModel('Deals', cols, [{}]);
     expect(t.rows[0]?.toString).toBe(missingValue);
     expect(t.rows[0]?.hasOwnProperty).toBe(missingValue);
   });
@@ -158,7 +149,7 @@ describe('components', () => {
   });
 
   it('ignores a __proto__ key in a row and non-text cells', () => {
-    const row: Record<string, string> = JSON.parse('{"__proto__":{"x":"1"},"a":"ok","b":5}');
+    const row = { ['__proto__']: { x: '1' }, a: 'ok', b: 5 };
     const t = tableModel(
       'Deals',
       [
@@ -169,7 +160,20 @@ describe('components', () => {
     );
     expect(t.rows[0]).toEqual({ a: 'ok', b: missingValue });
     expect(Object.hasOwn(t.rows[0] ?? {}, 'x')).toBe(false);
-    const plain: Record<string, unknown> = {};
-    expect(plain.x).toBeUndefined();
+    expect(Object.prototype).not.toHaveProperty('x');
+  });
+
+  it('lays tables out with padding, right-aligned numbers, row lines and phone cards', () => {
+    expect(tableStyles.cellPadding).toBe(`${spacing.sm}px ${spacing.md}px`);
+    expect(tableStyles.rowBorder).toBe(`1px solid ${colors.border}`);
+    expect(tableStyles.numeric).toEqual({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' });
+    expect(columnStyle({ key: 'a', label: 'A', numeric: true })).toBe(tableStyles.numeric);
+    expect(columnStyle({ key: 'a', label: 'A' })).toBe(tableStyles.text);
+    expect(columnStyle({ key: 'a', label: 'A', numeric: false })).toBe(tableStyles.text);
+    expect(tableStyles.card.padding).toBe(`${spacing.md}px`);
+    expect(tableStyles.card.border).toBe(`1px solid ${colors.border}`);
+    expect(contrast(tableStyles.headerColor, tableStyles.headerBackground)).toBeGreaterThanOrEqual(
+      4.5,
+    );
   });
 });

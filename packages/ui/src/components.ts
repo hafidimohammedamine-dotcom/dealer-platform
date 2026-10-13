@@ -1,5 +1,5 @@
 import { requireText } from './text.js';
-import { breakpoints, colors, focusRing, minTapTarget } from './tokens.js';
+import { breakpoints, colors, focusRing, minTapTarget, radii, spacing } from './tokens.js';
 
 // Style and wording rules shared by buttons, inputs, tables and screens.
 
@@ -73,6 +73,9 @@ export interface InputProps {
   hint?: string;
 }
 
+const present = (s?: string): string | undefined =>
+  s !== undefined && s.trim() !== '' ? s : undefined;
+
 /** Every input needs a visible label. Errors say what to do and win over hints. Returns the attributes for the field. */
 export function inputAttributes(p: InputProps): {
   id: string;
@@ -85,8 +88,8 @@ export function inputAttributes(p: InputProps): {
 } {
   requireText(p.id, 'Every input needs an id, and it');
   requireText(p.label, 'Every input needs a label, and it');
-  const error = p.error !== undefined && p.error.trim() !== '' ? p.error : undefined;
-  const message = error ?? p.hint;
+  const error = present(p.error);
+  const message = error ?? present(p.hint);
   return {
     id: p.id,
     labelFor: p.id,
@@ -109,7 +112,11 @@ export interface ScreenState {
 export function emptyState(thing: string, action: string): ScreenState {
   requireText(thing, 'What is missing');
   requireText(action, 'The next step');
-  return { title: `No ${thing} yet`, message: `There are no ${thing} to show.`, action };
+  return {
+    title: `No ${thing} yet`,
+    message: `There are no ${thing} to show. To start, press "${action}".`,
+    action,
+  };
 }
 
 /** Error state: plain words, never error codes. A failed save must not claim the work is safe. */
@@ -147,9 +154,30 @@ export const tableStyles = {
   headerColor: colors.text,
   headerBackground: colors.surfaceAlt,
   borderColor: colors.border,
-  focus: focusRing,
+  /** Every row has a line under it. */
+  rowBorder: `1px solid ${colors.border}`,
+  cellPadding: `${spacing.sm}px ${spacing.md}px`,
+  /** Numbers and money line up on the right, with equal-width digits. */
+  numeric: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+  text: { textAlign: 'left', fontVariantNumeric: 'normal' },
+  /** Below this width each row is a card, with the column label beside each value. */
   cardsBelow: breakpoints.tablet,
+  card: {
+    padding: `${spacing.md}px`,
+    gap: `${spacing.sm}px`,
+    radius: `${radii.md}px`,
+    border: `1px solid ${colors.border}`,
+    background: colors.surface,
+  },
+  focus: focusRing,
 } as const;
+
+/** The alignment for one column: numbers and money on the right, everything else on the left. */
+export function columnStyle(
+  column: TableColumn,
+): typeof tableStyles.numeric | typeof tableStyles.text {
+  return column.numeric === true ? tableStyles.numeric : tableStyles.text;
+}
 
 /** Shown for a value a row does not have, so a gap is never blank. */
 export const missingValue = '—';
@@ -161,7 +189,7 @@ const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype']);
 export function tableModel(
   caption: string,
   columns: TableColumn[],
-  rows: Record<string, string>[],
+  rows: Record<string, unknown>[],
 ): { caption: string; columns: TableColumn[]; rows: Record<string, string>[]; empty: boolean } {
   requireText(caption, 'Every table needs a caption, and it');
   const keys = new Set<string>();

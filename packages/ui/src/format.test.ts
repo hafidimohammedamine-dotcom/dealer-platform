@@ -50,6 +50,8 @@ describe('formatters', () => {
     expect(formatDate('2026-10-12T02:00:00Z', 'America/Chicago')).toBe('Oct 11, 2026');
     expect(formatDate(new Date('2026-10-12T15:00:00Z'), 'America/Chicago')).toBe('Oct 12, 2026');
     expect(formatDate('nope', 'America/Chicago')).toBe('Date not valid');
+    expect(formatDate('2026-10-12T02:00:00-05:00', 'America/Chicago')).toBe('Oct 12, 2026');
+    expect(formatDate('2026-10-12T02:00:00+0000', 'UTC')).toBe('Oct 12, 2026');
   });
 
   it('shows a date with no time as the same calendar day in every time zone', () => {
@@ -66,6 +68,12 @@ describe('formatters', () => {
     expect(formatDate(new Date('2026-10-12T15:00:00Z'), 'nonsense')).toBe('Date not valid');
     expect(formatDate(new Date(NaN), 'UTC')).toBe('Date not valid');
     expect(formatDate('', 'UTC')).toBe('Date not valid');
+  });
+
+  it('refuses a time with no zone, because each machine would read it differently', () => {
+    expect(formatDate('2026-10-12T02:00:00', 'America/Chicago')).toBe('Date not valid');
+    expect(formatDate('2026-10-12T02:00', 'UTC')).toBe('Date not valid');
+    expect(formatDate('Oct-12-2026', 'UTC')).toBe('Date not valid');
   });
 
   it('checks the time zone even for a date with no time', () => {

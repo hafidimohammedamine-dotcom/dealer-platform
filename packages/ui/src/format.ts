@@ -35,10 +35,13 @@ function isValidZone(timeZone: string): boolean {
 }
 
 const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+/** A time must end with Z or an offset such as -05:00, so every machine reads it the same way. */
+const hasZone = /T\d{2}:\d{2}.*(Z|[+-]\d{2}(:?\d{2})?)$/i;
 
 /**
  * Dates as "Oct 12, 2026". A date with no time ("2026-10-12") is a calendar date and never shifts.
- * A moment in time is shown in the dealer's time zone. A bad date or time zone gives "Date not valid".
+ * A moment in time is shown in the dealer's time zone. A time with no zone ("2026-10-12T02:00:00") is refused,
+ * because each machine would read it differently. A bad date or time zone gives "Date not valid".
  * Display only: never use this for quiet-hours checks, which depend on the customer's local time.
  */
 export function formatDate(value: Date | string, timeZone: string): string {
@@ -52,21 +55,19 @@ export function formatDate(value: Date | string, timeZone: string): string {
         return 'Date not valid';
       }
       zone = 'UTC';
+    } else if (!hasZone.test(value)) {
+      return 'Date not valid';
     }
   } else {
     date = value;
   }
   if (Number.isNaN(date.getTime())) return 'Date not valid';
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      timeZone: zone,
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    }).format(date);
-  } catch {
-    return 'Date not valid';
-  }
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
 }
 
 /**

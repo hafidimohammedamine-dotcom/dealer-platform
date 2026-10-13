@@ -20,6 +20,9 @@ export function badge(
 ): { text: string; color: string; background: string } {
   requireText(label, 'A badge word');
   requireText(symbol, 'A badge symbol');
+  if (!Object.hasOwn(badgeTones, tone)) {
+    throw new Error(`"${String(tone)}" is not a badge color. Use success, warning, danger or info`);
+  }
   const t = badgeTones[tone];
   return { text: `${symbol} ${label}`, color: t.color, background: t.background };
 }
