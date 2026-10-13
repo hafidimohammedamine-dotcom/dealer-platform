@@ -1,7 +1,8 @@
 # Architecture
 
-The product architecture (Payload admin, NestJS services, Postgres, queues) is described in `CLAUDE.md` until the docs agent
-writes the full version here.
+The product design (Payload admin, NestJS services, Postgres, queues) is set in `CLAUDE.md`. This page says what the repo
+has today. Planned parts are marked **Planned** in [Data flow](data-flow.md), which shows how a lead moves through the
+platform. Endpoints are listed in the [API index](api/README.md). All docs: [docs/README.md](README.md).
 
 ## Repo layout and where data lives
 
