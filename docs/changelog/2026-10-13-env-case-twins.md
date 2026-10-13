@@ -7,3 +7,7 @@ twins leave `post_claude_empty_env` (no command in a hardened step uses the netw
 the checker refuses any two env names on a hardened step that differ only by case, so the file would never reach GitHub
 in that state again. One checker test. Nothing on main uses the hardened shell yet (`post_claude_require_shell` is
 `false`); #44 turns it on.
+
+Also: `yarn lint` runs Prettier over the whole tree since #19, and two founder docs on main (`workflow-checker.md`,
+`2026-10-11-post-claude-shell.md`) failed it, so CI was red on main and on every PR. Those files, and the two #44 adds,
+are listed in `.prettierignore`: their inline code spans cross line breaks and Prettier would break the spans.
