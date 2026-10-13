@@ -18,7 +18,7 @@ Start-up rules, checked by tests in `apps/admin/src/tenants/env.test.ts`:
 - `APP_ENV` must be `dev`, `staging` or `production`. There is no default: a missing value stops the app (fail closed).
   Outside `dev` the app uses secure, same-site-strict cookies and needs the email settings.
 - `PAYLOAD_SECRET` must be at least 32 characters.
-- `DATABASE_URL` must not be empty or blank.
+- `DATABASE_URL` must not be empty or blank. In staging and production it must also set `sslmode=require` or `sslmode=verify-full` (the last `sslmode` wins); `disable`, `prefer`, `allow` and `verify-ca` are refused. Dev has no such rule.
 - `PAYLOAD_PUBLIC_SERVER_URL` must be a full URL. Outside `dev` it must use `https`. The app allows only this one
   origin for CORS and CSRF.
 - `RESEND_API_KEY` and `EMAIL_FROM` are required outside `dev` (verification and password-reset emails). In `dev` Payload

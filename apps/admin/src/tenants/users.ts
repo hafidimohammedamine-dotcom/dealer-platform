@@ -16,6 +16,8 @@ import { denyAll, idOf, isAdmin, ROLE_OPTIONS, roleOf } from '../access/roles.js
 import type { AuditLog } from './audit.js';
 import { accessAudit } from './audit.js';
 import { passwordProblem } from './password-policy.js';
+import type { RefusalLimiter } from './refusal-limit.js';
+import { createRefusalLimiter } from './refusal-limit.js';
 import { endSessionsOnDeactivate } from './sessions.js';
 
 type UserScope = Where | false;
@@ -30,6 +32,17 @@ export const usersInMyDealers = ({ req }: { req: { user?: unknown } }): UserScop
   const dealers = tenantIdsOf(req.user);
   const self = { id: { equals: id } };
   return { or: dealers.length > 0 ? [self, { 'tenants.tenant': { in: dealers } }] : [self] };
+};
+
+/**
+ * Unlocking a locked account (5 bad passwords lock it for 10 minutes): an admin may do it, only for users who work for
+ * one of the admin's own dealers. Payload adds this filter to its lookup by email, so another dealer's user is not found.
+ * Without it nobody could unlock a user who was locked out on purpose by someone who knows the email.
+ */
+export const canUnlockUser = ({ req }: { req: { user?: unknown } }): UserScope => {
+  if (roleOf(req.user) !== 'admin') return false;
+  const dealers = tenantIdsOf(req.user);
+  return dealers.length > 0 ? { 'tenants.tenant': { in: dealers } } : false;
 };
 
 /**
@@ -96,7 +109,7 @@ const sortPaths = (sort: unknown): string[] =>
   (Array.isArray(sort) ? sort : [sort])
     .filter((part) => typeof part === 'string')
     .flatMap((part) => part.split(','))
-    .map((part) => part.trim());
+    .map((part) => part.trim().replaceAll('__', '.'));
 
 /**
  * Runs before every users operation (REST, GraphQL and the Local API):
@@ -116,6 +129,38 @@ export const guardUserOperation: CollectionBeforeOperationHook = ({ args, operat
   if (paths.some((path) => DEALER_ROWS.test(path))) throw new Forbidden(req.t);
   return args;
 };
+
+/** An admin whose creates were refused too often (see `auditRefusedCreate`) cannot create users for a while. */
+export const limitRefusedCreates =
+  (limiter: RefusalLimiter): CollectionBeforeOperationHook =>
+  ({ args, operation, req }) => {
+    const actorId = idOf(req.user);
+    if (operation === 'create' && actorId !== null && limiter.blocked(String(actorId)))
+      throw new APIError('Too many refused attempts. Try again later.', 429);
+    return args;
+  };
+
+/**
+ * A create refused because the email is already taken is counted against the admin and written to the audit log (no
+ * email, no password). Emails are unique across dealers, so unlimited refused creates would let an admin test which
+ * addresses other dealers use (finding 5). Never changes the answer: `hideDuplicateEmail` does that.
+ */
+export const auditRefusedCreate =
+  (audit: AuditLog, limiter: RefusalLimiter): CollectionAfterErrorHook =>
+  async ({ error, req }) => {
+    if (!(error instanceof ValidationError) || !error.data.errors.some((e) => e.path === 'email'))
+      return undefined;
+    const actorId = idOf(req.user);
+    if (actorId !== null) limiter.record(String(actorId));
+    await audit.record({
+      action: 'user.create_refused',
+      actorId,
+      target: { collection: USERS_COLLECTION, id: null },
+      dealerIds: tenantIdsOf(req.user),
+      after: { reason: 'email' },
+    });
+    return undefined;
+  };
 
 /** A deactivated user cannot log in (access is already gone through `roleOf`; this also stops a new session). */
 export const refuseInactiveLogin: CollectionBeforeLoginHook = ({ user }) => {
@@ -226,9 +271,15 @@ export interface UsersOptions {
   /** Secure cookies (staging and production). */
   secureCookies: boolean;
   audit?: AuditLog;
+  /** Counts refused creates per admin. A fresh one per config by default. */
+  limiter?: RefusalLimiter;
 }
 
-export function buildUsers({ secureCookies, audit = accessAudit }: UsersOptions): CollectionConfig {
+export function buildUsers({
+  secureCookies,
+  audit = accessAudit,
+  limiter = createRefusalLimiter(),
+}: UsersOptions): CollectionConfig {
   return {
     slug: USERS_COLLECTION,
     admin: { useAsTitle: 'email' },
@@ -246,19 +297,19 @@ export function buildUsers({ secureCookies, audit = accessAudit }: UsersOptions)
       update: canUpdateUser,
       // Users are deactivated (the `active` flag), never deleted, so the audit trail keeps its subjects.
       delete: denyAll,
-      // Unlocking a locked account is a system job: an unlock-by-email could reach a user of another dealer.
-      unlock: denyAll,
+      // An admin unlocks only users of their own dealers (the filter is added to Payload's lookup by email).
+      unlock: canUnlockUser,
       readVersions: denyAll,
     },
     lockDocuments: false,
     hooks: {
-      beforeOperation: [guardUserOperation],
+      beforeOperation: [guardUserOperation, limitRefusedCreates(limiter)],
       beforeValidate: [guardUserWrite],
       afterRead: [showOnlyMyDealers],
       beforeLogin: [refuseInactiveLogin],
       afterChange: [auditUserChange(audit), endSessionsOnDeactivate],
       afterDelete: [auditUserDelete(audit)],
-      afterError: [hideDuplicateEmail],
+      afterError: [auditRefusedCreate(audit, limiter), hideDuplicateEmail],
     },
     // A copy: the multi-tenant plugin adds its `tenants` field to this array in place, once per built config.
     fields: [...USER_FIELDS],

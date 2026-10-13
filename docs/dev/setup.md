@@ -40,7 +40,8 @@ For engineers and builder agents. Dealers do not need this page.
    ```
 
    `.env` is git-ignored. `apps/admin` reads its settings from the environment at start-up and refuses to start without
-   `APP_ENV`, `PAYLOAD_SECRET` (32 or more characters), `DATABASE_URL` and `PAYLOAD_PUBLIC_SERVER_URL`. The unit tests set
+   `APP_ENV`, `PAYLOAD_SECRET` (32 or more characters), `DATABASE_URL` and `PAYLOAD_PUBLIC_SERVER_URL`. In staging and production `DATABASE_URL` must also carry `sslmode=require` or
+   `sslmode=verify-full`, or start-up fails. The unit tests set
    their own fake values, so you do not need a `.env` to run the checks.
 
 **Install scripts:** `.yarnrc.yml` sets `enableScripts: false`, so dependency install scripts do not run. A config test
@@ -94,6 +95,12 @@ Notes:
   `@payloadcms/next` or `next`. It scans all of `apps/admin` except `node_modules`, `dist`, `coverage` and `.next`. It also
   lists the tables that still lack `ENABLE` and `FORCE ROW LEVEL SECURITY` (`dealers`, `users`, `users_tenants`, and the
   rest), turning red if the flag is flipped before they have it.
+- **Deferred on purpose, waiting for a founder to accept (issue #72):** row-level security with a non-owner app role (#58),
+  2FA (#57), login rate limits and the trusted client IP (#73), and the cross-dealer attack suite on real Postgres with
+  break-it-on-purpose runs (#60). Each is large and has its own issue. Until they land, `readiness.ts` keeps customer data
+  (any collection but `dealers` and `users`) and every HTTP route out of the admin app, and CI fails if either appears. Today
+  the dealer A against dealer B tests (`two-dealers.test.ts`) run on in-memory filters, not on Postgres, and
+  `migration.test.ts` runs as the table owner and does not test row isolation.
 - `eslint.config.mjs` and the root `lint` script are not founder-only files today, so an agent PR can change them and
   only review would see it. The founders track making the lint guard founder-only in issue #46.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.

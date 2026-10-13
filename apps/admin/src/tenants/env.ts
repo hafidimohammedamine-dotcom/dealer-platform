@@ -26,6 +26,17 @@ function isStage(value: string): value is AppStage {
   return STAGES.some((stage) => stage === value);
 }
 
+/** True when the connection string forces TLS (`sslmode=require` or `verify-full`, the last `sslmode` wins). */
+export function databaseUrlUsesTls(databaseUrl: string): boolean {
+  try {
+    const modes = new URL(databaseUrl).searchParams.getAll('sslmode');
+    const mode = modes[modes.length - 1];
+    return mode === 'require' || mode === 'verify-full';
+  } catch {
+    return false;
+  }
+}
+
 export function readAppEnv(env: Env): AppEnv {
   const need = (name: string): string => {
     const value = env[name];
@@ -47,11 +58,14 @@ export function readAppEnv(env: Env): AppEnv {
   }
   if (production && url.protocol !== 'https:')
     throw new Error('PAYLOAD_PUBLIC_SERVER_URL must use https outside dev.');
+  const databaseUrl = need('DATABASE_URL');
+  if (production && !databaseUrlUsesTls(databaseUrl))
+    throw new Error('DATABASE_URL must set sslmode=require or sslmode=verify-full outside dev.');
   const result: AppEnv = {
     stage,
     production,
     secret,
-    databaseUrl: need('DATABASE_URL'),
+    databaseUrl,
     serverURL: url.origin,
   };
   if (production) result.email = { apiKey: need('RESEND_API_KEY'), from: need('EMAIL_FROM') };

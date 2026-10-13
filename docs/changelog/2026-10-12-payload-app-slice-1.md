@@ -41,3 +41,22 @@ Devops change (`apps/admin`, `packages/data`, `packages/platform`, `docs`).
 dealership" comes with the screens and 2FA). Not built, with owners: 2FA (#57), row-level security and the migration
 job (#58), the cross-dealer attack suite on real Postgres (#60), the email-change flow (#61), the durable audit table
 (#71), the login surface (#73). Founder decisions: #72.
+
+## Review round 2 (2026-10-13)
+
+- **Paths.** Payload also reads `a__b` as the nested path `a.b`. `where` (`wherePaths`, `flatWhere`), `sort` (`sortOf`) in
+  `packages/data`, and the users `where` and `sort` guard now treat `__` as `.`, so `tenants__tenant` and
+  `-tenants__tenant__name` are refused like their dotted forms.
+- **Lint.** Also bans string-key access to the instance and database (`req['payload']`, `x[`db`]`), computed Local API calls
+  (`p['find'](...)`), any assignment to `overrideAccess` other than `= false` (`opts.overrideAccess = true`, `||=`, string
+  keys) and setting it by name (`Object.defineProperty`, `Reflect.set`, template-literal keys).
+- **Users.** A create refused for its email is counted and audited (`user.create_refused`); an admin with 5 refusals in an
+  hour gets `429` on creates (in-process; Redis version with #73). An admin can unlock users of their own dealers only
+  (`POST /unlock`), so a known email cannot be locked out for good; a throttle by address is #73.
+- **Start-up.** Staging and production refuse a `DATABASE_URL` without `sslmode=require` or `sslmode=verify-full`.
+- **Tests.** Direct tests for `sessions.ts`, `registry.ts` and the refusal limiter; every file is at or above 90% on its own.
+
+**Deferred, waiting for a founder to accept (issue #72).** Row-level security with a non-owner role (#58), 2FA (#57), login
+rate limits, trusted client IP and the reset flow (#73), and the cross-dealer attack suite on real Postgres (#60). Until they
+land, `readiness.ts` keeps customer data and every HTTP route out of the app, and CI fails if either appears. The
+`sharp` license (LGPL-3.0 `libvips`) and the `@esbuild-kit/esm-loader` to `tsx` swap also wait for a founder.

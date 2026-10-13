@@ -42,7 +42,8 @@ after).
 | Create                          | `admin`                  | At least one dealer, all of them the admin's own. Email is set here and cannot be changed later   |
 | Update                          | `admin`                  | Only users whose dealers are **all** the admin's own dealers; new dealers must be the admin's own |
 | Update                          | Any other signed-in role | Yourself only. Role, active and dealers cannot be changed by the user                             |
-| Delete, unlock, versions        | Nobody through the API   | Users are deactivated (`active` false), never deleted. Unlocking is a system job                  |
+| Delete, versions                | Nobody through the API   | Users are deactivated (`active` false), never deleted                                             |
+| Unlock                          | `admin`                  | Only users who work for one of the admin's own dealers                                            |
 | Change `role`, `active`         | `admin`                  | Same limit as Update                                                                              |
 
 Every write to a user with no logged-in user is refused, which also closes `POST /api/users/first-register`. There is no
@@ -54,9 +55,11 @@ the answer is `403`. The list is already limited to your dealers, and such a fil
 
 Creating a user sends a verification email; the user cannot log in before verifying. A duplicate or invalid email gets a
 generic error. Other fields keep their own messages. Whether a create succeeds still shows that an email is free, so an
-admin who tries addresses one by one can learn which ones exist at another dealer. Successful creates are audited; refused
-or invalid creates are **not** audited yet, and there is no create rate limit yet: both come with the login surface
-(issue #73), and the app has no HTTP route until then. An invite flow would remove this fully (not built).
+admin who tries addresses one by one could learn which ones exist at another dealer, so a create refused for its email is
+counted against that admin and written to the audit log as `user.create_refused` (no email in the entry); after 5 such
+refusals in an hour that admin's creates get `429` until the hour passes. The count lives in the running process; the
+Redis-backed version comes with issue #73. An invite flow that answers the same whatever the email would remove this
+fully (not built).
 
 **Passwords.** Checked when an admin creates a user: at least 12 and at most 128 characters, not a common password (a
 built-in list, also with digits or symbols on the ends), not one short piece repeated, and not containing the name part of
@@ -68,7 +71,8 @@ after the change succeeds. A check against a list of breached passwords is a fol
 
 **Rate limits and the client IP are not built** (issue #73: Redis-backed limits per address and per email, a client IP
 from a source a founder confirms for Railway). Today only Payload's own account lock applies: 5 failed tries lock that
-account for 10 minutes. The app has no HTTP route until #73 is done, so nothing can be tried from outside.
+account for 10 minutes, and an admin of the user's dealer can unlock it (`POST /unlock`); a throttle by address, so that a stranger
+cannot keep a known email locked, is #73. The app has no HTTP route until #73 is done, so nothing can be tried from outside.
 
 ## Login and session routes (`/api/users/...`)
 
@@ -78,7 +82,7 @@ account for 10 minutes. The app has no HTTP route until #73 is done, so nothing 
 | `POST /logout`, `GET /me`, `POST /refresh-token`           | Sessions are on (`useSessions`); the token lasts 2 hours. Cookies are `Secure` and `SameSite=Strict` in staging and production. Deactivating a user ends all of that user's sessions, and a deactivated user cannot refresh |
 | `POST /forgot-password`, `POST /reset-password` (no login) | Closed: `403` for everyone until issue #73                                                                                                                                                                                  |
 | `GET /verify/:token` (no login)                            | Email verification                                                                                                                                                                                                          |
-| `POST /unlock`                                             | Closed to everyone through the API                                                                                                                                                                                          |
+| `POST /unlock`                                             | An admin may unlock a locked user who works for one of the admin's own dealers; anyone else gets no match                                                                                                                   |
 | `POST /first-register` (no login)                          | Refused by the user write guard (see above)                                                                                                                                                                                 |
 | `GET /access`, `GET /init`                                 | Payload's own routes, covered by issue #60                                                                                                                                                                                  |
 
@@ -125,9 +129,6 @@ curl https://staging.example.test/api/users/verify/TOKEN-FROM-THE-EMAIL
 Refused on purpose, for every role:
 
 ```bash
-# Unlock: closed (a system job does it)
-curl -b cookies.txt -X POST -H 'Content-Type: application/json' -d '{"email":"rep@dealer-a.example"}' \
-  https://staging.example.test/api/users/unlock          # 403
 # Delete a user or a dealer
 curl -b cookies.txt -X DELETE https://staging.example.test/api/users/$USER_ID      # 403
 curl -b cookies.txt -X DELETE https://staging.example.test/api/dealers/$DEALER_A   # 403

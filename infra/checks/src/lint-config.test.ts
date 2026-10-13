@@ -101,6 +101,21 @@ describe('Payload rule 1: data access only through packages/data', () => {
     'export const p = import("payload");\n',
     'declare const name: string;\nexport const p = import(name);\n',
     'export const p = require("payload");\n',
+    // Round 2 (finding 4): string keys and later writes.
+    'declare const req: { payload: object };\nexport const p = req["payload"];\n',
+    'declare const req: { payload: object };\nexport const p = req[`payload`];\n',
+    'declare const payload: { db: object };\nexport const d = payload["db"];\n',
+    'declare const x: { db: object };\nexport const d = x[`db`];\n',
+    'declare const p: { find(a: object): void };\np["find"]({ collection: "leads" });\n',
+    'declare const p: { update(a: object): void };\np[`update`](opts);\ndeclare const opts: object;\n',
+    'declare const opts: { overrideAccess?: boolean };\nopts.overrideAccess = true;\n',
+    'declare const opts: { overrideAccess?: boolean };\nopts["overrideAccess"] = true;\n',
+    'declare const opts: { overrideAccess?: boolean };\nopts[`overrideAccess`] = true;\n',
+    'declare const x: boolean;\ndeclare const opts: { overrideAccess?: boolean };\nopts.overrideAccess = x;\n',
+    'declare const opts: { overrideAccess?: boolean };\nopts.overrideAccess ||= true;\n',
+    'declare const opts: object;\nObject.defineProperty(opts, "overrideAccess", { value: true });\n',
+    'declare const opts: object;\nReflect.set(opts, `overrideAccess`, true);\n',
+    'export const a = { [`overrideAccess`]: true };\n',
   ];
 
   it('refuses a Local API call, raw database access, overrideAccess: true and getPayload', async () => {
@@ -164,6 +179,9 @@ describe('Payload rule 1: data access only through packages/data', () => {
       'declare const rows: number[];\nexport const r = rows.find((n) => n > 1);\n',
       'declare const m: Map<string, number>;\nm.delete("a");\n',
       'export const m = import("./local.js");\n',
+      'declare const opts: { overrideAccess?: boolean };\nopts.overrideAccess = false;\n',
+      'declare const o: { a?: number };\no["a"] = 1;\nexport const k = o["a"];\n',
+      'declare const m: Record<string, number>;\nexport const v = m["dbx"] + m[`payloads`];\n',
     ]) {
       const ids = await ruleIds(code, where);
       expect(ids, code).not.toContain('no-restricted-syntax');

@@ -101,8 +101,19 @@ describe('dealer A cannot reach dealer B', () => {
     expect(shown).toEqual([{ ...byId('sharedAB'), tenants: [{ tenant: 'A' }] }]);
   });
 
-  it('users: unlock, delete and versions are closed to every role', async () => {
-    for (const op of ['unlock', 'delete', 'readVersions']) {
+  it('users: unlock reaches only the own dealers of an admin, nobody else can unlock', async () => {
+    expect(await visible('users', 'unlock', byId('adminA'), userDocs)).toEqual([
+      'adminA',
+      'repA',
+      'sharedAB',
+    ]);
+    for (const actor of ['repA', 'repB']) {
+      expect(await visible('users', 'unlock', byId(actor), userDocs)).toEqual([]);
+    }
+  });
+
+  it('users: delete and versions are closed to every role', async () => {
+    for (const op of ['delete', 'readVersions']) {
       for (const actor of ['adminA', 'repA', 'sharedAB']) {
         expect(await visible('users', op, byId(actor), userDocs)).toEqual([]);
       }

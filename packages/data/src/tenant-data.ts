@@ -209,7 +209,8 @@ export function wherePaths(where: unknown, prefix = ''): string[] {
     if (prefix === '' && AND_OR.test(key)) {
       return (Array.isArray(value) ? value : [value]).flatMap((part) => wherePaths(part));
     }
-    const path = `${prefix}${key}`;
+    // Payload also reads `a__b` as the nested path `a.b`, so both spellings give the same path here.
+    const path = `${prefix}${key.replaceAll('__', '.')}`;
     if (!isRecord(value)) return [path];
     const deeper = Object.entries(value).filter(([name]) => !OPERATORS.has(name));
     const own = deeper.length < Object.keys(value).length ? [path] : [];
@@ -229,7 +230,8 @@ export function flatWhere(where: DataWhere): DataWhere {
 }
 
 export function sortOf(sort: string): string {
-  if (!SORT.test(sort)) throw new RangeError('sort must be one field name, optionally with a "-".');
+  if (!SORT.test(sort) || sort.includes('__'))
+    throw new RangeError('sort must be one field name, optionally with a "-".');
   return sort;
 }
 

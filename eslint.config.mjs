@@ -12,6 +12,9 @@ const PAYLOAD_INSTANCE_IMPORTS = ['payload', '@payloadcms/next/utilities'].map((
 }));
 const LOCAL_API =
   '/^(find|findByID|findDistinct|count|countVersions|create|update|delete|duplicate|findGlobal|updateGlobal|findVersions|findVersionByID|restoreVersion|login|forgotPassword|resetPassword|unlock|verifyEmail|sendEmail|auth)$/';
+// A member name written as a string: `x['payload']` (Literal) or x[`payload`] (TemplateLiteral without `${}`).
+const keyIs = (re) =>
+  `:matches([property.value=${re}], [property.quasis.0.value.cooked=${re}][property.expressions.length=0])`;
 const PAYLOAD_PACKAGES = '/^(payload|@payloadcms\\/next\\/utilities)$/';
 const RULE_1 = {
   call: {
@@ -22,9 +25,35 @@ const RULE_1 = {
   },
   localApiShape: {
     // Any object or bare function called like the Local API: `p.find({ collection })`, `find({ collection })`.
-    selector: `CallExpression:matches([callee.property.name=${LOCAL_API}], [callee.name=${LOCAL_API}]) > ObjectExpression.arguments:first-child > Property:matches([key.name=/^(collection|slug)$/], [key.value=/^(collection|slug)$/])`,
+    selector: `CallExpression:matches([callee.property.name=${LOCAL_API}], [callee.property.value=${LOCAL_API}], [callee.name=${LOCAL_API}]) > ObjectExpression.arguments:first-child > Property:matches([key.name=/^(collection|slug)$/], [key.value=/^(collection|slug)$/])`,
     message:
       'Do not call the Payload Local API directly (Payload rule 1). Use packages/data (tenant-safe helper).',
+  },
+  computedInstance: {
+    // `req['payload']`, `req[`db`]`: the same instance or database, reached with a string key.
+    selector: `MemberExpression[computed=true]${keyIs('/^(payload|db)$/')}`,
+    message:
+      'Do not reach the Payload instance or its database with a string key (Payload rule 1).',
+  },
+  computedCall: {
+    // `p['find']({ ... })`, `payload[`update`](...)`.
+    selector: `CallExpression > MemberExpression.callee[computed=true]${keyIs(LOCAL_API)}`,
+    message:
+      'Do not call the Payload Local API directly (Payload rule 1). Use packages/data (tenant-safe helper).',
+  },
+  accessWrite: {
+    // `opts.overrideAccess = true`, `opts['overrideAccess'] ||= x`: only the literal `false` may be written.
+    selector:
+      "AssignmentExpression:not([operator='='][right.value=false]) > MemberExpression.left:matches([computed=false][property.name='overrideAccess'], [computed=true][property.value='overrideAccess'], [computed=true][property.quasis.0.value.cooked='overrideAccess'])",
+    message:
+      'overrideAccess must be the literal false and may not be assigned later (Payload rule 1).',
+  },
+  accessDefine: {
+    // `Object.defineProperty(opts, 'overrideAccess', ...)`, `Reflect.set(opts, 'overrideAccess', true)`.
+    selector:
+      "CallExpression > Literal.arguments[value='overrideAccess'], CallExpression > TemplateLiteral.arguments[quasis.0.value.cooked='overrideAccess']",
+    message:
+      'overrideAccess must be the literal false and may not be set by name (Payload rule 1).',
   },
   alias: {
     // Aliases hide the instance from the checks above: `const p = req.payload`, `p = req.payload`, `x = { db } = ...`.
@@ -41,7 +70,7 @@ const RULE_1 = {
   accessOverride: {
     // Anything but the literal `false`: `true`, a variable, shorthand `{ overrideAccess }`, an expression.
     selector:
-      "Property:matches([key.name='overrideAccess'], [key.value='overrideAccess']):not([value.value=false])",
+      "Property:matches([key.name='overrideAccess'], [key.value='overrideAccess'], [key.quasis.0.value.cooked='overrideAccess']):not([value.value=false])",
     message:
       'overrideAccess must be the literal false. true is only for a reviewed system job in packages/data/override-allowlist.txt (Payload rule 1).',
   },

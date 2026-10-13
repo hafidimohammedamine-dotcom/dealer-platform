@@ -1,4 +1,4 @@
-import { AuthenticationError, Forbidden, ValidationError } from 'payload';
+import { APIError, AuthenticationError, Forbidden, ValidationError } from 'payload';
 import type { Field } from 'payload';
 import { describe, expect, it } from 'vitest';
 import type { AuditEntry } from '@dealer/platform';
@@ -10,12 +10,15 @@ import {
   canUpdateUser,
   guardUserWrite,
   hideDuplicateEmail,
+  auditRefusedCreate,
+  canUnlockUser,
   guardUserOperation,
+  limitRefusedCreates,
   refuseInactiveLogin,
   usersInMyDealers,
 } from './users.js';
 import { endSessionsOnDeactivate } from './sessions.js';
-import { adminA, adminAB, call, repA, t, write } from '../test-helpers/fixtures.js';
+import { adminA, adminAB, adminB, call, repA, t, write } from '../test-helpers/fixtures.js';
 
 describe('canUpdateUser and usersInMyDealers', () => {
   it('limits an admin to users of their dealers, and everyone else to themself', () => {
@@ -49,9 +52,8 @@ describe('the user collection', () => {
   const users = buildUsers({ secureCookies: true });
   const as = (user: unknown) => ({ req: { user } });
 
-  it('cannot be deleted or unlocked through the API, and has no versions', () => {
+  it('cannot be deleted through the API, and has no versions', () => {
     expect(call(users.access?.delete, as(adminA))).toBe(false);
-    expect(call(users.access?.unlock, as(adminAB))).toBe(false);
     expect(call(users.access?.readVersions, as(adminAB))).toBe(false);
   });
 
@@ -193,6 +195,9 @@ describe('guardUserOperation: closed flows, inactive refresh, no probing of deal
       { 'tenants.tenant': { equals: 'B' } },
       { tenants: { exists: true } },
       { OR: [{ 'tenants.id': { equals: 'row' } }] },
+      { tenants__tenant: { equals: 'B' } },
+      { tenants__tenant__name: { like: 'Dealer B' } },
+      { and: [{ a: { equals: 1 } }, { tenants__id: { equals: 'row' } }] },
     ];
     for (const operation of ['read', 'count', 'update', 'delete']) {
       for (const where of wheres) {
@@ -205,6 +210,10 @@ describe('guardUserOperation: closed flows, inactive refresh, no probing of deal
         '-tenants.tenant.name',
         'email,tenants',
         ['tenants.tenant'],
+        'tenants__tenant',
+        '-tenants__tenant',
+        '-tenants__tenant__name',
+        'email,tenants__tenant',
       ]) {
         expect(run(operation, { sort }), `${operation} ${String(sort)}`).toThrow(Forbidden);
       }
@@ -284,7 +293,8 @@ describe('endSessionsOnDeactivate: deactivation ends every login (finding 9)', (
   it('is wired into the users collection', () => {
     const users = buildUsers({ secureCookies: true });
     expect(users.hooks?.afterChange).toContain(endSessionsOnDeactivate);
-    expect(users.hooks?.beforeOperation).toEqual([guardUserOperation]);
+    expect(users.hooks?.beforeOperation).toHaveLength(2);
+    expect(users.hooks?.beforeOperation?.[0]).toBe(guardUserOperation);
   });
 });
 
@@ -411,5 +421,97 @@ describe('the audit trail', () => {
         req: {},
       }),
     ).rejects.toThrow('sink down');
+  });
+});
+
+describe('unlock: an admin unlocks only users of their own dealers (finding 6)', () => {
+  const users = buildUsers({ secureCookies: true });
+  const as = (user: unknown) => ({ req: { user } });
+
+  it('gives an admin a filter on their dealers, and everyone else nothing', () => {
+    expect(call(canUnlockUser, as(adminA))).toEqual({ 'tenants.tenant': { in: ['A'] } });
+    expect(call(canUnlockUser, as(adminAB))).toEqual({ 'tenants.tenant': { in: ['A', 'B'] } });
+    for (const user of [
+      undefined,
+      repA,
+      { ...adminA, active: false },
+      { ...adminA, tenants: [] },
+    ]) {
+      expect(call(canUnlockUser, as(user))).toBe(false);
+    }
+    expect(call(users.access?.unlock, as(adminA))).toEqual({ 'tenants.tenant': { in: ['A'] } });
+  });
+
+  it('is not a way to reach a user of another dealer', () => {
+    const filter = call(canUnlockUser, as(adminA));
+    expect(JSON.stringify(filter)).not.toContain('"B"');
+  });
+});
+
+describe('refused creates are counted, audited and limited (finding 5)', () => {
+  const duplicate = new ValidationError({
+    collection: 'users',
+    errors: [{ path: 'email', message: 'Value must be unique' }],
+  });
+  const setup = () => {
+    const entries: AuditEntry[] = [];
+    const audit = createAuditLog({ append: (e) => void entries.push(e) });
+    const blockedIds = new Set<string>();
+    const recorded: string[] = [];
+    const limiter = {
+      record: (id: string) => void recorded.push(id),
+      blocked: (id: string) => blockedIds.has(id),
+    };
+    return { entries, audit, limiter, blockedIds, recorded };
+  };
+
+  it('records a refused create against the admin and writes an audit entry without the email', async () => {
+    const { entries, audit, limiter, recorded } = setup();
+    const result = await call(auditRefusedCreate(audit, limiter), {
+      error: duplicate,
+      req: { user: adminA },
+    });
+    expect(result).toBeUndefined();
+    expect(recorded).toEqual(['adminA']);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      action: 'user.create_refused',
+      actorId: 'adminA',
+      dealerIds: ['A'],
+    });
+    expect(JSON.stringify(entries)).not.toContain('example');
+  });
+
+  it('ignores other errors and still audits an anonymous refusal without counting it', async () => {
+    const { entries, audit, limiter, recorded } = setup();
+    const hook = auditRefusedCreate(audit, limiter);
+    await call(hook, { error: new Error('boom'), req: { user: adminA } });
+    await call(hook, {
+      error: new ValidationError({
+        collection: 'users',
+        errors: [{ path: 'role', message: 'Required' }],
+      }),
+      req: { user: adminA },
+    });
+    expect(entries).toEqual([]);
+    await call(hook, { error: duplicate, req: { user: undefined } });
+    expect(recorded).toEqual([]);
+    expect(entries).toHaveLength(1);
+  });
+
+  it('refuses creates (429) from a blocked admin only', () => {
+    const { limiter, blockedIds } = setup();
+    blockedIds.add('adminA');
+    const run = (operation: string, user: unknown) => () =>
+      call(limitRefusedCreates(limiter), { args: {}, operation, req: { user, t } });
+    expect(run('create', adminA)).toThrow(APIError);
+    expect(run('read', adminA)()).toEqual({});
+    expect(run('create', adminB)()).toEqual({});
+    expect(run('create', undefined)()).toEqual({});
+  });
+
+  it('is wired into the users collection with the shared limiter', () => {
+    const users = buildUsers({ secureCookies: true });
+    expect(users.hooks?.afterError).toHaveLength(2);
   });
 });

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { DataWhere } from './tenant-data.js';
-import { flatWhere, isRecord, TenantAccessError, tenantIdsOf, wherePaths } from './tenant-data.js';
+import {
+  flatWhere,
+  isRecord,
+  sortOf,
+  TenantAccessError,
+  tenantIdsOf,
+  wherePaths,
+} from './tenant-data.js';
 
 describe('tenantIdsOf', () => {
   it('reads strict IDs from ids and populated objects, and skips junk', () => {
@@ -57,9 +64,31 @@ describe('wherePaths and flatWhere: no filtering through a linked record', () =>
       // The nested spelling Payload also reads (not expressible in its `Where` type, so it comes in as JSON).
       JSON.parse('{"customer":{"name":{"equals":"a"}}}'),
       { or: [{ and: [{ 'tenant.name': { equals: 'Dealer B' } }] }] },
+      // Payload also reads a double underscore as a nested path.
+      { tenants__tenant: { equals: 'B' } },
+      { tenants__tenant__name: { like: 'Dealer B' } },
+      { a__b: { equals: 1 } },
+      JSON.parse('{"tenants":{"tenant__name":{"equals":"a"}}}'),
     ];
     for (const deep of deeps) {
       expect(() => flatWhere(deep), JSON.stringify(deep)).toThrow(TenantAccessError);
     }
+  });
+});
+
+describe('double underscore paths', () => {
+  it('wherePaths reads a__b as a.b', () => {
+    expect(wherePaths({ tenants__tenant: { equals: 'B' }, a__b__c: { equals: 1 } })).toEqual([
+      'tenants.tenant',
+      'a.b.c',
+    ]);
+  });
+
+  it('sortOf refuses a sort through a linked record in any spelling', () => {
+    for (const sort of ['tenants__tenant', '-tenants__tenant', 'a__b', 'a.b']) {
+      expect(() => sortOf(sort), sort).toThrow(RangeError);
+    }
+    expect(sortOf('-createdAt')).toBe('-createdAt');
+    expect(sortOf('first_name')).toBe('first_name');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readAppEnv } from './env.js';
+import { databaseUrlUsesTls, readAppEnv } from './env.js';
 
 const dev = {
   APP_ENV: 'dev',
@@ -9,6 +9,7 @@ const dev = {
 };
 const live = {
   ...dev,
+  DATABASE_URL: 'postgres://u:p@h/db?sslmode=require',
   APP_ENV: 'production',
   PAYLOAD_PUBLIC_SERVER_URL: 'https://admin.example.test',
   RESEND_API_KEY: 're_fake',
@@ -33,6 +34,33 @@ describe('readAppEnv', () => {
       email: { apiKey: 're_fake', from: 'noreply@example.test' },
     });
     expect(readAppEnv({ ...live, APP_ENV: 'staging' }).production).toBe(true);
+  });
+
+  it('requires TLS on DATABASE_URL in staging and production, not in dev', () => {
+    for (const APP_ENV of ['staging', 'production']) {
+      for (const DATABASE_URL of [
+        'postgres://u:p@h/db',
+        'postgres://u:p@h/db?sslmode=disable',
+        'postgres://u:p@h/db?sslmode=prefer',
+        'postgres://u:p@h/db?sslmode=allow',
+        'postgres://u:p@h/db?sslmode=verify-ca',
+        'postgres://u:p@h/db?sslmode=require&sslmode=disable',
+        'postgres://u:p@h/db?ssl=true',
+        'not a url',
+      ]) {
+        expect(() => readAppEnv({ ...live, APP_ENV, DATABASE_URL }), DATABASE_URL).toThrow(
+          'sslmode',
+        );
+      }
+      for (const mode of ['require', 'verify-full']) {
+        const DATABASE_URL = `postgres://u:p@h/db?sslmode=${mode}`;
+        expect(readAppEnv({ ...live, APP_ENV, DATABASE_URL }).databaseUrl).toBe(DATABASE_URL);
+      }
+    }
+    expect(readAppEnv({ ...dev, DATABASE_URL: 'postgres://u:p@h/db' }).stage).toBe('dev');
+    expect(databaseUrlUsesTls('postgres://u:p@h/db?sslmode=disable&sslmode=verify-full')).toBe(
+      true,
+    );
   });
 
   it('fails closed: APP_ENV has no default', () => {
