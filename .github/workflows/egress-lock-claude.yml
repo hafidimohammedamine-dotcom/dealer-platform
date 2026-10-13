@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -57,6 +57,7 @@ jobs:
             --allowedTools "Skill,TodoWrite"
             --disallowedTools "Skill(payload),Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: Claude answered under the lock, and Skill(payload) was denied
+        id: skill-deny
         shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell)
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
@@ -75,13 +76,26 @@ jobs:
           LD_DEBUG: ""
           LD_DEBUG_OUTPUT: ""
           LD_PROFILE: ""
+          LD_PROFILE_OUTPUT: ""
           LD_BIND_NOW: ""
+          LD_BIND_NOT: ""
+          LD_TRACE_LOADED_OBJECTS: ""
+          LD_SHOW_AUXV: ""
+          LD_WARN: ""
+          LD_VERBOSE: ""
+          LD_ORIGIN_PATH: ""
+          LD_HWCAP_MASK: ""
+          LD_ASSUME_KERNEL: ""
+          LD_DYNAMIC_WEAK: ""
+          LD_USE_LOAD_BIAS: ""
+          LD_PREFER_MAP_32BIT_EXEC: ""
           GCONV_PATH: ""
           GLIBC_TUNABLES: ""
           MALLOC_CHECK_: ""
           MALLOC_PERTURB_: ""
           MALLOC_TOP_PAD_: ""
           MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_MMAP_MAX_: ""
           MALLOC_TRIM_THRESHOLD_: ""
           MALLOC_ARENA_MAX: ""
           LOCPATH: ""
@@ -106,7 +120,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -130,7 +144,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -155,6 +169,7 @@ jobs:
             --allowedTools "Bash(bash scripts/check-scrub-probe.sh)"
             --disallowedTools "Skill(payload),Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: The tools saw no Claude token
+        id: scrub-check
         shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell)
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
@@ -173,13 +188,26 @@ jobs:
           LD_DEBUG: ""
           LD_DEBUG_OUTPUT: ""
           LD_PROFILE: ""
+          LD_PROFILE_OUTPUT: ""
           LD_BIND_NOW: ""
+          LD_BIND_NOT: ""
+          LD_TRACE_LOADED_OBJECTS: ""
+          LD_SHOW_AUXV: ""
+          LD_WARN: ""
+          LD_VERBOSE: ""
+          LD_ORIGIN_PATH: ""
+          LD_HWCAP_MASK: ""
+          LD_ASSUME_KERNEL: ""
+          LD_DYNAMIC_WEAK: ""
+          LD_USE_LOAD_BIAS: ""
+          LD_PREFER_MAP_32BIT_EXEC: ""
           GCONV_PATH: ""
           GLIBC_TUNABLES: ""
           MALLOC_CHECK_: ""
           MALLOC_PERTURB_: ""
           MALLOC_TOP_PAD_: ""
           MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_MMAP_MAX_: ""
           MALLOC_TRIM_THRESHOLD_: ""
           MALLOC_ARENA_MAX: ""
           LOCPATH: ""
@@ -204,7 +232,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -230,7 +258,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -255,6 +283,7 @@ jobs:
             --allowedTools "Read(./**),Grep,Glob,TodoWrite"
             --disallowedTools "Skill(payload),Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//sys/**),Read(//home/runner/work/_temp/**),Read(//home/runner/.*/**),Read(//etc/**),Read(//dev/**),Read(//home/runner/runners/**),Read(./.git/**)"
       - name: Every read outside the checkout was denied, and no tool result holds a token
+        id: read-deny
         shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}   # the one shell allowed after a Claude step (checker policy post_claude_shell)
         env:
           EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
@@ -273,13 +302,26 @@ jobs:
           LD_DEBUG: ""
           LD_DEBUG_OUTPUT: ""
           LD_PROFILE: ""
+          LD_PROFILE_OUTPUT: ""
           LD_BIND_NOW: ""
+          LD_BIND_NOT: ""
+          LD_TRACE_LOADED_OBJECTS: ""
+          LD_SHOW_AUXV: ""
+          LD_WARN: ""
+          LD_VERBOSE: ""
+          LD_ORIGIN_PATH: ""
+          LD_HWCAP_MASK: ""
+          LD_ASSUME_KERNEL: ""
+          LD_DYNAMIC_WEAK: ""
+          LD_USE_LOAD_BIAS: ""
+          LD_PREFER_MAP_32BIT_EXEC: ""
           GCONV_PATH: ""
           GLIBC_TUNABLES: ""
           MALLOC_CHECK_: ""
           MALLOC_PERTURB_: ""
           MALLOC_TOP_PAD_: ""
           MALLOC_MMAP_THRESHOLD_: ""
+          MALLOC_MMAP_MAX_: ""
           MALLOC_TRIM_THRESHOLD_: ""
           MALLOC_ARENA_MAX: ""
           LOCPATH: ""
@@ -304,7 +346,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -332,7 +374,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "b7d344a7a5b07e687327258b1b728a985b5f6a47d7496a8dad351d7eb7bd8e83"
+          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

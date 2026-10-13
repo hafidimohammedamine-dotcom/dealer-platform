@@ -26,7 +26,7 @@ if [ "$CMD" = blocked ]; then
   set +e; scan_answer "$T/scan"; rc=$?; set -e
   case $rc in
     0) cat "$T/scan/blocked.md";;
-    3) echo "BLOCKED: $(wc -l < "$T/scan/blocked.md" | tr -d ' ') denied tool call(s); the names and inputs are withheld (something looks like a secret)";;
+    3) echo "BLOCKED: $(jq "[$denials] | length" "$EXEC") denied tool call(s); the names and inputs are withheld (something looks like a secret)";;
     *) echo "ERROR: the secret scan failed with exit code $rc" >&2; exit 1;;
   esac
   exit 0
