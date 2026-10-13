@@ -148,8 +148,9 @@ describe('components', () => {
     }
   });
 
-  it('ignores a __proto__ key in a row and non-text cells', () => {
-    const row = { ['__proto__']: { x: '1' }, a: 'ok', b: 5 };
+  it('ignores a __proto__ key in a row', () => {
+    const row = { ['__proto__']: 'x', a: 'ok' };
+    expect(Object.hasOwn(row, '__proto__')).toBe(true);
     const t = tableModel(
       'Deals',
       [
@@ -159,8 +160,25 @@ describe('components', () => {
       [row],
     );
     expect(t.rows[0]).toEqual({ a: 'ok', b: missingValue });
-    expect(Object.hasOwn(t.rows[0] ?? {}, 'x')).toBe(false);
-    expect(Object.prototype).not.toHaveProperty('x');
+    expect(Object.getPrototypeOf(t.rows[0])).toBe(Object.prototype);
+    expect(Object.hasOwn(t.rows[0] ?? {}, '__proto__')).toBe(false);
+  });
+
+  it('shows a dash for an empty, blank or undefined cell, and keeps real text as it is', () => {
+    const cols = [
+      { key: 'a', label: 'A' },
+      { key: 'b', label: 'B' },
+      { key: 'c', label: 'C' },
+      { key: 'd', label: 'D', numeric: true },
+    ];
+    const t = tableModel('Deals', cols, [{ a: '', b: '  \t\n', c: undefined, d: ' $0.00 ' }]);
+    expect(t.rows).toEqual([{ a: missingValue, b: missingValue, c: missingValue, d: ' $0.00 ' }]);
+    expect(tableModel('Deals', cols, [{ a: '0', b: 'No', c: 'x', d: '$1.00' }]).rows[0]).toEqual({
+      a: '0',
+      b: 'No',
+      c: 'x',
+      d: '$1.00',
+    });
   });
 
   it('lays tables out with padding, right-aligned numbers, row lines and phone cards', () => {

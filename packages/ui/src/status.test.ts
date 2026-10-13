@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badge, badgeTones, colors, type BadgeTone } from './index.js';
+import { badge, badgeTones, colors, isBadgeTone } from './index.js';
 
 describe('status badges', () => {
   it('marks every badge with a word and a symbol', () => {
@@ -11,10 +11,13 @@ describe('status badges', () => {
     expect(() => badge('success', 'Done', ' ')).toThrow();
   });
 
-  it('says in plain words when the color is not one we have', () => {
-    const bad: BadgeTone = JSON.parse('"purple"');
-    const badTone: BadgeTone = JSON.parse('"toString"');
-    expect(() => badge(bad, 'Done', '✓')).toThrow(/not a badge color/);
-    expect(() => badge(badTone, 'Done', '✓')).toThrow(/not a badge color/);
+  it('tells a real tone from any other text', () => {
+    for (const tone of Object.keys(badgeTones)) expect(isBadgeTone(tone)).toBe(true);
+    expect(isBadgeTone('info')).toBe(true);
+    expect(isBadgeTone('purple')).toBe(false);
+    expect(isBadgeTone('toString')).toBe(false);
+    expect(isBadgeTone('__proto__')).toBe(false);
+    expect(isBadgeTone('')).toBe(false);
+    expect(isBadgeTone('Info')).toBe(false);
   });
 });

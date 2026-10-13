@@ -1,4 +1,4 @@
-import { requireText } from './text.js';
+import { present, requireText } from './text.js';
 import { breakpoints, colors, focusRing, minTapTarget, radii, spacing } from './tokens.js';
 
 // Style and wording rules shared by buttons, inputs, tables and screens.
@@ -72,9 +72,6 @@ export interface InputProps {
   error?: string;
   hint?: string;
 }
-
-const present = (s?: string): string | undefined =>
-  s !== undefined && s.trim() !== '' ? s : undefined;
 
 /** Every input needs a visible label. Errors say what to do and win over hints. Returns the attributes for the field. */
 export function inputAttributes(p: InputProps): {
@@ -179,17 +176,20 @@ export function columnStyle(
   return column.numeric === true ? tableStyles.numeric : tableStyles.text;
 }
 
-/** Shown for a value a row does not have, so a gap is never blank. */
+/** Shown for a value a row does not have, or has as empty or blank text, so a gap is never blank. */
 export const missingValue = '—';
 
 /** Keys that could change an object's prototype instead of making a cell. */
 const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Tables need a caption and column labels. On a phone each row becomes a card with the label beside each value. */
+/**
+ * Tables need a caption and column labels. On a phone each row becomes a card with the label beside each value.
+ * Cells are text the caller has already formatted (for example with formatMoney or formatDate).
+ */
 export function tableModel(
   caption: string,
   columns: TableColumn[],
-  rows: Record<string, unknown>[],
+  rows: readonly Readonly<Record<string, string | undefined>>[],
 ): { caption: string; columns: TableColumn[]; rows: Record<string, string>[]; empty: boolean } {
   requireText(caption, 'Every table needs a caption, and it');
   const keys = new Set<string>();
@@ -202,7 +202,7 @@ export function tableModel(
     Object.fromEntries(
       columns.map((c) => {
         const cell = Object.hasOwn(row, c.key) ? row[c.key] : undefined;
-        return [c.key, typeof cell === 'string' ? cell : missingValue];
+        return [c.key, present(cell) ?? missingValue];
       }),
     ),
   );

@@ -76,6 +76,54 @@ describe('formatters', () => {
     expect(formatDate('Oct-12-2026', 'UTC')).toBe('Date not valid');
   });
 
+  it('reads every accepted form of a moment in time', () => {
+    const ok = [
+      '2026-10-12T15:00Z',
+      '2026-10-12T15:00:59Z',
+      '2026-10-12T15:00:00.1Z',
+      '2026-10-12T15:00:00.123456789Z',
+      '2026-10-12T10:00+05:00',
+      '2026-10-12T10:00:00-0500',
+      '2026-10-12T00:00+00:00',
+      '2026-10-12T23:59:59.999+23:59',
+      '2026-10-12T15:00:00.123456789+05:00', // 35 characters, the longest form
+    ];
+    for (const s of ok) expect(formatDate(s, 'UTC')).toBe('Oct 12, 2026');
+  });
+
+  it('refuses any other text, a day not on the calendar and an hour past 23', () => {
+    const bad = [
+      'Oct-12-2026T02:00Z',
+      'x2026-10-12T02:00Z',
+      '2026-10-12T02:00Zx',
+      '2026-10-12 02:00Z', // space instead of T
+      '2026-10-12t02:00z', // lower case
+      '2026-10-12T02:00+05', // offset without minutes
+      '2026-10-12T2:00Z',
+      '2026-10-12T02:00:00.1234567890Z', // more than 9 fraction digits
+      '2026-02-31T00:00Z', // not a day, would roll into March
+      '2026-13-01T00:00Z',
+      '2026-10-12T24:00Z', // would roll into the next day
+      '2026-10-12T02:60Z',
+      '2026-10-12T02:00:60Z',
+      '2026-10-12T02:00+24:00',
+      '+002026-10-12T02:00Z',
+      '２０２６-10-12T02:00Z', // full-width digits
+    ];
+    for (const s of bad) expect(formatDate(s, 'UTC')).toBe('Date not valid');
+  });
+
+  it('refuses long text without reading it, so a crafted value cannot stall the server', () => {
+    const started = Date.now();
+    expect(formatDate('T00:00'.repeat(10000), 'UTC')).toBe('Date not valid');
+    expect(formatDate(`2026-10-12T02:00${'0'.repeat(10000)}Z`, 'UTC')).toBe('Date not valid');
+    expect(formatDate('2026-10-12'.repeat(5000), 'UTC')).toBe('Date not valid');
+    expect(formatDate(`2026-10-12T02:00:00.123456789+05:00${' '.repeat(6)}`, 'UTC')).toBe(
+      'Date not valid',
+    );
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it('checks the time zone even for a date with no time', () => {
     expect(formatDate('2026-10-12', 'Not/AZone')).toBe('Date not valid');
     expect(formatDate('2026-10-12', '')).toBe('Date not valid');

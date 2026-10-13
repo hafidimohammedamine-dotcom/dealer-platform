@@ -34,40 +34,55 @@ function isValidZone(timeZone: string): boolean {
   }
 }
 
-const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
-/** A time must end with Z or an offset such as -05:00, so every machine reads it the same way. */
-const hasZone = /T\d{2}:\d{2}.*(Z|[+-]\d{2}(:?\d{2})?)$/i;
+const notValidDate = 'Date not valid';
+
+/** The longest text we accept ("2026-10-12T02:00:00.123456789+05:00" is 35). Longer text is refused unread. */
+const maxDateLength = 40;
+
+/** A calendar date with no time. */
+const calendarDate = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Dates as "Oct 12, 2026". A date with no time ("2026-10-12") is a calendar date and never shifts.
- * A moment in time is shown in the dealer's time zone. A time with no zone ("2026-10-12T02:00:00") is refused,
- * because each machine would read it differently. A bad date or time zone gives "Date not valid".
- * Display only: never use this for quiet-hours checks, which depend on the customer's local time.
+ * A moment in time, fully anchored: date, hours 00-23, minutes, optional seconds and fraction,
+ * then Z or an offset such as -05:00 or -0500, so every machine reads it the same way.
  */
-export function formatDate(value: Date | string, timeZone: string): string {
-  if (!isValidZone(timeZone)) return 'Date not valid';
-  let date: Date;
-  let zone = timeZone;
-  if (typeof value === 'string') {
-    date = new Date(value);
-    if (dateOnly.test(value)) {
-      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-        return 'Date not valid';
-      }
-      zone = 'UTC';
-    } else if (!hasZone.test(value)) {
-      return 'Date not valid';
-    }
-  } else {
-    date = value;
-  }
-  if (Number.isNaN(date.getTime())) return 'Date not valid';
+const momentInTime =
+  /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,9})?)?(Z|[+-]([01]\d|2[0-3]):?[0-5]\d)$/;
+
+/** True when "YYYY-MM-DD" is a day on the calendar, so "2026-02-31" is refused instead of rolling into March. */
+function isRealDay(day: string): boolean {
+  const date = new Date(day);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === day;
+}
+
+function showDate(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
+    timeZone,
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(date);
+}
+
+/**
+ * Dates as "Oct 12, 2026". Text must be one of two exact forms, at most 40 characters:
+ * - a calendar date with no time ("2026-10-12"), which never shifts between time zones;
+ * - a moment in time with a zone ("2026-10-12T02:00:00Z" or "...-05:00"), shown in the dealer's time zone.
+ * A time with no zone ("2026-10-12T02:00:00") is refused, because each machine would read it differently.
+ * Any other text, a day not on the calendar, or a bad time zone gives "Date not valid".
+ * Display only: never use this for quiet-hours checks, which depend on the customer's local time.
+ */
+export function formatDate(value: Date | string, timeZone: string): string {
+  if (!isValidZone(timeZone)) return notValidDate;
+  if (typeof value !== 'string') {
+    return Number.isNaN(value.getTime()) ? notValidDate : showDate(value, timeZone);
+  }
+  if (value.length > maxDateLength) return notValidDate;
+  if (calendarDate.test(value)) {
+    return isRealDay(value) ? showDate(new Date(value), 'UTC') : notValidDate;
+  }
+  if (!momentInTime.test(value) || !isRealDay(value.slice(0, 10))) return notValidDate;
+  return showDate(new Date(value), timeZone);
 }
 
 /**

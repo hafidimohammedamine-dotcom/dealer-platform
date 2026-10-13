@@ -12,6 +12,11 @@ export const badgeTones = {
 
 export type BadgeTone = keyof typeof badgeTones;
 
+/** Checks text from outside the type system (settings, API data) before it is used as a tone. Own keys only. */
+export function isBadgeTone(value: string): value is BadgeTone {
+  return Object.hasOwn(badgeTones, value);
+}
+
 /** A badge always has a word AND a symbol, never color alone. */
 export function badge(
   tone: BadgeTone,
@@ -20,9 +25,6 @@ export function badge(
 ): { text: string; color: string; background: string } {
   requireText(label, 'A badge word');
   requireText(symbol, 'A badge symbol');
-  if (!Object.hasOwn(badgeTones, tone)) {
-    throw new Error(`"${String(tone)}" is not a badge color. Use success, warning, danger or info`);
-  }
   const t = badgeTones[tone];
   return { text: `${symbol} ${label}`, color: t.color, background: t.background };
 }
