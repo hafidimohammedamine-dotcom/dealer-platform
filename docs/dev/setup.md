@@ -67,10 +67,10 @@ Notes:
   e2e workspace. It is not in the root `package.json` workspaces yet, so `yarn install` does not link it, but lint and the
   tracked-file check already cover it. A config test fails if git tracks any file in those folders (apart from the founder-owned
   `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.
-- Playwright output is never committed. `test-results/`, `playwright-report/` and `blob-report/` are git-ignored at any depth,
-  and so is `playwright/.auth/` at any depth (`**/playwright/.auth/`), where saved login state goes. Prettier skips them too (`.prettierignore`). Traces can hold
-  cookies, auth headers and credit-app fields. A config test in `infra/checks` fails if git tracks any file under those
-  folders at any depth, or under `playwright/.auth/` at any depth. If one shows up in `git status`, do not commit it.
+- Playwright output is never committed. Traces can hold cookies, auth headers and credit-app fields. `test-results/`,
+  `playwright-report/`, `blob-report/` and `playwright/.auth/` (saved login state) are git-ignored and skipped by Prettier,
+  at any depth. A config test in `infra/checks` fails if git tracks any file in one of these folders, at any depth. If one
+  is already tracked, run `git rm --cached <file>` and leave it out of the commit.
 - Inline `eslint-disable` comments are off (`noInlineConfig`). A rule exception goes in `eslint.config.mjs`, where review sees it.
 - **The Payload data rules (`CLAUDE.md`, Payload rule 1) are not enforced by lint yet.** There is no Payload ban rule in
   this repo today. Payload is not installed (issue #5 adds it), so no code here can reach a Payload instance or its Local

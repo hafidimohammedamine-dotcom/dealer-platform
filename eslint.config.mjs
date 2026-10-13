@@ -12,7 +12,7 @@ export default defineConfig(
     linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
   },
   {
-    // Install, cache and build output only. A config test fails if any file in these folders is committed.
+    // Install, cache, build and Playwright output only. A config test fails if any file in these folders is committed.
     ignores: [
       '{apps,services,packages,infra,tests}/*/dist/**',
       '{apps,services,packages,infra,tests}/*/coverage/**',
