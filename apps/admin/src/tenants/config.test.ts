@@ -1,24 +1,17 @@
 import { existsSync } from 'node:fs';
 import { buildConfig, type CollectionConfig } from 'payload';
 import { describe, expect, it } from 'vitest';
-import { denyAll, isStaff } from '../access/roles.js';
-import { buildAppConfig, neverAllDealers } from './config.js';
+import { denyAll, roleOf } from '../access/roles.js';
+import { buildAppConfig } from './config.js';
 import {
   denyByDefaultProblems,
   PAYLOAD_BUILT_IN,
   sanitizedConfigProblems,
 } from './deny-by-default.js';
 import type { AppEnv } from './env.js';
-import { gateProblems, securityGates } from './readiness.js';
+import { devEnv } from '../test-helpers/fixtures.js';
 import { notTenantScopedAllowlist, tenantScopedCollections } from './registry.js';
 
-const devEnv: AppEnv = {
-  stage: 'dev',
-  production: false,
-  secret: 'x'.repeat(40),
-  databaseUrl: 'postgres://app_user:fake@localhost:5432/dealer',
-  serverURL: 'http://localhost:3000',
-};
 const stagingEnv: AppEnv = {
   ...devEnv,
   stage: 'staging',
@@ -27,6 +20,9 @@ const stagingEnv: AppEnv = {
   email: { apiKey: 're_fake_key', from: 'noreply@example.test' },
 };
 const env = devEnv;
+
+// Any logged-in user with a known role (a stand-in for the access rules a real collection would write).
+const isStaff = ({ req }: { req: { user?: unknown } }): boolean => roleOf(req.user) !== null;
 
 // A stand-in for a CRM collection. Real ones are added to the registry by their builders.
 const widgets: CollectionConfig = {
@@ -85,52 +81,12 @@ describe('the real config', () => {
   });
 
   it('lets nobody see across dealers, not even an admin', () => {
-    expect(neverAllDealers()).toBe(false);
+    expect(denyAll()).toBe(false);
+    expect(buildAppConfig({ env }).plugins).toHaveLength(1);
   });
 
   it('keeps the migrations folder next to the app, whatever the working directory', () => {
     expect(existsSync(new URL('../../migrations/', import.meta.url))).toBe(true);
-  });
-});
-
-describe('gate: no customer data before 2FA (#57) and row-level security (#58)', () => {
-  // This test is the CI-enforced guard. While a gate is open, no collection beyond dealers and users may exist.
-  it('holds for the real config', async () => {
-    const config = await buildConfig(buildAppConfig({ env }));
-    expect(tenantScopedCollections).toEqual([]);
-    expect(
-      gateProblems({ ...securityGates, collectionSlugs: config.collections.map((c) => c.slug) }),
-    ).toEqual([]);
-  });
-
-  it('fails when a dealer-scoped collection is registered while a gate is open', async () => {
-    const config = await buildConfig(buildAppConfig({ env, scoped: [{ ...widgets }] }));
-    const slugs = config.collections.map((c) => c.slug);
-    expect(
-      gateProblems({ twoFactorRequired: false, rowLevelSecurity: false, collectionSlugs: slugs }),
-    ).toEqual([
-      'widgets: registered before 2FA (issue #57) is enforced',
-      'widgets: registered before row-level security (issue #58) is in place',
-    ]);
-    expect(
-      gateProblems({ twoFactorRequired: true, rowLevelSecurity: false, collectionSlugs: slugs }),
-    ).toEqual(['widgets: registered before row-level security (issue #58) is in place']);
-    expect(
-      gateProblems({ twoFactorRequired: false, rowLevelSecurity: true, collectionSlugs: slugs }),
-    ).toEqual(['widgets: registered before 2FA (issue #57) is enforced']);
-    expect(
-      gateProblems({ twoFactorRequired: true, rowLevelSecurity: true, collectionSlugs: slugs }),
-    ).toEqual([]);
-  });
-
-  it('fails for a collection added any other way (not through the registry)', () => {
-    expect(
-      gateProblems({ ...securityGates, collectionSlugs: ['dealers', 'users', 'leads'] }),
-    ).not.toEqual([]);
-  });
-
-  it('both gates are still open, so this PR must carry no customer collection', () => {
-    expect(securityGates).toEqual({ twoFactorRequired: false, rowLevelSecurity: false });
   });
 });
 

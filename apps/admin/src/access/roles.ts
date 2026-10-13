@@ -1,3 +1,5 @@
+import { isRecord } from '@dealer/data';
+
 // The access functions read only `req.user`, so they are typed on just that. They still plug in as Payload `Access`
 // and `FieldAccess` (a function that needs less is accepted where more is offered).
 interface UserArgs {
@@ -20,10 +22,6 @@ function isRole(value: unknown): value is Role {
   return ROLES.some((role) => role === value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 /**
  * The role of a logged-in user, or null (no user, an unknown value, or a deactivated user: deny by default). Users are
  * never deleted; setting `active` to false removes every right at once.
@@ -34,15 +32,13 @@ export function roleOf(user: unknown): Role | null {
   return isRole(role) ? role : null;
 }
 
-export function userIdOf(user: unknown): string | number | null {
+/** The `id` of any record (a user, a dealer, a document), or null when it is missing or not a string or number. */
+export function idOf(user: unknown): string | number | null {
   if (!isRecord(user)) return null;
   const id = user['id'];
   return typeof id === 'string' || typeof id === 'number' ? id : null;
 }
 
 export const denyAll = (): boolean => false;
-
-/** Any logged-in user with a known role. The multi-tenant plugin then adds the dealer filter. */
-export const isStaff = ({ req }: UserArgs): boolean => roleOf(req.user) !== null;
 
 export const isAdmin = ({ req }: UserArgs): boolean => roleOf(req.user) === 'admin';

@@ -13,9 +13,13 @@ describe('@dealer/data exports', () => {
       'NotFoundError',
       'TENANT_FIELD',
       'TenantAccessError',
+      'USERS_COLLECTION',
+      'flatWhere',
       'forTenant',
+      'isRecord',
       'packageName',
       'tenantIdsOf',
+      'wherePaths',
     ]);
   });
 

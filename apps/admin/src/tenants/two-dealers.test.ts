@@ -1,17 +1,12 @@
 import { buildConfig } from 'payload';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildAppConfig } from './config.js';
-import type { AppEnv } from './env.js';
+import { showOnlyMyDealers } from './users.js';
+import { devEnv } from '../test-helpers/fixtures.js';
 
 // Dealer A against dealer B at the access level (the leak suite on real Postgres is issue #60; row-level security #58).
 // Payload's `where` filters are applied here to in-memory records, so a filter that lets dealer B through fails a test.
-const env: AppEnv = {
-  stage: 'dev',
-  production: false,
-  secret: 'x'.repeat(40),
-  databaseUrl: 'postgres://app_user:fake@localhost:5432/dealer',
-  serverURL: 'http://localhost:3000',
-};
+const env = devEnv;
 
 type Doc = Record<string, unknown>;
 
@@ -92,6 +87,18 @@ describe('dealer A cannot reach dealer B', () => {
     ]);
     expect(await visible('users', 'update', byId('repA'), userDocs)).toEqual(['repA']);
     expect(await visible('users', 'update', byId('loneC'), userDocs)).toEqual(['loneC']);
+  });
+
+  it('users: a where on the other dealer (tenants.tenant) never reaches a B-only user, and a shared user shows only the reader dealers', async () => {
+    const read = await access['users']['read']?.({ req: { user: byId('adminA') } });
+    const probe = { and: [read, { 'tenants.tenant': { equals: 'B' } }] };
+    const hits = userDocs.filter((d) => matches(d, probe));
+    expect(hits.map((d) => d['id'])).toEqual(['sharedAB']);
+    const shown = hits.map((d) =>
+      Reflect.apply(showOnlyMyDealers, undefined, [{ doc: d, req: { user: byId('adminA') } }]),
+    );
+    expect(JSON.stringify(shown)).not.toContain('"B"');
+    expect(shown).toEqual([{ ...byId('sharedAB'), tenants: [{ tenant: 'A' }] }]);
   });
 
   it('users: unlock, delete and versions are closed to every role', async () => {

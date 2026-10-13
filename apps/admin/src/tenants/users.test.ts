@@ -10,31 +10,12 @@ import {
   canUpdateUser,
   guardUserWrite,
   hideDuplicateEmail,
+  guardUserOperation,
   refuseInactiveLogin,
-  SYSTEM_JOB_CONTEXT,
   usersInMyDealers,
 } from './users.js';
-
-// Hooks take big argument objects; the tests hand them only what they read, through one cast.
-interface Loose {
-  run(args: unknown): unknown;
-}
-const call = (fn: Loose['run'] | undefined, args: unknown): unknown => fn?.(args);
-const t = () => 'x';
-
-const adminA = { id: 'adminA', role: 'admin', tenants: [{ tenant: 'A' }] };
-const adminAB = { id: 'adminAB', role: 'admin', tenants: [{ tenant: 'A' }, { tenant: 'B' }] };
-const repA = { id: 'repA', role: 'sales_rep', tenants: [{ tenant: 'A' }] };
-
-function write(
-  user: unknown,
-  operation: 'create' | 'update',
-  data: Record<string, unknown> | undefined,
-  originalDoc?: unknown,
-  context: Record<string, unknown> = {},
-) {
-  return () => call(guardUserWrite, { data, originalDoc, operation, req: { user, t }, context });
-}
+import { endSessionsOnDeactivate } from './sessions.js';
+import { adminA, adminAB, call, repA, t, write } from '../test-helpers/fixtures.js';
 
 describe('canUpdateUser and usersInMyDealers', () => {
   it('limits an admin to users of their dealers, and everyone else to themself', () => {
@@ -164,23 +145,146 @@ describe('guardUserWrite: no logged-in actor', () => {
     expect(write(undefined, 'create', undefined)).toThrow(Forbidden);
   });
 
-  it('accepts a create only from a reviewed system job', () => {
-    const data = { email: 'a@x.test', role: 'admin', tenants: [{ tenant: 'A' }] };
-    expect(write(undefined, 'create', data, undefined, { [SYSTEM_JOB_CONTEXT]: true })()).toBe(
-      data,
-    );
-    expect(write(undefined, 'create', data, undefined, { [SYSTEM_JOB_CONTEXT]: 'yes' })).toThrow(
-      Forbidden,
-    );
+  it('refuses every update too: there is no system-job marker and no reset-token write', () => {
+    const token = { resetPasswordToken: 't', resetPasswordExpiration: 'd' };
+    for (const data of [token, { role: 'admin' }, { tenants: [] }, {}, undefined]) {
+      expect(write(undefined, 'update', data, { id: 'u' }), JSON.stringify(data)).toThrow(
+        Forbidden,
+      );
+    }
   });
 
-  it('allows only the reset-token fields on an update', () => {
-    const token = { resetPasswordToken: 't', resetPasswordExpiration: 'd' };
-    expect(write(undefined, 'update', token, { id: 'u' })()).toBe(token);
-    expect(write(undefined, 'update', { ...token, role: 'admin' }, { id: 'u' })).toThrow(Forbidden);
-    expect(write(undefined, 'update', { tenants: [] }, { id: 'u' })).toThrow(Forbidden);
-    expect(write(undefined, 'update', {}, { id: 'u' })).toThrow(Forbidden);
-    expect(write(undefined, 'update', undefined, { id: 'u' })).toThrow(Forbidden);
+  it('a request context flag no longer opens anything (security review round 3, finding 5)', () => {
+    const data = { email: 'a@x.test', role: 'admin', tenants: [{ tenant: 'A' }] };
+    for (const context of [{ reviewedSystemJob: true }, { passwordResetOperation: true }]) {
+      expect(() =>
+        call(guardUserWrite, { data, operation: 'create', req: { user: undefined, t }, context }),
+      ).toThrow(Forbidden);
+    }
+  });
+});
+
+describe('guardUserOperation: closed flows, inactive refresh, no probing of dealer rows', () => {
+  const run =
+    (operation: string, args: Record<string, unknown> = {}, user: unknown = adminA) =>
+    () =>
+      call(guardUserOperation, { args, operation, req: { user, t } });
+
+  it('refuses forgot-password and reset-password for everyone until issue #73', () => {
+    for (const operation of ['forgotPassword', 'resetPassword']) {
+      for (const user of [undefined, adminA, repA]) {
+        expect(run(operation, { data: { email: 'rep@a.example' } }, user)).toThrow(Forbidden);
+      }
+    }
+  });
+
+  it('refuses a refresh by a deactivated user, and lets an active one through', () => {
+    expect(run('refresh', {}, { ...repA, active: false })).toThrow(Forbidden);
+    const args = {};
+    expect(run('refresh', args, repA)()).toBe(args);
+    expect(run('refresh', args, undefined)()).toBe(args);
+  });
+
+  it('refuses where and sort paths on the dealer rows, in every spelling (finding 4)', () => {
+    const wheres = [
+      { 'tenants.tenant.name': { like: 'Dealer B' } },
+      { or: [{ and: [{ 'tenants.tenant.slug': { equals: 'b' } }] }] },
+      { tenants: { tenant: { name: { equals: 'Dealer B' } } } },
+      { 'tenants.tenant': { equals: 'B' } },
+      { tenants: { exists: true } },
+      { OR: [{ 'tenants.id': { equals: 'row' } }] },
+    ];
+    for (const operation of ['read', 'count', 'update', 'delete']) {
+      for (const where of wheres) {
+        expect(run(operation, { where }), `${operation} ${JSON.stringify(where)}`).toThrow(
+          Forbidden,
+        );
+      }
+      for (const sort of [
+        'tenants.tenant.name',
+        '-tenants.tenant.name',
+        'email,tenants',
+        ['tenants.tenant'],
+      ]) {
+        expect(run(operation, { sort }), `${operation} ${String(sort)}`).toThrow(Forbidden);
+      }
+    }
+  });
+
+  it('lets own-field filters and sorts through unchanged', () => {
+    const args = {
+      where: { and: [{ role: { equals: 'bdc' } }, { email: { like: 'a' } }] },
+      sort: '-createdAt,email',
+    };
+    expect(run('read', args)()).toBe(args);
+    const other = { sort: ['email', 7] };
+    expect(run('count', other)()).toBe(other);
+    expect(
+      call(guardUserOperation, { args: undefined, operation: 'read', req: { t } }),
+    ).toBeUndefined();
+  });
+});
+
+describe('endSessionsOnDeactivate: deactivation ends every login (finding 9)', () => {
+  const setup = () => {
+    const writes: unknown[] = [];
+    const req = {
+      payload: {
+        db: {
+          updateOne: async (args: unknown) => {
+            writes.push(args);
+          },
+        },
+      },
+    };
+    return { writes, req };
+  };
+
+  it('clears the sessions of the deactivated user, inside the same request (transaction)', async () => {
+    const { writes, req } = setup();
+    const doc = { id: 'repA', active: false };
+    await expect(
+      call(endSessionsOnDeactivate, {
+        doc,
+        previousDoc: { id: 'repA', active: true },
+        operation: 'update',
+        req,
+      }),
+    ).resolves.toBe(doc);
+    expect(writes).toEqual([
+      { collection: 'users', id: 'repA', data: { sessions: [] }, req, returning: false },
+    ]);
+  });
+
+  it('does nothing for an active user, an already inactive user or a create', async () => {
+    const { writes, req } = setup();
+    const runHook = (doc: unknown, previousDoc: unknown, operation: string) =>
+      call(endSessionsOnDeactivate, { doc, previousDoc, operation, req });
+    await runHook({ id: 1, active: true }, { id: 1, active: true }, 'update');
+    await runHook({ id: 1, active: false }, { id: 1, active: false }, 'update');
+    await runHook({ id: 1, active: false }, undefined, 'create');
+    await runHook(undefined, undefined, 'update');
+    expect(writes).toEqual([]);
+  });
+
+  it('fails the deactivation when the sessions cannot be cleared', async () => {
+    const req = {
+      payload: { db: { updateOne: async () => Promise.reject(new Error('db down')) } },
+    };
+    await expect(
+      call(endSessionsOnDeactivate, {
+        doc: { id: 1, active: false },
+        previousDoc: { id: 1 },
+        operation: 'update',
+        req,
+      }),
+    ).rejects.toThrow('db down');
+  });
+
+  it('is wired into the users collection', () => {
+    const users = buildUsers({ secureCookies: true });
+    expect(users.hooks?.afterChange).toContain(endSessionsOnDeactivate);
+    expect(users.hooks?.beforeOperation).toEqual([guardUserOperation]);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { Access, CollectionAfterChangeHook, CollectionConfig } from 'payload';
-import { tenantIdsOf } from '@dealer/data';
-import { denyAll, isAdmin, roleOf, userIdOf } from '../access/roles.js';
+import { isRecord, tenantIdsOf } from '@dealer/data';
+import { denyAll, isAdmin, roleOf, idOf } from '../access/roles.js';
 import type { AuditLog } from './audit.js';
 import { accessAudit } from './audit.js';
 
@@ -19,14 +19,15 @@ export const updateOwnDealers: Access = ({ req }) =>
 export const auditDealerChange =
   (audit: AuditLog): CollectionAfterChangeHook =>
   async ({ doc, previousDoc, operation, req }) => {
+    const id = idOf(doc);
     const pick = (d: unknown) => ({
-      name: typeof d === 'object' && d !== null && 'name' in d ? d.name : null,
+      name: isRecord(d) ? (d['name'] ?? null) : null,
     });
     await audit.record({
       action: `dealer.${operation}`,
-      actorId: userIdOf(req.user),
-      target: { collection: DEALERS_SLUG, id: userIdOf(doc) },
-      dealerIds: [userIdOf(doc) ?? ''],
+      actorId: idOf(req.user),
+      target: { collection: DEALERS_SLUG, id },
+      dealerIds: id === null ? [] : [id],
       before: operation === 'update' ? pick(previousDoc) : undefined,
       after: pick(doc),
     });

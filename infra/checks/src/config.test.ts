@@ -89,10 +89,10 @@ describe('shared vitest config', () => {
     });
   });
 
-  it('measures every source file under src, and prints a per-file table in the test log', () => {
+  it('measures every source file (src, the admin entry point and migrations), not tests or test helpers, and prints a per-file table', () => {
     const coverage = rootVitestConfig.test?.coverage;
-    expect(coverage?.include).toEqual(['src/**/*.ts']);
-    expect(coverage?.exclude).toEqual(['src/**/*.test.ts']);
+    expect(coverage?.include).toEqual(['src/**/*.ts', 'payload.config.ts', 'migrations/**/*.ts']);
+    expect(coverage?.exclude).toEqual(['src/**/*.test.ts', 'src/**/test-helpers/**']);
     expect(coverage?.reporter).toContainEqual(['text', { skipFull: false }]);
   });
 });

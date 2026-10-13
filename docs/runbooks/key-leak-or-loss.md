@@ -49,7 +49,7 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 2. Tell both founders now. Do not wait for a reply before rotating: a leaked login key is fixed by rotating it.
 3. Make a new value with `openssl rand -base64 32`. Write it straight into the Railway variable and the founders' password
    manager. Do not paste it anywhere else.
-4. Set the new value on **staging** first. Restart staging. Check that you can sign in with 2FA.
+4. Set the new value on **staging** first. Restart staging. Check that you can sign in with your email and password.
 5. Set the new value on **production**. Restart production. Everyone signs out. This is expected.
 6. Sessions made with the old value stop working when the new value is read. There is no tool to list or end sessions one
    by one (not built).

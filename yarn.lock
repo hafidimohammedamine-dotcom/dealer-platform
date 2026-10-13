@@ -202,11 +202,13 @@ __metadata:
   dependencies:
     "@dealer/data": "workspace:*"
     "@dealer/platform": "workspace:*"
+    "@electric-sql/pglite": "npm:0.5.8"
     "@payloadcms/db-postgres": "npm:3.90.2"
     "@payloadcms/email-resend": "npm:3.90.2"
     "@payloadcms/plugin-multi-tenant": "npm:3.90.2"
     "@payloadcms/ui": "npm:3.90.2"
     "@types/react": "npm:19.3.0"
+    drizzle-orm: "npm:0.45.2"
     graphql: "npm:16.14.2"
     next: "npm:16.4.0"
     payload: "npm:3.90.2"
@@ -289,6 +291,8 @@ __metadata:
 "@dealer/platform@workspace:*, @dealer/platform@workspace:packages/platform":
   version: 0.0.0-use.local
   resolution: "@dealer/platform@workspace:packages/platform"
+  dependencies:
+    "@dealer/data": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -357,6 +361,13 @@ __metadata:
   version: 0.10.2
   resolution: "@drizzle-team/brocli@npm:0.10.2"
   checksum: 10c0/3d8b99d680f0b14fea32b45c59b938b6665e0840cc67f04801b1aa3c6747da3c7d01c00e321645034fa100abdba7e0c20ce07cf46fc2ca769ee4cafd97562484
+  languageName: node
+  linkType: hard
+
+"@electric-sql/pglite@npm:0.5.8":
+  version: 0.5.8
+  resolution: "@electric-sql/pglite@npm:0.5.8"
+  checksum: 10c0/02af377bb73428c1fb4559683dac0a4236d62320d5cda62ad4fc45d662a74fb011f767a161cb52b9160df734066376fc80f0d1506c2bbe9506490753fa12b532
   languageName: node
   linkType: hard
 
@@ -533,23 +544,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@esbuild-kit/core-utils@npm:^3.3.2":
-  version: 3.3.2
-  resolution: "@esbuild-kit/core-utils@npm:3.3.2"
+"@esbuild-kit/esm-loader@npm:tsx@4.23.15":
+  version: 4.23.15
+  resolution: "tsx@npm:4.23.15"
   dependencies:
-    esbuild: "npm:~0.18.20"
-    source-map-support: "npm:^0.5.21"
-  checksum: 10c0/d856f5bd720814593f911d781ed7558a3f8ec1a39802f3831d0eea0d1306e0e2dc11b7b2443af621c413ec6557f1f3034a9a4f1472a4cb40e52cd6e3b356aa05
-  languageName: node
-  linkType: hard
-
-"@esbuild-kit/esm-loader@npm:^2.5.5":
-  version: 2.6.5
-  resolution: "@esbuild-kit/esm-loader@npm:2.6.5"
-  dependencies:
-    "@esbuild-kit/core-utils": "npm:^3.3.2"
-    get-tsconfig: "npm:^4.7.0"
-  checksum: 10c0/6894b29176eda62bdce0d458d57f32daed5cb8fcff14cb3ddfbc995cfe3e2fa8599f3b0b1af66db446903b30167f57069f27e9cf79a69cf9b41f557115811cde
+    esbuild: "npm:~0.28.0"
+    fsevents: "npm:~2.3.3"
+  dependenciesMeta:
+    fsevents:
+      optional: true
+  bin:
+    tsx: dist/cli.mjs
+  checksum: 10c0/3c5fc53e578da87d3a63565286b1ecbb0e01b9bb646daec1957294ef890d14f22cc67bb4b09b5daffab0e7ce0217b1e7645393feb0f524b1ddf26ae9595d7e75
   languageName: node
   linkType: hard
 
@@ -2421,13 +2427,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"buffer-from@npm:^1.0.0":
-  version: 1.1.2
-  resolution: "buffer-from@npm:1.1.2"
-  checksum: 10c0/124fff9d66d691a86d3b062eff4663fe437a9d9ee4b47b1b9e97f5a5d14f6d5399345db80f796827be7c95e70a8e765dd404b7c3ff3b3324f98e9b0c8826cc34
-  languageName: node
-  linkType: hard
-
 "buffer@npm:5.7.1, buffer@npm:^5.5.0":
   version: 5.7.1
   resolution: "buffer@npm:5.7.1"
@@ -3020,7 +3019,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"esbuild@npm:0.25.12, esbuild@npm:^0.25.4":
+"esbuild@npm:^0.25.4":
   version: 0.25.12
   resolution: "esbuild@npm:0.25.12"
   dependencies:
@@ -3564,15 +3563,6 @@ __metadata:
   dependencies:
     resolve-pkg-maps: "npm:^1.0.0"
   checksum: 10c0/536ee85d202f604f4b5fb6be81bcd6e6d9a96846811e83e9acc6de4a04fb49506edea0e1b8cf1d5ee7af33e469916ec2809d4c5445ab8ae015a7a51fbd1572f9
-  languageName: node
-  linkType: hard
-
-"get-tsconfig@npm:^4.7.0":
-  version: 4.14.3
-  resolution: "get-tsconfig@npm:4.14.3"
-  dependencies:
-    resolve-pkg-maps: "npm:^1.0.0"
-  checksum: 10c0/22119bb5b7e37b922a973bfb50deac89ca845cef50a24cd27b6c628f314e91a2bccceb186e0b5183e231ad6480d7173738912975332caf60678af39b7236eeac
   languageName: node
   linkType: hard
 
@@ -5564,27 +5554,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"source-map-support@npm:^0.5.21":
-  version: 0.5.21
-  resolution: "source-map-support@npm:0.5.21"
-  dependencies:
-    buffer-from: "npm:^1.0.0"
-    source-map: "npm:^0.6.0"
-  checksum: 10c0/9ee09942f415e0f721d6daad3917ec1516af746a8120bba7bb56278707a37f1eb8642bde456e98454b8a885023af81a16e646869975f06afc1a711fb90484e7d
-  languageName: node
-  linkType: hard
-
 "source-map@npm:^0.5.7":
   version: 0.5.7
   resolution: "source-map@npm:0.5.7"
   checksum: 10c0/904e767bb9c494929be013017380cbba013637da1b28e5943b566031e29df04fba57edf3f093e0914be094648b577372bd8ad247fa98cfba9c600794cd16b599
-  languageName: node
-  linkType: hard
-
-"source-map@npm:^0.6.0":
-  version: 0.6.1
-  resolution: "source-map@npm:0.6.1"
-  checksum: 10c0/ab55398007c5e5532957cb0beee2368529618ac0ab372d789806f5718123cc4367d57de3904b4e6a4170eb5a0b0f41373066d02ca0735a0c4d75c7d328d3e011
   languageName: node
   linkType: hard
 

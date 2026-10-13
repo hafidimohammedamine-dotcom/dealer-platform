@@ -1,3 +1,4 @@
+import { isRecord } from '@dealer/data';
 // Append-only audit log writer (FTC Safeguards Rule, 16 CFR 314.4(c)(8): who changed access, to what, and when).
 //
 // The writer can only add entries. The sink it writes to has one method, `append`, and no way to read, change or
@@ -43,10 +44,6 @@ const SECRET_KEY =
   /pass|secret|token|hash|salt|key|cookie|session|otp|totp|ssn|social|dob|birth|income|bank|account|routing|card/i;
 const MAX_DEPTH = 4;
 const REDACTED = '[removed]';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
 
 function redactValue(value: unknown, depth: number): unknown {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;

@@ -1,4 +1,5 @@
-import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-postgres';
+import type { MigrateDownArgs, MigrateUpArgs } from '@payloadcms/db-postgres';
+import { sql } from '@payloadcms/db-postgres';
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql`
@@ -74,7 +75,10 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
   	"created_at" timestamp(3) with time zone DEFAULT now() NOT NULL
   );
   
-  ALTER TABLE "users_tenants" ADD CONSTRAINT "users_tenants_tenant_id_dealers_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."dealers"("id") ON DELETE set null ON UPDATE no action;
+  -- Hand-changed from Payload's \`ON DELETE set null\`, which can never work on this NOT NULL column: a dealer that still
+  -- has staff cannot be deleted (fail closed; dealers are never deleted through the API either). Payload compares new
+  -- schemas with the generated snapshot (.json), which stays as Payload wrote it, so the next migration keeps this.
+  ALTER TABLE "users_tenants" ADD CONSTRAINT "users_tenants_tenant_id_dealers_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."dealers"("id") ON DELETE restrict ON UPDATE no action;
   ALTER TABLE "users_tenants" ADD CONSTRAINT "users_tenants_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "users_sessions" ADD CONSTRAINT "users_sessions_parent_id_fk" FOREIGN KEY ("_parent_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
   ALTER TABLE "payload_preferences_rels" ADD CONSTRAINT "payload_preferences_rels_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."payload_preferences"("id") ON DELETE cascade ON UPDATE no action;
@@ -85,6 +89,9 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "users_tenants_order_idx" ON "users_tenants" USING btree ("_order");
   CREATE INDEX "users_tenants_parent_id_idx" ON "users_tenants" USING btree ("_parent_id");
   CREATE INDEX "users_tenants_tenant_idx" ON "users_tenants" USING btree ("tenant_id");
+  -- Hand-added (Payload rule 10): the user list is filtered by dealer and joined on the parent user, so the dealer
+  -- column leads a two-column index. Not in the config, so the generated snapshot (.json) stays as Payload wrote it.
+  CREATE INDEX "users_tenants_tenant_parent_idx" ON "users_tenants" USING btree ("tenant_id", "_parent_id");
   CREATE INDEX "users_sessions_order_idx" ON "users_sessions" USING btree ("_order");
   CREATE INDEX "users_sessions_parent_id_idx" ON "users_sessions" USING btree ("_parent_id");
   CREATE INDEX "users_updated_at_idx" ON "users" USING btree ("updated_at");

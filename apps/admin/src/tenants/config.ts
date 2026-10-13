@@ -3,19 +3,19 @@ import { multiTenantPlugin } from '@payloadcms/plugin-multi-tenant';
 import type { CollectionConfig, Config } from 'payload';
 import { resendAdapter } from '@payloadcms/email-resend';
 import { fileURLToPath } from 'node:url';
-import { isAdmin } from '../access/roles.js';
+import { denyAll, isAdmin } from '../access/roles.js';
+import { lockBuiltInCollections } from './built-ins.js';
 import { Dealers, DEALERS_SLUG } from './dealers.js';
 import type { AppEnv } from './env.js';
 import { tenantScopedCollections } from './registry.js';
-import { buildUsers, USERS_SLUG } from './users.js';
+import { USERS_COLLECTION } from '@dealer/data';
+import { buildUsers } from './users.js';
 
 export interface BuildOptions {
   env: AppEnv;
   /** Tests pass their own list; production uses the registry. */
   scoped?: CollectionConfig[];
 }
-
-export const neverAllDealers = (): boolean => false;
 
 export function buildAppConfig({ env, scoped = tenantScopedCollections }: BuildOptions): Config {
   const collections = [Dealers, buildUsers({ secureCookies: env.production }), ...scoped];
@@ -24,8 +24,12 @@ export function buildAppConfig({ env, scoped = tenantScopedCollections }: BuildO
     serverURL: env.serverURL,
     cors: [env.serverURL],
     csrf: [env.serverURL],
-    admin: { user: USERS_SLUG },
+    admin: { user: USERS_COLLECTION },
     collections,
+    // Closes `payload-migrations` (open to every logged-in user by default); see built-ins.ts.
+    onInit: (payload) => {
+      lockBuiltInCollections(payload.config);
+    },
     // Migrations only (Payload rule 5): `push` is off everywhere, and migrations run as one CI job, never at start.
     db: postgresAdapter({
       pool: { connectionString: env.databaseUrl },
@@ -39,7 +43,7 @@ export function buildAppConfig({ env, scoped = tenantScopedCollections }: BuildO
         tenantsSlug: DEALERS_SLUG,
         collections: Object.fromEntries(scoped.map((collection) => [collection.slug, {}])),
         // Nobody sees across dealers, not even an admin. Platform staff access is a separate reviewed follow-up.
-        userHasAccessToAllTenants: neverAllDealers,
+        userHasAccessToAllTenants: denyAll,
         cleanupAfterTenantDelete: false,
         tenantsArrayField: {
           includeDefaultField: true,

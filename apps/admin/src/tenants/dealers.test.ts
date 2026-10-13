@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createAuditLog } from '@dealer/platform';
 import type { AuditEntry } from '@dealer/platform';
+import { adminA, call, repA } from '../test-helpers/fixtures.js';
 import { auditDealerChange, Dealers, readOwnDealers, updateOwnDealers } from './dealers.js';
-
-// Hooks and access functions take big argument objects; the tests hand them only what they read.
-interface Loose {
-  run(args: unknown): unknown;
-}
-const call = (fn: Loose['run'] | undefined, args: unknown): unknown => fn?.(args);
-const adminA = { id: 'adminA', role: 'admin', tenants: [{ tenant: 'A' }] };
-const repA = { id: 'repA', role: 'sales_rep', tenants: [{ tenant: 'A' }] };
 
 describe('dealers access', () => {
   it('read and update are limited to the dealers on the user', () => {
@@ -74,7 +67,7 @@ describe('dealer audit', () => {
       operation: 'create',
       req: {},
     });
-    expect(entries[0]).toMatchObject({ actorId: null, after: { name: null }, dealerIds: [''] });
+    expect(entries[0]).toMatchObject({ actorId: null, after: { name: null }, dealerIds: [] });
     expect(entries[0]?.before).toBeUndefined();
   });
 });

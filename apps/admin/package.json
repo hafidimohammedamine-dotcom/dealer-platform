@@ -24,6 +24,8 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@types/react": "19.3.0"
+    "@electric-sql/pglite": "0.5.8",
+    "@types/react": "19.3.0",
+    "drizzle-orm": "0.45.2"
   }
 }

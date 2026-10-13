@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { denyAll, isAdmin, isStaff, roleOf, userIdOf } from './roles.js';
+import { denyAll, idOf, isAdmin, roleOf } from './roles.js';
 
 // The access functions only read `req.user`, so the tests hand them just that.
 function args(user: unknown): { req: { user: unknown } } {
@@ -21,27 +21,24 @@ describe('roleOf', () => {
   });
 });
 
-describe('userIdOf', () => {
+describe('idOf', () => {
   it('reads string and number IDs only', () => {
-    expect(userIdOf({ id: 'u' })).toBe('u');
-    expect(userIdOf({ id: 3 })).toBe(3);
-    expect(userIdOf({ id: {} })).toBeNull();
-    expect(userIdOf(null)).toBeNull();
+    expect(idOf({ id: 'u' })).toBe('u');
+    expect(idOf({ id: 3 })).toBe(3);
+    expect(idOf({ id: {} })).toBeNull();
+    expect(idOf(null)).toBeNull();
   });
 });
 
 describe('access functions', () => {
   it('deny with no user, an unknown role or a deactivated user', () => {
-    for (const fn of [isStaff, isAdmin]) {
-      expect(fn(args(undefined))).toBe(false);
-      expect(fn(args({ role: 'hacker' }))).toBe(false);
-      expect(fn(args({ role: 'admin', active: false }))).toBe(false);
-    }
+    expect(isAdmin(args(undefined))).toBe(false);
+    expect(isAdmin(args({ role: 'hacker' }))).toBe(false);
+    expect(isAdmin(args({ role: 'admin', active: false }))).toBe(false);
     expect(denyAll()).toBe(false);
   });
 
   it('allow the right roles', () => {
-    expect(isStaff(args({ role: 'sales_rep' }))).toBe(true);
     expect(isAdmin(args({ role: 'admin' }))).toBe(true);
     expect(isAdmin(args({ role: 'bdc' }))).toBe(false);
   });

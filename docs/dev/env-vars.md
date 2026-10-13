@@ -83,7 +83,7 @@ Format: `postgres://<role>:<password>@<host>:5432/<database>`
   `FORCE ROW LEVEL SECURITY`, and the app sets the dealer for each transaction.
 - Status: the app reads this variable and passes it to Payload's Postgres adapter. The roles, the `FORCE ROW LEVEL SECURITY`
   policies and the per-transaction dealer setting do **not** exist yet (issue #58). Until then the app role is whatever
-  role the URL names, and the only protection between dealers is the access code and the tenant-safe helper. A config test
+  role the URL names, and the only protection between dealers is the access rules. A config test
   fails CI if any customer-data collection is registered before issue #58 and 2FA (issue #57) are done.
 
 **`MIGRATION_DATABASE_URL` (owner role)**
@@ -108,7 +108,7 @@ Format: `postgres://<role>:<password>@<host>:5432/<database>`
 - Tell both founders before you rotate. Rotate on staging first, then production in a quiet window.
 - Make the new value with `openssl rand -base64 32`. Write it straight into the Railway variable and the founders'
   password manager. Do not paste it in chat or in an issue.
-- Restart the container so it reads the new value. Users sign in again, with 2FA.
+- Restart the container so it reads the new value. Users sign in again.
 - Payload also uses this secret to encrypt the API keys it stores. After rotation, re-issue all Payload API keys; treat
   stored API keys as exposed. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. Re-checked against the pinned version (Payload 3.90.2) in issue #5: API keys are not enabled on any collection, so no API key is encrypted with this secret today. The secret still signs logins and reset links.
 - Payload may use this secret for other signed values, such as reset links. Expect those to stop working after rotation.

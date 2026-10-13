@@ -1,6 +1,10 @@
+export { forTenant } from './for-tenant.js';
 export {
-  forTenant,
+  flatWhere,
+  isRecord,
   tenantIdsOf,
+  USERS_COLLECTION,
+  wherePaths,
   TenantAccessError,
   NotFoundError,
   TENANT_FIELD,

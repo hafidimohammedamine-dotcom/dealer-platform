@@ -39,7 +39,9 @@ For engineers and builder agents. Dealers do not need this page.
    cp .env.example .env
    ```
 
-   `.env` is git-ignored. Nothing in the code reads it yet, so you do not need it to run the checks.
+   `.env` is git-ignored. `apps/admin` reads its settings from the environment at start-up and refuses to start without
+   `APP_ENV`, `PAYLOAD_SECRET` (32 or more characters), `DATABASE_URL` and `PAYLOAD_PUBLIC_SERVER_URL`. The unit tests set
+   their own fake values, so you do not need a `.env` to run the checks.
 
 **Install scripts:** `.yarnrc.yml` sets `enableScripts: false`, so dependency install scripts do not run. A config test
 in `infra/checks` (`holds exactly the allowed settings, with install scripts off`) fails if that line is removed or changed. It also fails if `preinstall`, `install`, `postinstall`, `prepare`, `prepack` or
@@ -65,17 +67,24 @@ Notes:
   workspace's own `dist/` and `coverage/`. A config test fails if git tracks any file in those folders (apart from the founder-owned
   `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.
 - Inline `eslint-disable` comments are off (`noInlineConfig`). A rule exception goes in `eslint.config.mjs`, where review sees it.
-- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are not enforced by lint yet.** Payload 3.90.2 is installed
-  (issue #5, `apps/admin`), so code can now reach a Payload instance. The ban is built in issue
-  [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36) as a type-aware rule (it flags any value
-  whose type is the Payload instance, however it was reached). **#36 must land before the pull request that adds `payload`
-  may be labeled `ready-to-merge`**; the founders keep that block in place. Until then, Payload rule 1 rests on the
-  security reviewer alone. `packages/data` is the only intended caller of the Local API.
+- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are enforced by name only, until issue #36.** Payload 3.90.2 is
+  installed (issue #5, `apps/admin`), so code can now reach a Payload instance. `eslint.config.mjs` now bans, in every
+  TypeScript file: a Local API method (`find`, `findByID`, `count`, `create`, `update`, `delete`, `duplicate`, `login` and
+  similar) called on something named `payload` or `.payload`, `payload.db`, `overrideAccess: true`, and importing
+  `getPayload`. Tests in `infra/checks/src/lint-config.test.ts` prove each one fails. This is a stopgap: it is by name, so a
+  Payload instance passed under another name is not caught. The type-aware rule (it flags any value whose type is the
+  Payload instance, however it was reached) and the reviewed system-job list `packages/data/override-allowlist.txt` are
+  issue [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36), waiting for a founder decision
+  (issue #46, rule files founder-only). **#36 must land before the pull request that adds `payload` may be labeled
+  `ready-to-merge`**; the founders keep that block in place. `packages/data` is the only intended caller of the Local API.
 - The other locks are planned, not built: Postgres row-level security (Payload rule 2, issue #58), the cross-dealer leak and
   attack suite on real Postgres (Payload rules 3 and 13, issue #60) and 2FA (Payload rule 9, issue #57). Today the app has
   only the `dealers` and `users` collections, and no customer data is stored. A config test (`apps/admin/src/tenants/config.test.ts`,
-  using `readiness.ts`) **fails CI if any other collection is registered** while #57 or #58 is open, so customer data cannot
-  land before them.
+  using `readiness.ts`) **fails CI if any other collection is registered** while #57, #58 or the durable audit table is open,
+  so customer data cannot land before them. `readiness.test.ts` also fails while 2FA is not required if the admin app has
+  any Next.js route, page or layout file (the app cannot be reached before 2FA), and it lists the tables that still lack
+  row-level security (`dealers`, `users`, `users_tenants`, and the rest), turning red if the flag is flipped before they
+  have it.
 - `eslint.config.mjs` and the root `lint` script are not founder-only files today, so an agent PR can change them and
   only review would see it. The founders track making the lint guard founder-only in issue #46.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
@@ -115,9 +124,10 @@ Notes:
 `package.json` has a `resolutions` entry that forces one package to a fixed version. Every entry needs a row in this
 table, with the reason and the condition for removing it. To see what a row pins, run `yarn why <package>`.
 
-| Package  | `resolutions` key   | Pinned to | Reason                  | Pulled in by | Remove when                   |
-| -------- | ------------------- | --------- | ----------------------- | ------------ | ----------------------------- |
-| `undici` | `undici@npm:7.29.0` | 7.29.1    | Four advisories (below) | `nx@23.3.0`  | nx depends on 7.29.1 or newer |
+| Package                  | `resolutions` key                    | Pinned to    | Reason                                 | Pulled in by                                                      | Remove when                                                          |
+| ------------------------ | ------------------------------------ | ------------ | -------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `undici`                 | `undici@npm:7.29.0`                  | 7.29.1       | Four advisories (below)                | `nx@23.3.0`                                                       | nx depends on 7.29.1 or newer                                        |
+| `@esbuild-kit/esm-loader` | `@esbuild-kit/esm-loader@npm:^2.5.5` | `tsx@4.23.15` | Two deprecation advisories (below)     | `drizzle-kit@0.31.7`, from `@payloadcms/db-postgres@3.90.2` (exact pin) | `@payloadcms/db-postgres` depends on a `drizzle-kit` without `@esbuild-kit` |
 
 Advisories fixed in 7.29.1. Found with `yarn npm audit` with the pin removed:
 
@@ -126,8 +136,23 @@ Advisories fixed in 7.29.1. Found with `yarn npm audit` with the pin removed:
 - GHSA-r53p-7pc4-xj5r (low): response splitting through the retry interceptor.
 - npm advisory 1240041: denial of service through an unrequested WebSocket subprotocol.
 
-The resolution raises the `undici` that `nx@23.3.0` pins from 7.29.0 to 7.29.1. `node-gyp` pulls in `undici` 8.11.2,
+**`@esbuild-kit` row.** `yarn npm audit` (the CI "Dependency audit" step) reported two moderate **deprecation** advisories:
+`@esbuild-kit/core-utils` 3.3.2 and `@esbuild-kit/esm-loader` 2.6.5 ("Merged into tsx"). They come only from
+`drizzle-kit@0.31.7`, which Payload's Postgres adapter pins exactly; every `drizzle-kit` 0.31.x up to 0.31.11 still lists
+them, so there is no newer version to move to. The `drizzle-kit` code never loads `@esbuild-kit` (no file in the package
+refers to it except `package.json`), so the resolution swaps that unused dependency for its maintained successor, `tsx`.
+Re-check at each monthly Payload upgrade. The earlier `esbuild@npm:~0.18.20` resolution is gone: `@esbuild-kit/core-utils`
+was the only package that asked for that old `esbuild`, so the swap removes the need.
+
+The `undici` resolution raises the `undici` that `nx@23.3.0` pins from 7.29.0 to 7.29.1. `node-gyp` pulls in `undici` 8.11.2,
 which is not affected. Re-check this row at each monthly upgrade, and remove the resolution when the condition above is met.
+
+## Licenses a founder must decide
+
+- `sharp` (an optional image library that Payload installs) ships LGPL-3.0 `libvips` binaries (`@img/sharp-libvips-*`).
+  CLAUDE.md bans AGPL, SSPL, BSL and "sustainable use" licenses; LGPL is not on that list, and `sharp` uses it by dynamic
+  linking. **A founder decides whether that is acceptable and records the answer here**, or the dependency is dropped.
+  Not decided yet.
 
 ## Adding a new workspace
 
