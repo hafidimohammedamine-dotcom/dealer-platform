@@ -12,6 +12,7 @@
     "apps/*",
     "services/*",
     "packages/*",
+    "tests/*",
     "infra/*"
   ],
   "scripts": {
@@ -19,7 +20,8 @@
     "format": "prettier --write .",
     "typecheck": "nx run-many -t typecheck",
     "test": "nx run-many -t test",
-    "build": "nx run-many -t build"
+    "build": "nx run-many -t build",
+    "e2e": "yarn workspace @dealer/e2e e2e"
   },
   "resolutions": {
     "undici@npm:7.29.0": "7.29.1"

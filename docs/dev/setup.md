@@ -55,6 +55,7 @@ scripts. A founder still has to confirm that.
 | `yarn typecheck` | `nx run-many -t typecheck`                                     | Type check every workspace                            |
 | `yarn test`      | `nx run-many -t test`                                          | Unit tests in every workspace, with the coverage gate |
 | `yarn build`     | `nx run-many -t build`                                         | Compile every workspace to `dist/`                    |
+| `yarn e2e`       | `yarn workspace @dealer/e2e e2e` (Playwright, `tests/e2e`)      | End-to-end specs. CI does not run it yet (#62)        |
 
 Notes:
 
@@ -79,12 +80,24 @@ Notes:
   steps (`.github/workflows/ci.yml`, lines 39 to 54). Config tests in `infra/checks` check that these root scripts have
   the expected commands, that `ci.yml` runs them in that order, and that `yarn.lock` lists every workspace and no other,
   so `yarn install --immutable` does not fail on a fresh checkout.
-- `yarn test` is the only test command. Coverage is part of it. There is no separate coverage script.
+- `yarn e2e` runs the Playwright specs in `tests/e2e/specs`. **CI does not run it yet**: adding an E2E step to `ci.yml`
+  (a founder-only file) is tracked in issue #62. The smoke test uses Playwright's request client against a local
+  stand-in server, so it needs no browser. A browser is a one-time manual install.
+  If a future spec needs one, run `yarn workspace @dealer/e2e playwright install chromium` once. That command downloads
+  binaries from Playwright's CDN at run time, so run it only on a developer machine or in a CI job that holds no
+  secrets (never in an agent job). `PLAYWRIGHT_DOWNLOAD_HOST` must not be set. The founder-approved CI step is issue #62.
+  `test-results/` and `playwright-report/` are git-ignored.
+  `fixtures/dealers.json` holds two fake dealers. More fake data is added in issue #7, and the leak tests in issue #5.
+- Known gaps, tracked in issue #66 (devops), which must merge before this PR: `eslint.config.mjs` ignores only
+  `{apps,services,packages,infra}/**/dist` and `coverage`, so a built `tests/e2e/dist` would be linted; the
+  `workspaceFolders` list in `infra/checks/src/checks.ts` omits `tests`, so the tracked-file guard would not block a
+  committed `tests/e2e/dist` or `coverage`; and `.prettierignore` does not list `test-results` or `playwright-report`.
+- `yarn test` is the only unit test command. Coverage is part of it. There is no separate coverage script.
 
 ## What `nx run-many` does
 
 - Runs the same target (`typecheck`, `test` or `build`) in every workspace that has that script. Workspaces live in
-  `apps/*`, `services/*`, `packages/*` and `infra/*`.
+  `apps/*`, `services/*`, `packages/*`, `tests/*` and `infra/*`. The build, typecheck and test targets also run in `tests/e2e`.
 - Runs dependencies first. Each of these targets depends on `^build`, so Nx builds the workspaces a project depends on
   before it type checks or tests that project.
 - Caches results. If the inputs did not change, Nx replays the saved result. The `infra/checks` tests are never cached:

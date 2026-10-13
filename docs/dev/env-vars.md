@@ -9,7 +9,7 @@ Placeholders on this page look like `<password>`. Never write a real-looking val
 ## Status today: all 26 are reserved
 
 No code reads any of the 26 listed variables yet. This was checked with a search of `apps/`, `services/`, `packages/`,
-`infra/` and `scripts/`. (A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads
+`tests/`, `infra/` and `scripts/`. (A config test in `infra/checks` copies `process.env` to run Vitest in a temp folder, but reads
 none of these names.) So every variable below is **reserved**: named and documented, but no code uses it.
 Setting one changes nothing yet.
 
@@ -58,6 +58,14 @@ Setting one changes nothing yet.
 | `DEALERTRACK_CLIENT_SECRET`   | Yes                          | Dealertrack client secret                                            | No (reserved)       |
 | `DEALERTRACK_WEBHOOK_SECRET`  | Yes                          | Checks Dealertrack webhooks                                          | No (reserved)       |
 | `SENTRY_DSN`                  | Yes                          | Error tracking. The DSN holds a project key                          | No (reserved)       |
+
+## E2E_BASE_URL (not in the template)
+
+- `tests/e2e/playwright.config.ts` reads `E2E_BASE_URL` as the Playwright `baseURL`. It is a plain base URL such as
+  `http://localhost:3000`. **It is not a secret.** Never put a password, token or login in it.
+- It is not in `.env.example` and is not one of the 26 variables above. It is read only by `yarn e2e` (`tests/e2e`),
+  and it is optional: the smoke spec starts its own local server and ignores it.
+- Leak tests (issue #5) will use it to point at the admin app. CI does not run `yarn e2e` yet (issue #62).
 
 ## The three Postgres URLs
 
