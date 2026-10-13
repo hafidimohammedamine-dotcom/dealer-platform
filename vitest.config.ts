@@ -7,8 +7,9 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts'],
+      // Source only: the admin app's entry point and migrations count too; test files and test helpers do not.
+      include: ['src/**/*.ts', 'payload.config.ts', 'migrations/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/test-helpers/**'],
       // `text` prints a table of every file (fully covered ones too) in each workspace's test log, so the CI log shows it.
       reporter: [['text', { skipFull: false }], 'json-summary'],
       // Each file must reach the thresholds on its own, so one weak file cannot hide behind the totals.

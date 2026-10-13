@@ -9,5 +9,9 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --coverage --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "graphql": "16.14.2",
+    "payload": "3.90.2"
   }
 }

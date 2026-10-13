@@ -22,7 +22,8 @@
     "build": "nx run-many -t build"
   },
   "resolutions": {
-    "undici@npm:7.29.0": "7.29.1"
+    "undici@npm:7.29.0": "7.29.1",
+    "@esbuild-kit/esm-loader@npm:^2.5.5": "npm:tsx@4.23.15"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

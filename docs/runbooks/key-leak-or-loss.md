@@ -1,6 +1,6 @@
 # Runbook: PAYLOAD_SECRET or FIELD_ENCRYPTION_KEY leaked or lost
 
-**Status: partly planned.** Both keys are reserved environment variables, and no code reads them yet. There is no
+**Status: partly planned.** `PAYLOAD_SECRET` is read by `apps/admin` at start-up (issue #5). `FIELD_ENCRYPTION_KEY` is still a reserved variable that no code reads. There is no
 rotation script, no re-encryption tool, no key version field and no backup check. Steps marked **(not built)** need
 tooling that does not exist yet. Do the rest by hand, and tell the founders which parts you could not do.
 
@@ -18,7 +18,7 @@ tooling that does not exist yet. Do the rest by hand, and tell the founders whic
 
 - **`PAYLOAD_SECRET`** signs Payload logins and encrypts the Payload API keys stored in the database. Anyone who has it may
   be able to forge a login, and with a copy of the database can read the stored API keys. If it changes, every Payload
-  API key must be regenerated. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. This repo does not install Payload yet, so it is re-checked against the pinned version's source in issue #5.
+  API key must be regenerated. Source: Payload documentation, Authentication > API Keys (https://payloadcms.com/docs/authentication/api-keys), as confirmed by the founders on PR #19 on 2026-10-10. Re-checked against the pinned version (Payload 3.90.2) in issue #5: API keys are not enabled on any collection today, so nothing is stored under this encryption yet; rotation still logs everyone out.
 - **`FIELD_ENCRYPTION_KEY`** encrypts sensitive fields at rest (`CLAUDE.md`, non-negotiable rule 7). Someone with the key
   and a copy of the database can read those fields. If the key is lost, the fields cannot be read at all.
 
@@ -49,7 +49,7 @@ run `printenv` where the output goes to a log, a shared terminal or a screenshot
 2. Tell both founders now. Do not wait for a reply before rotating: a leaked login key is fixed by rotating it.
 3. Make a new value with `openssl rand -base64 32`. Write it straight into the Railway variable and the founders' password
    manager. Do not paste it anywhere else.
-4. Set the new value on **staging** first. Restart staging. Check that you can sign in with 2FA.
+4. Set the new value on **staging** first. Restart staging. Check that you can sign in with your email and password.
 5. Set the new value on **production**. Restart production. Everyone signs out. This is expected.
 6. Sessions made with the old value stop working when the new value is read. There is no tool to list or end sessions one
    by one (not built).
