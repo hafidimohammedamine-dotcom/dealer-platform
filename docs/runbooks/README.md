@@ -26,7 +26,7 @@ These are named in the design but have no page yet. Each one will be written whe
 
 ## Related
 
-- [Architecture](../architecture.md): services, data flow and where data lives.
+- [Architecture](../architecture.md): what is built today, where data lives, and CI.
 - [Data flow](../data-flow.md): the lead path, step by step (Planned).
 - [Developer setup](../dev/setup.md): install and run the checks locally.
 - [Environment variables](../dev/env-vars.md): every variable and whether code reads it.

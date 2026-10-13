@@ -24,8 +24,3 @@ Each page below is planned. The title is the task, in the words a salesperson wo
 
 More tasks will be added as the screens are built. A page is written when its screen exists, so the steps match what
 the dealer sees.
-
-## Related
-
-- [Docs home](../README.md): the status words and rules for every page.
-- [Runbooks index](../runbooks/README.md): for the technical team when something breaks. Dealers do not need the runbooks.
