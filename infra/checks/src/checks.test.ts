@@ -253,12 +253,32 @@ describe('trackedFileProblems', () => {
     'services/intake/coverage/lcov.info',
     'tests/e2e/dist/x.js',
     'tests/e2e/coverage/lcov.info',
+    'tests/e2e/test-results/trace.zip',
+    'tests/e2e/playwright-report/index.html',
+    'tests/e2e/blob-report/report.zip',
     'infra/checks/dist/deep/x.js',
     '.nx/cache/x.js',
     '.yarn/cache/x.zip',
     '.yarn/install-state.gz',
   ])('flags %s, committed in a folder lint skips', (path) => {
     expect(trackedFileProblems([path])).toEqual([`${path}: committed in a folder lint skips`]);
+  });
+
+  it.each([
+    'test-results/.last-run.json',
+    'apps/admin/playwright-report/data/x.js',
+    'tests/e2e/playwright/.auth/user.json',
+    'playwright/.auth/user.json',
+  ])('flags %s, Playwright output or saved login state', (path) => {
+    expect(trackedFileProblems([path])).toEqual([
+      `${path}: Playwright output or saved login state must not be committed`,
+    ]);
+  });
+
+  it('accepts a file named like Playwright output but not in such a folder', () => {
+    expect(
+      trackedFileProblems(['tests/e2e/src/test-results.ts', 'tests/e2e/playwright/config.ts']),
+    ).toEqual([]);
   });
 
   it.each([

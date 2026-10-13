@@ -75,10 +75,29 @@ describe('.prettierignore', () => {
     expect(lines).toContain(entry);
   });
 
-  it.each(['dist', 'coverage', 'test-results', 'playwright-report'])(
-    'skips the build or test output %s',
-    (entry) => {
-      expect(lines).toContain(entry);
-    },
-  );
+  it.each([
+    'dist',
+    'coverage',
+    'test-results',
+    'playwright-report',
+    'blob-report',
+    'playwright/.auth',
+  ])('skips the build or test output %s', (entry) => {
+    expect(lines).toContain(entry);
+  });
+});
+
+describe('.gitignore', () => {
+  const lines = readText(root, '.gitignore').split('\n');
+
+  it.each([
+    'dist/',
+    'coverage/',
+    'test-results/',
+    'playwright-report/',
+    'blob-report/',
+    'playwright/.auth/',
+  ])('ignores the build or test output %s', (entry) => {
+    expect(lines).toContain(entry);
+  });
 });

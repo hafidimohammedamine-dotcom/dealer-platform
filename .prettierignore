@@ -4,6 +4,8 @@ dist
 coverage
 test-results
 playwright-report
+blob-report
+playwright/.auth
 yarn.lock
 CLAUDE.md
 .claude

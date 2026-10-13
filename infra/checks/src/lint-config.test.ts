@@ -25,6 +25,9 @@ describe('lint ignores', () => {
       'packages/data/coverage/x.js',
       'tests/e2e/dist/x.js',
       'tests/e2e/coverage/x.js',
+      'tests/e2e/playwright-report/data/x.js',
+      'tests/e2e/test-results/x.js',
+      'tests/e2e/blob-report/x.js',
       'node_modules/x/index.js',
       'services/ai/src/node_modules/x/index.js',
       '.nx/cache/x.js',
@@ -39,6 +42,7 @@ describe('lint ignores', () => {
       'apps/admin/src/x/dist/y.ts',
       'services/intake/src/coverage/y.ts',
       'tests/e2e/src/dist/y.ts',
+      'tests/e2e/src/playwright-report/y.ts',
       'packages/data/src/.nx/y.ts',
       'services/ai/.yarn/y.js',
     ]) {

@@ -134,13 +134,32 @@ export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
   return problems;
 }
 
-/** Top-level folders that hold workspaces (`<folder>/<workspace>/`), as in the root `package.json`, plus `tests`, which lands with the e2e workspace (PR #53) and is not listed there yet. */
+/**
+ * Top-level folders that hold workspaces (`<folder>/<workspace>/`): those in the root `package.json`, plus `tests` for
+ * the Playwright e2e workspace.
+ */
 const workspaceFolders: readonly string[] = ['apps', 'services', 'packages', 'infra', 'tests'];
 
 /**
+ * Playwright output folders. They can hold traces with cookies, auth headers and credit-app fields, so they are never
+ * committed, at any depth.
+ */
+const playwrightOutputFolders: readonly string[] = [
+  'test-results',
+  'playwright-report',
+  'blob-report',
+];
+
+/** Is this path under a Playwright output folder at any depth, or under `playwright/.auth` (saved login state)? */
+function inPlaywrightOutput(folders: readonly string[]): boolean {
+  if (folders.some((folder) => playwrightOutputFolders.includes(folder))) return true;
+  return folders.some((folder, i) => folder === 'playwright' && folders[i + 1] === '.auth');
+}
+
+/**
  * Is this path in a folder lint never looks at (the ignores in `eslint.config.mjs`): `node_modules` at any depth, the
- * root `.nx` and `.yarn`, or `<workspace>/dist` and `<workspace>/coverage`. The founder-owned `.yarn/releases/` and
- * `.yarn/plugins/` at the root are allowed.
+ * root `.nx` and `.yarn`, `<workspace>/dist` and `<workspace>/coverage`, or Playwright output under `tests/<workspace>`.
+ * The founder-owned `.yarn/releases/` and `.yarn/plugins/` at the root are allowed.
  */
 function inUnlintedFolder(path: string): boolean {
   const folders = path.split('/').slice(0, -1);
@@ -148,7 +167,9 @@ function inUnlintedFolder(path: string): boolean {
   const [top = '', second = '', third = ''] = folders;
   if (top === '.nx') return true;
   if (top === '.yarn') return second !== 'releases' && second !== 'plugins';
-  return workspaceFolders.includes(top) && (third === 'dist' || third === 'coverage');
+  if (!workspaceFolders.includes(top)) return false;
+  if (third === 'dist' || third === 'coverage') return true;
+  return top === 'tests' && playwrightOutputFolders.includes(third);
 }
 
 /** An ESLint config file name: flat (`eslint.config.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`) or legacy (`.eslintrc*`). */
@@ -162,6 +183,9 @@ export function trackedFileProblems(paths: readonly string[]): string[] {
   const problems: string[] = [];
   for (const path of paths) {
     if (inUnlintedFolder(path)) problems.push(`${path}: committed in a folder lint skips`);
+    else if (inPlaywrightOutput(path.split('/').slice(0, -1))) {
+      problems.push(`${path}: Playwright output or saved login state must not be committed`);
+    }
     const name = path.slice(path.lastIndexOf('/') + 1);
     if (eslintConfigName.test(name) && path !== 'eslint.config.mjs') {
       problems.push(`${path}: ESLint config outside the repo root`);

@@ -16,6 +16,10 @@ export default defineConfig(
     ignores: [
       '{apps,services,packages,infra,tests}/*/dist/**',
       '{apps,services,packages,infra,tests}/*/coverage/**',
+      // Playwright output (the HTML reporter writes JS into playwright-report).
+      'tests/*/test-results/**',
+      'tests/*/playwright-report/**',
+      'tests/*/blob-report/**',
       '**/node_modules/**',
       '.nx/**',
       '.yarn/**',
