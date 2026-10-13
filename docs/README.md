@@ -4,9 +4,13 @@ Start here. These pages say what the repo does today and what is still planned.
 
 ## Status words
 
+These three words are defined here, once. Every docs page uses them with this meaning.
+
 - **Built**: the code exists in this repo today.
-- **Reserved**: the name or setting is set aside and documented, but nothing uses it yet.
-- **Planned**: the design is set in [CLAUDE.md](../CLAUDE.md), but the code is not in this repo yet.
+- **Reserved**: the folder, package, name or setting exists or is set aside in this repo, but nothing uses it yet.
+  Placeholder packages (`apps/admin`, `services/*`, `packages/*`) are Reserved.
+- **Planned**: the behavior is designed, but its code is not in this repo yet. The design may come from
+  [CLAUDE.md](../CLAUDE.md), or from a review addition marked "proposed", which is not a rule until its approver says yes.
 
 ## Who reads what
 

@@ -6,8 +6,7 @@ platform. Endpoints are listed in the [API index](api/README.md). All docs: [doc
 
 ## Repo layout and where data lives
 
-**Built** means code exists in this repo today. **Reserved** means the folder, name or variable is set aside and
-documented, but nothing uses it yet.
+The status words (Built, Reserved, Planned) are defined once, in [Docs home](README.md#status-words).
 
 | Part                      | Where                                                          | Status                                                                    |
 | ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
