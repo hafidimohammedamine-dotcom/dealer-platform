@@ -36,6 +36,10 @@ def check_hardened_step(sw, step):
         core.err(f"{sw}: a step with the hardened shell must have an env mapping")
         return
     env = step["env"]
+    lower = {}
+    for k in env:   # GitHub reads env names without regard to case: two keys that differ only by case are "already defined"
+        if lower.setdefault(str(k).lower(), k) != k:
+            core.err(f"{sw}: env names {lower[str(k).lower()]} and {k} differ only by case (GitHub refuses the workflow file)")
     for k in P["post_claude_empty_env"]:
         if env.get(k) != "":
             core.err(f"{sw}: a step with the hardened shell must set env {k}: \"\" (a step's own env wins over $GITHUB_ENV)")
