@@ -9,7 +9,8 @@ the runbook will cover. Owner: devops. It is completed together with issue #58, 
 - Migrations run as one CI job before the deploy. If the job fails, the deploy does not start and the old version keeps
   running. Nothing is half-deployed.
 - Each migration runs in a transaction where Postgres allows it, so a failed migration leaves the schema as it was.
-- The `down` function of every migration is tested against a real Postgres (`apps/admin/src/tenants/migration.test.ts`).
+- The `up` and `down` functions of every migration are tested on PGlite, the Postgres 17 engine compiled to WebAssembly
+  (`apps/admin/src/tenants/migration.test.ts`), not on a Postgres server. A test against a real server is part of issue #60.
 
 ## Steps when it fails (draft)
 

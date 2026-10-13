@@ -67,12 +67,19 @@ Notes:
   workspace's own `dist/` and `coverage/`. A config test fails if git tracks any file in those folders (apart from the founder-owned
   `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.
 - Inline `eslint-disable` comments are off (`noInlineConfig`). A rule exception goes in `eslint.config.mjs`, where review sees it.
-- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are enforced by name only, until issue #36.** Payload 3.90.2 is
-  installed (issue #5, `apps/admin`), so code can now reach a Payload instance. `eslint.config.mjs` now bans, in every
-  TypeScript file: a Local API method (`find`, `findByID`, `count`, `create`, `update`, `delete`, `duplicate`, `login` and
-  similar) called on something named `payload` or `.payload`, `payload.db`, `overrideAccess: true`, and importing
-  `getPayload`. Tests in `infra/checks/src/lint-config.test.ts` prove each one fails. This is a stopgap: it is by name, so a
-  Payload instance passed under another name is not caught. The type-aware rule (it flags any value whose type is the
+- **The Payload data rules (`CLAUDE.md`, Payload rule 1) are enforced by syntax only, until issue #36.** Payload 3.90.2 is
+  installed (issue #5, `apps/admin`), so code can now reach a Payload instance. `eslint.config.mjs` bans, in every
+  TypeScript and JavaScript file: a Local API method (`find`, `findByID`, `count`, `create`, `update`, `delete`,
+  `duplicate`, `login`, `auth` and similar) called on `payload` or `.payload`, or called on anything with a first argument
+  that names a `collection` or `slug`; `payload.db`; keeping `.payload` or `.db` in a variable or taking `payload` or `db`
+  out of an object; any `overrideAccess` value but the literal `false` (also shorthand and computed keys); importing
+  `getPayload`, a namespace or default import of `payload`, a dynamic `import()` of Payload or of a computed name, and
+  `require`. Three exceptions, each lifting one check for one path: `packages/data/src/**` (the helper calls the Local API),
+  `apps/admin/migrations/*.ts` (Payload's `up({ db, payload, req })` signature) and `apps/admin/src/tenants/sessions.ts`
+  (ends a deactivated user's sessions through the database). Tests in `infra/checks/src/lint-config.test.ts` cover a named
+  sample of each pattern, in `.ts`, `.mjs` and `.cjs` files, and each exception. This is a stopgap: a syntax rule cannot see
+  types, so a Payload instance handed over as a function argument under another name, and then used with a variable as the
+  argument, is not caught. The type-aware rule (it flags any value whose type is the
   Payload instance, however it was reached) and the reviewed system-job list `packages/data/override-allowlist.txt` are
   issue [#36](https://github.com/hafidimohammedamine-dotcom/dealer-platform/issues/36), waiting for a founder decision
   (issue #46, rule files founder-only). **#36 must land before the pull request that adds `payload` may be labeled
@@ -80,11 +87,13 @@ Notes:
 - The other locks are planned, not built: Postgres row-level security (Payload rule 2, issue #58), the cross-dealer leak and
   attack suite on real Postgres (Payload rules 3 and 13, issue #60) and 2FA (Payload rule 9, issue #57). Today the app has
   only the `dealers` and `users` collections, and no customer data is stored. A config test (`apps/admin/src/tenants/config.test.ts`,
-  using `readiness.ts`) **fails CI if any other collection is registered** while #57, #58 or the durable audit table is open,
-  so customer data cannot land before them. `readiness.test.ts` also fails while 2FA is not required if the admin app has
-  any Next.js route, page or layout file (the app cannot be reached before 2FA), and it lists the tables that still lack
-  row-level security (`dealers`, `users`, `users_tenants`, and the rest), turning red if the flag is flipped before they
-  have it.
+  using `readiness.ts`) **fails CI if any other collection is registered** while #57, #58 or the durable audit table (#71)
+  is open, so customer data cannot land before them. `readiness.test.ts` also fails while 2FA (#57) or the login surface
+  (#73) is missing if the admin app has any HTTP entry point: anything under `app/` or `pages/` (at the app root or in
+  `src/`), a `middleware`, `proxy`, `server`, `instrumentation` or `next.config` file anywhere, or code that imports
+  `@payloadcms/next` or `next`. It scans all of `apps/admin` except `node_modules`, `dist`, `coverage` and `.next`. It also
+  lists the tables that still lack `ENABLE` and `FORCE ROW LEVEL SECURITY` (`dealers`, `users`, `users_tenants`, and the
+  rest), turning red if the flag is flipped before they have it.
 - `eslint.config.mjs` and the root `lint` script are not founder-only files today, so an agent PR can change them and
   only review would see it. The founders track making the lint guard founder-only in issue #46.
 - TypeScript casts (`x as T`, `<T>x`) are banned by `@typescript-eslint/consistent-type-assertions`. Use a type guard.
