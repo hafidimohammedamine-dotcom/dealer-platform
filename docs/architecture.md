@@ -14,7 +14,8 @@ documented, but nothing uses it yet.
 | Repo checks               | `infra/checks`, `eslint.config.mjs`                            | Built: config tests and lint. The Payload lint ban is not built yet (#36) |
 | Payload admin (CRM, site) | `apps/admin`                                                   | Reserved: Payload is not installed yet                                    |
 | Business services         | `services/*` (intake, ai, messaging, voice, desking, ...)      | Reserved: placeholder workspaces only                                     |
-| Shared packages           | `packages/data`, `contracts`, `platform`, `ui`                 | Reserved: placeholder workspaces only                                     |
+| Shared contracts          | `packages/contracts`                                           | Built: shared zod 4 shapes in `src/`, no database or I/O                  |
+| Shared packages           | `packages/data`, `packages/platform`, `packages/ui`            | Reserved: placeholder workspaces only                                     |
 | CRM tables                | Postgres, owned by Payload, row-level security per dealer      | Reserved: no tables, roles or policies yet                                |
 | Credit and finance data   | Separate encrypted Postgres schema owned by `services/desking` | Reserved: never in Payload collections; the schema does not exist yet     |
 | Queues                    | Redis, used by BullMQ                                          | Reserved: `REDIS_URL` only                                                |
@@ -24,6 +25,10 @@ Postgres roles (reserved, named in `.env.example`):
 - `app_user` (`DATABASE_URL`): the app. Does not own the tables, so row-level security applies to it.
 - `owner_user` (`MIGRATION_DATABASE_URL`): the one migration job in CI only. Never the app, never at container start.
 - `desking_user` (`DESKING_DATABASE_URL`): `services/desking` only, for the encrypted credit and finance schema.
+
+Record ids: `packages/contracts` `IdSchema` accepts string ids (letters, digits, `_`, `-`, 1-64). Payload's Postgres adapter
+defaults to numeric ids, so Payload is to be configured with `idType: 'uuid'` in `apps/admin/payload.config.ts`
+(requested from the Payload config owner; not set yet). If the founders prefer numeric ids, the contract changes instead.
 
 Setup and commands: [Developer setup](dev/setup.md). Every variable and its status:
 [Environment variables](dev/env-vars.md).
