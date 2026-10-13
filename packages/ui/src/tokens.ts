@@ -7,13 +7,14 @@ export const colors = {
   textMuted: '#4a5868',
   surface: '#ffffff',
   surfaceAlt: '#f1f4f8',
-  border: '#8896a6',
+  border: '#6b7a8a',
   focus: '#b45309',
   success: '#0f6b3a',
   successBg: '#dff3e7',
   warning: '#7a4a00',
   warningBg: '#fdf0cf',
   danger: '#a1141f',
+  dangerHover: '#82101a',
   dangerBg: '#fde4e6',
   info: '#0b4f9c',
   infoBg: '#e1ecf9',
@@ -38,6 +39,12 @@ export const minTapTarget = 44;
 // Breakpoints in px (min-width). Design for phone first, then widen.
 export const breakpoints = { phone: 375, tablet: 768, desktop: 1100 } as const;
 
+// One visible focus ring for buttons, inputs, links and scrollable tables.
+export const focusRing = {
+  outline: `3px solid ${colors.focus}`,
+  outlineOffset: '2px',
+} as const;
+
 const px = (n: number): string => `${n}px`;
 
 /** CSS custom properties for every token, e.g. `--color-brand`. Used by the app and the Payload admin theme. */
@@ -50,5 +57,8 @@ export function cssVariables(): Record<string, string> {
   for (const [k, v] of Object.entries(spacing)) vars[`--space-${k}`] = px(v);
   for (const [k, v] of Object.entries(radii)) vars[`--radius-${k}`] = px(v);
   vars['--tap-target'] = px(minTapTarget);
+  vars['--focus-ring'] = focusRing.outline;
+  vars['--focus-ring-offset'] = focusRing.outlineOffset;
+  for (const [k, v] of Object.entries(breakpoints)) vars[`--breakpoint-${k}`] = px(v);
   return vars;
 }
