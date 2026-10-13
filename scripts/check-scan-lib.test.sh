@@ -15,7 +15,7 @@ out=$(GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256=0000000000000000000000000000000
 [ $rc = 1 ] && grep -q "has sha256 $STUB_SHA, expected 0000" <<<"$out" && t PASS "a wrong hash: 1 with both hashes on stderr" || t FAIL "wrong hash ($rc)"
 out=$(GITLEAKS_BIN="$W/gitleaks" scan_answer "$W/clean" 2>&1); rc=$?; [ $rc = 1 ] && grep -q "expected $GITLEAKS_PINNED_SHA256" <<<"$out" && t PASS "with GITLEAKS_SHA256 unset the pinned constant is the only hash accepted" || t FAIL "pinned default ($rc)"
 # The private copy: a stub that replaces the original on its first run; the scan still used the checked copy.
-S3=$(mktemp -d "$W/swap.XXXXXX"); printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 0\\n" > "%s/gitleaks"; src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done; grep -q LEAKME "$src"/* && exit 3; exit 0\n' "$S3" > "$S3/gitleaks"; chmod +x "$S3/gitleaks"
+S3=$(mktemp -d "$W/swap.XXXXXX"); write_swapping_gitleaks_stub "$S3"
 GITLEAKS_BIN="$S3/gitleaks" GITLEAKS_SHA256=$(sha256sum "$S3/gitleaks" | cut -c1-64) scan_answer "$W/leak"; [ $? = 3 ] && t PASS "the scan runs a private copy (a self-replacing original still scans)" || t FAIL "private copy"
 # No work directory is left behind: a fresh TMPDIR for one clean scan and one refused scan must be empty afterwards.
 T2=$(mktemp -d "$W/tmpdir.XXXXXX"); TMPDIR="$T2" GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256="$STUB_SHA" scan_answer "$W/clean" >/dev/null 2>&1
@@ -30,8 +30,5 @@ if [ "$(id -u)" = 0 ]; then t PASS "unwritable TMPDIR: skipped (root writes ever
   TMPDIR="$RO" GITLEAKS_BIN="$W/gitleaks" GITLEAKS_SHA256="$STUB_SHA" scan_answer "$W/clean" >/dev/null 2>&1; [ $? = 1 ] && t PASS "an unwritable TMPDIR (no work directory): 1" || t FAIL "unwritable TMPDIR"; fi
 chmod 700 "$RO"
 # The pinned constant matches the real binary when it is installed (CI installs it at /tmp/gitleaks); skipped otherwise.
-REAL="${GITLEAKS:-/tmp/gitleaks}"
-if [ -x "$REAL" ]; then [ "$(sha256sum "$REAL" | cut -c1-64)" = "$GITLEAKS_PINNED_SHA256" ] && t PASS "the pinned constant is the installed gitleaks 8.18.4 binary's sha256" || t FAIL "GITLEAKS_PINNED_SHA256 does not match $REAL"
-elif [ -n "${CI:-}" ]; then t FAIL "pinned constant vs real binary: no binary at $REAL under CI (install-gitleaks must run first)"
-else t PASS "pinned constant vs real binary: skipped (no binary at $REAL; CI fails here)"; fi
+if real_gitleaks "pinned constant vs real binary"; then [ "$(sha256sum "$REAL" | cut -c1-64)" = "$GITLEAKS_PINNED_SHA256" ] && t PASS "the pinned constant is the installed gitleaks 8.18.4 binary's sha256" || t FAIL "GITLEAKS_PINNED_SHA256 does not match $REAL"; fi
 summary
