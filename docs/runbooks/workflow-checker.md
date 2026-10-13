@@ -156,7 +156,10 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     `CDPATH`, `BASH_XTRACEFD`, `POSIXLY_CORRECT`; the loader and libc: `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`,
     `LD_DEBUG`, `LD_DEBUG_OUTPUT`, `LD_PROFILE`, `LD_BIND_NOW`, `GCONV_PATH`, `GLIBC_TUNABLES`, the `MALLOC_*` tunables;
     locale and time: `LOCPATH`, `NLSPATH`, `LANGUAGE`, `LC_ALL`, `LANG`, `TZ`, `TZDIR`, `TEXTDOMAINDIR`; the resolver:
-    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` - GitHub reads env
+    `HOSTALIASES`, `RES_OPTIONS`, `LOCALDOMAIN`; the rest of the loader's documented names (`LD_TRACE_LOADED_OBJECTS`, `LD_SHOW_AUXV`,
+    `LD_WARN`, `LD_VERBOSE`, `LD_ORIGIN_PATH`, `LD_HWCAP_MASK`, `LD_ASSUME_KERNEL`, `LD_DYNAMIC_WEAK`, `LD_BIND_NOT`,
+    `LD_USE_LOAD_BIAS`, `LD_PROFILE_OUTPUT`, `LD_PREFER_MAP_32BIT_EXEC`, `MALLOC_MMAP_MAX_`; blanking is defence in depth
+    only - see the marker below); the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` - GitHub reads env
     names without regard to case, so the lowercase twins cannot be listed as well: `env names X and x differ only by
     case`; no command in a hardened step uses the network); `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
     `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GH_CONFIG_DIR`; a `null`, list or mapping value is refused) and
@@ -188,6 +191,30 @@ persist-credentials: false` - every checkout uses `main` (or `${{ github.event.r
     three egress-lock probe steps are hardened, and no other run step may follow a claude step (a step without the
     hardened shell would get no protection from `$GITHUB_ENV` or `$GITHUB_PATH` beyond its pin check, with `sha256sum`
     itself found through `PATH`).
+  - The marker and the check job (policy `post_claude_run_last`, `hardened_check_job`, `post_claude_require_marker`).
+    One loader variable cannot be blanked away: `LD_TRACE_LOADED_OBJECTS` makes every dynamically linked program, bash
+    included, print its libraries and exit 0 before line 1, even with an empty value
+    (`scripts/check-post-claude-shell.test.sh` shows it), so a hardened step could go green having run nothing. A
+    hardened step may therefore end with the marker line `echo "hardened=ok" >> "$GITHUB_OUTPUT"` (required once
+    `post_claude_require_marker` is `true`: `must end its run with the marker line ...`), the job must export it
+    (`needs outputs <id>_ran: ${{ steps.<id>.outputs.hardened }}`), and the workflow must have the job `hardened-check`
+    (`needs job hardened-check (fails unless every hardened step wrote its marker)`), with exactly: `needs:` every job
+    that has marked steps, `if: always()`, `runs-on: ubuntu-latest`, `permissions: {contents: read}`, an `env:` of
+    `<job>_result: ${{ needs.<job>.result }}` and `<job>_<id>: ${{ needs.<job>.outputs.<id>_ran }}`, and one run step whose
+    body is, per marked step, `[ "$<job>_result" = skipped ] || [ "$<job>_<id>" = ok ] || { echo "hardened step
+    <job>/<id> did not run"; exit 1; }` (`job hardened-check: <key> must be exactly ...`; a `name` on the job or the step is
+    allowed; `no hardened step with the marker line in this workflow to check` when the job exists for nothing). The
+    check job runs no repository file, so it needs no checkout or pin step. A hardened step also needs an `id`
+    (`needs an id (lowercase letters, digits and hyphens)`), may carry only `name`, `if`, `id`, `shell`, `env` and `run`
+    (`may only have name/if/id/shell/env/run (found ...)`, so no `continue-on-error`, which is refused on every step and
+    job of a claude job: `'continue-on-error' not allowed`), and may hold no `${{ ... }}` anywhere in its `run`, comments
+    included (`no ${{ ... }} in the run of a step with the hardened shell`: the runner expands it before bash reads the
+    line, and a value with a line break would leave a comment). The `NAME=value` part of a script line is a mapping of
+    exact values (`post_claude_script_env`: `GITLEAKS_BIN=/tmp/gitleaks`; `the script line may not set X=y`). Env names
+    that differ only by case are refused (`env names X and x differ only by case`: GitHub reads them without regard to
+    case and rejects the file). `post_claude_require_marker` is `false` on main today: the eight hardened steps have no
+    marker yet and no check job; the next founder PR adds both and flips it (the two cannot be one PR, since the guards
+    run main's checker over a PR's tree).
   - The other post-claude rules apply to every step after the claude step, hardened or not: no local action, the pin
     check before any `scripts/` or `/tmp/gitleaks` (comment lines do not count), no PR data, no `git` moves.
 - `job <x>: no permissions (set them on the job or the workflow; the repository's default token is not allowed)` - a job with

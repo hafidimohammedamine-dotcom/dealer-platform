@@ -181,7 +181,10 @@ Also `pull_request_target`, also from `main`.
   posts FAIL without the text (the hand-off's own scan withholds such an answer before it leaves the review job, so no
   log holds it either); a founder re-runs the review and, if a real secret could have been read by the agent, follows
   "Real key" above.
-  If the hand-off withheld the answer (nothing before its 120000-byte cap was safe to keep: a huge run of text with no
+  If the session ended with no text at all (an API error, the turn limit: `subtype=error_max_turns`, `is_error=true`),
+  the hand-off hands over `(no answer text: the session ended with subtype=... is_error=...; a founder re-runs the
+  review)`, so the posted FAIL names the cause instead of "missing or wrong first line"; re-run the review (a push, or
+  draft and ready-for-review). If the hand-off withheld the answer (nothing before its 120000-byte cap was safe to keep: a huge run of text with no
   line break, space or tab, or a BEGIN/END block from the first line), `ANSWER` is the notice `(answer withheld: ...)` with
   no `REVIEW TEAM RESULT:` first line, so `post` posts FAIL ("did not produce a valid result") and sets
   `changes-requested` whatever the review said: the review's own result is lost (no job log holds it; the review job

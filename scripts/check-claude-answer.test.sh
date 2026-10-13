@@ -16,6 +16,9 @@ check "blocked: all four denials in order, the Skill one with an empty input" ba
 jq -n '[{"type":"result","result":"x","permission_denials":[{"tool_name":"WebFetch","tool_input":{"url":"https://e.com/?k=LEAKME"}},{"tool_name":"Bash","tool_input":{"command":"ls"}}]}]' > "$W/leakdeny.json"
 out=$(bash "$SCRIPT" blocked "$W/leakdeny.json"); rc=$?
 [ "$rc" = 0 ] && ! grep -q "LEAKME\|e.com\|ls\|WebFetch" <<<"$out" && [ "$out" = "BLOCKED: 2 denied tool call(s); the names and inputs are withheld (something looks like a secret)" ] && t PASS "blocked: a denied input that looks like a secret withholds every line (one fixed line with the count), nothing reaches the log" || { t FAIL "blocked: leak ($rc)"; echo "$out"; }
+jq -n '[{"type":"result","result":"x","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"echo LEAKME\nls\npwd"}},{"tool_name":"Bash","tool_input":{"command":"a\nb"}}]}]' > "$W/multideny.json"
+out=$(bash "$SCRIPT" blocked "$W/multideny.json"); rc=$?
+[ "$rc" = 0 ] && [ "$out" = "BLOCKED: 2 denied tool call(s); the names and inputs are withheld (something looks like a secret)" ] && t PASS "blocked: multi-line denied commands are counted as denials, not as lines" || { t FAIL "blocked: multi-line count"; echo "$out"; }
 HJ=$(mktemp -d "$W/home.XXXXXX"); printf 'def x: "LEAKME-from-home";\n' > "$HJ/.jq"
 out=$(HOME="$HJ" bash "$SCRIPT" blocked "$W/exec.json"); grep -q "from-home" <<<"$out" && t FAIL "blocked: a planted ~/.jq was loaded" || t PASS "blocked: a planted ~/.jq is never loaded (HOME is fixed inside the script)"
 out=$(GL_RC=2 bash "$SCRIPT" blocked "$W/exec.json" 2>&1); rc=$?; [ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner error prints nothing and exits non-zero" || t FAIL "blocked: scanner error ($rc)"
@@ -29,7 +32,7 @@ d=$(sed -n '2s/^answer<<//p' <<<"$out")
 out=$(bash "$SCRIPT" answer "$W/none.json"); [ "$out" = "has_result=false" ] && t PASS "answer: missing file" || t FAIL "answer: missing file"
 printf 'not json' > "$W/bad.json"; out=$(bash "$SCRIPT" answer "$W/bad.json"); [ "$out" = "has_result=false" ] && t PASS "answer: not an execution file" || t FAIL "answer: bad json"
 jq -n '[{"type":"result","result":"no text here" | ascii_upcase}]' > /dev/null; jq -n '[{"type":"result"}]' > "$W/noresult.json"; out=$(bash "$SCRIPT" answer "$W/noresult.json")
-[ "$(sed -n 1p <<<"$out")" = has_result=true ] && [ "$(sed -n 3p <<<"$out")" = "" ] && t PASS "answer: a result without text gives an empty answer (the post script posts the placeholder)" || { t FAIL "answer: no text"; echo "$out"; }
+[ "$(sed -n 1p <<<"$out")" = has_result=true ] && [[ "$(sed -n 3p <<<"$out")" == "(no answer text: the session ended with subtype="* ]] && t PASS "answer: a result without text hands over the notice that names the session's end (the post script posts FAIL with it)" || { t FAIL "answer: no text"; echo "$out"; }
 # handed <exec.json>: the answer text the post job would receive (the lines between the delimiters), in $H; bytes in $HB
 handed() { local out; out=$(bash "$SCRIPT" answer "$1"); rc=$?; H=$(handoff_text "$out"); HB=$(printf '%s' "$H" | wc -c); }
 utf8ok() { printf '%s' "$1" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null; }
@@ -39,6 +42,10 @@ WITHHELD="(answer withheld: nothing before the 120000-byte limit was safe to kee
   && t PASS "answer: 250000 characters with no line break or blank are withheld (notice plus marker), exit 0 (no SIGPIPE: a long review must still be posted)" || t FAIL "answer: cut"
 rep 90000 a | mk_exec "$W/mid.json"; handed "$W/mid.json"
 [ "$HB" = 90000 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: 90000 characters pass whole, no marker (the 60000 comment cut is the post script's, scanned before posting)" || t FAIL "answer: 90000 ($HB)"
+jq -n '[{"type":"result","subtype":"error_max_turns","is_error":true,"result":""}]' > "$W/empty.json"; handed "$W/empty.json"
+[ "$H" = "(no answer text: the session ended with subtype=error_max_turns is_error=true; a founder re-runs the review)" ] && t PASS "answer: an empty result names the session's subtype and error flag" || { t FAIL "answer: empty result ($H)"; }
+jq -n '[{"type":"result"}]' > "$W/bare.json"; handed "$W/bare.json"
+[ "$H" = "(no answer text: the session ended with subtype=? is_error=?; a founder re-runs the review)" ] && t PASS "answer: a bare result without fields" || { t FAIL "answer: bare result ($H)"; }
 { rep 59999 x; echo; } | mk_exec "$W/nl.json"; handed "$W/nl.json"; [ "$HB" = 59999 ] && t PASS "answer: a trailing newline is not kept" || t FAIL "answer: trailing newline ($HB)"
 python3 -c 'print("\U0001F600"*60000, end="")' | mk_exec "$W/wide.json"   # 60000 four-byte characters = 240000 bytes
 handed "$W/wide.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: 240000 bytes of four-byte characters with no blank are withheld (never cut inside, never over 128 KiB)" || t FAIL "answer: wide ($HB)"
@@ -123,7 +130,7 @@ out=$(GITLEAKS_SHA256=0000000000000000000000000000000000000000000000000000000000
 [ "$rc" != 0 ] && ! grep -q "BLOCKED" <<<"$out" && t PASS "blocked: a scanner with the wrong sha256 prints no denial line" || t FAIL "blocked: wrong hash (rc=$rc)"
 # The scan runs a private copy: a stub that overwrites the original with something else on its first run still gets the
 # hash check (on the copy) and the scan (the copy) right, and the original's later content never matters.
-S3=$(mktemp -d "$W/swap.XXXXXX"); printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 0\\n" > "%s/gitleaks"; src=""; for a in "$@"; do case "$a" in --source=*) src=${a#--source=};; esac; done; grep -q LEAKME "$src"/* && exit 3; exit 0\n' "$S3" > "$S3/gitleaks"; chmod +x "$S3/gitleaks"
+S3=$(mktemp -d "$W/swap.XXXXXX"); write_swapping_gitleaks_stub "$S3"
 printf 'REVIEW TEAM RESULT: PASS\nkey LEAKME\n' | mk_exec "$W/swapleak.json"
 out=$(GITLEAKS_BIN="$S3/gitleaks" GITLEAKS_SHA256=$(sha256sum "$S3/gitleaks" | cut -c1-64) bash "$SCRIPT" answer "$W/swapleak.json"); H=$(handoff_text "$out")
 [ "$H" = "(answer withheld: it contained something that looks like a secret)" ] && t PASS "answer: the scan runs a private copy of the scanner (a self-replacing original still scans with the checked copy)" || t FAIL "answer: private copy: $H"
@@ -149,13 +156,11 @@ out=$(PATH="$S:$PATH" TMPDIR="$E" bash "$SCRIPT" answer "$W/mid.json" 2>&1); rc=
 [ "$rc" != 0 ] && ! grep -q "answer<<\|has_result" <<<"$out" && [ -z "$(ls -A "$E")" ] && t PASS "answer: jq failing on the text exits non-zero, prints no output block, leaves no file" || { t FAIL "answer: jq failure (rc=$rc)"; echo "$out"; }
 # The exact workflow shape, with the real pinned gitleaks (CI installs it at /tmp/gitleaks; fails under CI when missing):
 # `env -i` with only PATH, HOME, TMPDIR and GITLEAKS_BIN proves jq, python3, mktemp, od and sha256sum resolve from /usr/bin:/bin.
-REAL="${GITLEAKS:-/tmp/gitleaks}"
-if [ -x "$REAL" ]; then
+if real_gitleaks "end to end with the real gitleaks"; then
   { echo "REVIEW TEAM RESULT: PASS"; echo "a short clean answer"; } | mk_exec "$W/e2e.json"
   out=$(cd "$(dirname "$SCRIPT")/.." && /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN="$REAL" /usr/bin/bash scripts/check-claude-answer.sh answer "$W/e2e.json" 2>&1); rc=$?
   [ $rc = 0 ] && [ "$(handoff_text "$out")" = $'REVIEW TEAM RESULT: PASS\na short clean answer' ] && t PASS "end to end under the workflow's env -i with the real gitleaks: the answer is handed over" || { t FAIL "end to end env -i ($rc)"; echo "$out" | head -5; }
   out=$(cd "$(dirname "$SCRIPT")/.." && /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp GITLEAKS_BIN="$REAL" /usr/bin/bash scripts/check-claude-answer.sh blocked "$W/e2e.json" 2>&1); rc=$?
   [ $rc = 0 ] && [ -z "$out" ] && t PASS "end to end under env -i: the blocked listing of a result with no denials is empty" || { t FAIL "end to end blocked ($rc): $out"; }
-elif [ -n "${CI:-}" ]; then t FAIL "end to end with the real gitleaks: no binary at $REAL under CI"
-else t PASS "end to end with the real gitleaks: skipped (no binary at $REAL; CI fails here)"; fi
+fi
 summary
