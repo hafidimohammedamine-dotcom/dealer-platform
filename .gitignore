@@ -2,6 +2,13 @@ node_modules/
 dist/
 .nx/
 coverage/
+# Playwright output: traces can hold cookies, auth headers and credit-app fields
+test-results/
+playwright-report/
+blob-report/
+**/.auth/
+*.har
+**/trace.zip
 .env
 .env.*
 !.env.example

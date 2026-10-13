@@ -61,9 +61,18 @@ Notes:
 - `yarn lint` does not use Nx. It runs ESLint on the whole repo and Prettier on every file not in `.prettierignore`, including Markdown in `docs/`.
 - `--config eslint.config.mjs` makes the root config the only one. ESLint ignores any other `eslint.config.*` file, and a
   config test in `infra/checks` fails if one is committed anywhere else (`src/lint-config.test.ts`).
-- Lint skips only install, cache and build output: `node_modules` (any depth), the root `.nx` and `.yarn`, and each
-  workspace's own `dist/` and `coverage/`. A config test fails if git tracks any file in those folders (apart from the founder-owned
+- Lint skips only install, cache, build and Playwright output: `node_modules` (any depth), the root `.nx` and `.yarn`, each
+  workspace's own `dist/` and `coverage/` in `apps/*`, `services/*`, `packages/*`, `infra/*` and `tests/*`, and the Playwright
+  folders `test-results/`, `playwright-report/` and `blob-report/` at any depth. `tests/*` is reserved for the
+  e2e workspace. It is not in the root `package.json` workspaces yet, so `yarn install` does not link it, but lint and the
+  tracked-file check already cover it. A config test fails if git tracks any file in those folders (apart from the founder-owned
   `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.
+- Playwright output is never committed. Traces can hold cookies, auth headers and credit-app fields. `test-results/`,
+  `playwright-report/`, `blob-report/`, `.auth/` folders (saved login state), `*.har` (from `recordHar`) and `trace.zip`
+  are git-ignored and skipped by Prettier, at any depth. A config test in `infra/checks` fails if git tracks any file in
+  the output folders, any file under a `.auth` folder, any `*.har`, any `trace.zip`, or any `storageState` /
+  `storage-state` JSON file (`storage-?state*.json`, any case), wherever Playwright is told to write it. If one is
+  already tracked, run `git rm --cached <file>` and leave it out of the commit.
 - Inline `eslint-disable` comments are off (`noInlineConfig`). A rule exception goes in `eslint.config.mjs`, where review sees it.
 - **The Payload data rules (`CLAUDE.md`, Payload rule 1) are not enforced by lint yet.** There is no Payload ban rule in
   this repo today. Payload is not installed (issue #5 adds it), so no code here can reach a Payload instance or its Local

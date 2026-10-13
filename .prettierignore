@@ -2,6 +2,12 @@
 .nx
 dist
 coverage
+test-results
+playwright-report
+blob-report
+**/.auth
+*.har
+**/trace.zip
 yarn.lock
 CLAUDE.md
 .claude

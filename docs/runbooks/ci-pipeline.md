@@ -133,6 +133,12 @@ Open the job log, find the first red step, and fix that. Push the fix to your br
   shape (`"<package>@<exact version>": { built: true }`, see the file's header), so a registry, scope, proxy or SSL
   setting fails. It also fails on a duplicate key, on a second `.yarnrc.yml` anywhere in the repo, and on
   `dependenciesMeta` with `built: true` in any `package.json` (the founder-owned `.yarnrc.yml` is the only place).
+- **Playwright output committed.** The lint wiring check in `infra/checks` fails if git tracks a file in Playwright
+  output (`test-results/`, `playwright-report/`, `blob-report/`), or saved login state and recordings anywhere in the
+  repo: any file under a `.auth` folder, any `*.har`, any `trace.zip`, and any `storageState` / `storage-state` JSON file
+  (name matches `storage-?state*.json`, any case). The log says `<file>: committed in a folder lint skips` for Playwright
+  output, or `<file>: saved Playwright login state, HAR or trace must not be committed` for the rest. Run `git rm --cached <file>` and leave the
+  file out of the commit. See [Developer setup](../dev/setup.md).
 
 ### Build fails
 

@@ -134,17 +134,50 @@ export function envValueProblems(vars: ReadonlyMap<string, string>): string[] {
   return problems;
 }
 
-/** Top-level folders that hold workspaces (`<folder>/<workspace>/`), as in the root `package.json`. */
-const workspaceFolders: readonly string[] = ['apps', 'services', 'packages', 'infra'];
+/**
+ * Top-level folders that hold workspaces (`<folder>/<workspace>/`): those in the root `package.json`, plus `tests` for
+ * the Playwright e2e workspace.
+ */
+const workspaceFolders: readonly string[] = ['apps', 'services', 'packages', 'infra', 'tests'];
+
+/**
+ * Playwright output folders. They can hold traces with cookies, auth headers and credit-app fields, so they are never
+ * committed, at any depth.
+ */
+const playwrightOutputFolders: readonly string[] = [
+  'test-results',
+  'playwright-report',
+  'blob-report',
+];
+
+/** A Playwright `storageState` file name (saved cookies and tokens), e.g. `storageState.json`, `storage-state-admin.json`. */
+const storageStateName = /storage-?state[^/]*\.json$/i;
+
+/**
+ * Is this path Playwright login state or a recording, wherever the config sends it? Any file under a `.auth` folder,
+ * any `*.har` (from `recordHar`), any `trace.zip`, and any `storageState` / `storage-state` JSON file.
+ */
+function isPlaywrightSecret(path: string): boolean {
+  const parts = path.split('/');
+  const name = parts[parts.length - 1] ?? '';
+  return (
+    parts.slice(0, -1).includes('.auth') ||
+    name.toLowerCase().endsWith('.har') ||
+    name === 'trace.zip' ||
+    storageStateName.test(name)
+  );
+}
 
 /**
  * Is this path in a folder lint never looks at (the ignores in `eslint.config.mjs`): `node_modules` at any depth, the
- * root `.nx` and `.yarn`, or `<workspace>/dist` and `<workspace>/coverage`. The founder-owned `.yarn/releases/` and
- * `.yarn/plugins/` at the root are allowed.
+ * root `.nx` and `.yarn`, `<workspace>/dist` and `<workspace>/coverage`, or Playwright output
+ * (`test-results`, `playwright-report`, `blob-report`) at any depth.
+ * The founder-owned `.yarn/releases/` and `.yarn/plugins/` at the root are allowed.
  */
 function inUnlintedFolder(path: string): boolean {
   const folders = path.split('/').slice(0, -1);
   if (folders.includes('node_modules')) return true;
+  if (folders.some((folder) => playwrightOutputFolders.includes(folder))) return true;
   const [top = '', second = '', third = ''] = folders;
   if (top === '.nx') return true;
   if (top === '.yarn') return second !== 'releases' && second !== 'plugins';
@@ -156,12 +189,17 @@ const eslintConfigName = /^(?:eslint\.config\.[cm]?[jt]s|\.eslintrc(?:\..+)?)$/;
 
 /**
  * Problems with the list of files git tracks (repo-relative, `/`-separated). Nothing may be committed where lint
- * never looks, and the root `eslint.config.mjs` is the only ESLint config.
+ * never looks, no saved Playwright login state, HAR or trace (`.auth` folders, `*.har`, `trace.zip`, `storageState` files) at any
+ * depth, and the root `eslint.config.mjs` is
+ * the only ESLint config.
  */
 export function trackedFileProblems(paths: readonly string[]): string[] {
   const problems: string[] = [];
   for (const path of paths) {
     if (inUnlintedFolder(path)) problems.push(`${path}: committed in a folder lint skips`);
+    else if (isPlaywrightSecret(path)) {
+      problems.push(`${path}: saved Playwright login state, HAR or trace must not be committed`);
+    }
     const name = path.slice(path.lastIndexOf('/') + 1);
     if (eslintConfigName.test(name) && path !== 'eslint.config.mjs') {
       problems.push(`${path}: ESLint config outside the repo root`);
