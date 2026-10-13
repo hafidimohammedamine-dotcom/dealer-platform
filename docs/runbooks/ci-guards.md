@@ -153,22 +153,47 @@ Also `pull_request_target`, also from `main`.
   it did, it posts `REVIEW TEAM RESULT: FAIL` saying there was no valid result. If no result comment appears and no label
   changed, re-run the job once; a PR cannot get `ready-to-merge` without a posted PASS.
 - The `review` job runs only for a PR whose head is in this repository (a fork's PR gets no Claude run; the repo is
-  public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned `scripts/check-claude-answer.sh`,
-  which prints the blocked tool calls and hands the answer (text, at most 60000 characters) to the job `post` as a job
-  output. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
-  answer from `ANSWER`, scans it, posts it and sets labels. The daily report and weekly audit do the same with
-  `check-review-post.sh daily-reports` (the open "Daily reports" issue, created if missing), and "Claude on mention"
-  (`claude.yml`: a founder's `@claude` comment on an issue) with `check-review-post.sh issue <n>` - Claude gets a prompt
-  naming the issue (never tag mode, so the action adds no comment or git tools and swaps no OIDC token), reads the thread
-  with `gh issue view`, and its answer is posted by the `post` job after the scan. The daily and weekly runs, like the
-  manager's, start only from their schedule or a founder's manual run. The weekly audit has a `deps` job first (no secret)
-  that runs `yarn npm audit` and uploads `npm-audit.json`; the `audit` job downloads it as data.
+  public since 2026-10-11, see the changelog). It runs Claude with a read-only token; its last step runs the pinned
+  `scripts/check-claude-answer.sh`, which prints the blocked tool calls (scanned first, see "After changing agent
+  permissions") and hands the answer to the job `post` as a job output: text, at most 120000 bytes of UTF-8 (the post
+  job gets it as one environment variable, which Linux caps at 128 KiB). A longer answer is cut at the last line break,
+  space or tab before the cap and never inside a `-----BEGIN ... -----END` block, so a token or a key block is never
+  handed over in part; when nothing before the cap is safe to keep, the text is withheld and a notice is handed over
+  instead; every cut ends with a `(truncated)` line. Before it leaves the review job the text is scanned with the pinned
+  gitleaks (installed by the egress lock action): a job output is printed in the post job's log header, and the repo is
+  public, so anything that looks like a secret is replaced by a fixed notice there. The handed text is all `post` ever
+  sees. `post` is the only job with write scopes and runs no Claude: `scripts/check-review-post.sh pr <n>` reads the
+  answer from `ANSWER`, scans it for secrets (the whole handed text and the text about to be posted, in one gitleaks
+  run, before anything is posted), then posts it - a longer answer cut to 60000 characters with a `(truncated)` line -
+  and sets labels (a cut PASS keeps its labels: its verdict line is posted and a PASS has no findings to lose). The
+  daily report and weekly audit do the same with `check-review-post.sh daily-reports` (the open "Daily reports" issue,
+  created if missing), and "Claude on mention" (`claude.yml`: a founder's `@claude` comment on an issue) with
+  `check-review-post.sh issue <n>` - Claude gets a prompt naming the issue (never tag mode, so the action adds no
+  comment or git tools and swaps no OIDC token), reads the thread with `gh issue view`, and its answer is posted by the
+  `post` job after the scan. The daily and weekly runs, like the manager's, start only from their schedule or a
+  founder's manual run. The weekly audit has a `deps` job first (no secret) that runs `yarn npm audit` and uploads
+  `npm-audit.json`; the `audit` job downloads it as data.
 - **"The default branch's head passed the main guard"** (every Claude job, before the lock: `scripts/check-main-head.sh`)
   fails with `the default branch's head (<sha>) has no successful main-guard run (...)` - the push that put that head on
   `main` was never checked (a `[skip ci]` head commit, a cancelled run): a founder looks before any Claude job runs again
   (see "Main guard"); `the main-guard run for <sha> has not finished after 120s` - right after a merge, start a fresh run.
 - **"Post the result (secret-scanned) and set labels"** (job `post`): if the answer looked like it contained a secret, it
-  posts FAIL without the text - a founder checks the job log and, if a real secret appeared, follows "Real key" above.
+  posts FAIL without the text (the hand-off's own scan withholds such an answer before it leaves the review job, so no
+  log holds it either); a founder re-runs the review and, if a real secret could have been read by the agent, follows
+  "Real key" above.
+  If the hand-off withheld the answer (nothing before its 120000-byte cap was safe to keep: a huge run of text with no
+  line break, space or tab, or a BEGIN/END block from the first line), `ANSWER` is the notice `(answer withheld: ...)` with
+  no `REVIEW TEAM RESULT:` first line, so `post` posts FAIL ("did not produce a valid result") and sets
+  `changes-requested` whatever the review said: the review's own result is lost (no job log holds it; the review job
+  does not print Claude's output). A founder re-runs the review (re-runs are skipped by design: push a commit, or
+  draft and ready-for-review). If the hand-off itself fails (jq or the cutter fails, the scanner is missing, or the
+  scanner exits with a code other than 0 or 3), its step fails with the cause in the review job log, the post job is
+  skipped, nothing is posted and no label changes: re-run the review the same way.
+  The post job's own stops, each with nothing posted and no label changed, re-run the review the same way:
+  `ERROR: the secret scan failed with exit code N` (gitleaks itself failed), `ERROR: the C.UTF-8 locale is missing on
+  this runner` (bash would count bytes, so the post script refuses to cut), `ERROR: no gitleaks at <path>` (the install
+  step did not run or the pinned download failed), `ERROR: gitleaks at <path> has sha256 X, expected Y` (the binary
+  is not the pinned one: after a Claude step this is the step's own check, not a hint to change the pin).
 - **"Start a fix round now (agent PRs that failed review)"** (job `post`): runs only for a PR from this repository, opened by the agents'
   account (user ID 250452267 in `.github/accounts.txt`), on an `agent/` branch. When the PR has the label `changes-requested`
   it starts `agent-manager.yml` and prints `Manager shift started for PR #<n>`; otherwise `Review passed or no result; no fix
@@ -318,8 +343,19 @@ update`. `scripts/check-main-push.test.sh` checks the fallback's condition, IDs,
 the script's.
 
 ## After changing agent permissions (founder, manual)
-
-Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only, pinned script)" step. Once vendored
+Run one `workflow_dispatch` of the manager and check the "Show blocked tool calls (names and commands only, pinned script)" step.
+The step scans the denied-call lines with the pinned gitleaks before printing them (the job log is public): on a hit it
+prints one fixed line with the count of denied calls and nothing else; a scanner error (a missing, swapped or
+edited `/tmp/gitleaks`, or a gitleaks exit code other than 0 or 3) fails the step with nothing printed, and in the
+review, mention, daily-report and weekly-audit jobs the `post` job is then skipped (the manager posts its own shift log
+from inside the Claude step, so its log is already up). The step runs under `env -i` with a fixed `PATH` and
+`/usr/bin/sha256sum`, in the one shell the workflow checker allows after a Claude step (`/usr/bin/bash --noprofile --norc
+-p -eo pipefail {0}`: with `-p` bash reads no `BASH_ENV` or `ENV` file and ignores `SHELLOPTS`, `BASHOPTS` and functions
+from the environment), with the step's first line `export PATH=/usr/bin:/bin`, the loader, bash, locale, proxy and git
+variables emptied and `HOME`/`TMPDIR` fixed in the step `env:`, and no other line than the pin lines and the pinned
+scripts under `env -i` (the checker enforces the whole shape), so nothing a Claude step put on `PATH` (`$GITHUB_PATH`)
+or in `$GITHUB_ENV` is read (the Claude step can write both files; see `docs/runbooks/workflow-checker.md`, "After the
+claude step"). Once vendored
 skills exist (the Payload skill, #22), a `Skill(payload)` deny must not stop builders from preloading `payload` with
 `payload-dealer-overrides`. If a builder reports it can't see the skill, **do not remove the deny**: open an `area:security`
 issue for the founders.
