@@ -151,13 +151,15 @@ const playwrightOutputFolders: readonly string[] = [
 ];
 
 /** Is this path under `playwright/.auth` (saved login state), at any depth? */
-function inPlaywrightAuth(folders: readonly string[]): boolean {
+function inPlaywrightAuth(path: string): boolean {
+  const folders = path.split('/').slice(0, -1);
   return folders.some((folder, i) => folder === 'playwright' && folders[i + 1] === '.auth');
 }
 
 /**
  * Is this path in a folder lint never looks at (the ignores in `eslint.config.mjs`): `node_modules` at any depth, the
- * root `.nx` and `.yarn`, `<workspace>/dist` and `<workspace>/coverage`, or Playwright output (`test-results`, `playwright-report`, `blob-report`) at any depth.
+ * root `.nx` and `.yarn`, `<workspace>/dist` and `<workspace>/coverage`, or Playwright output
+ * (`test-results`, `playwright-report`, `blob-report`) at any depth.
  * The founder-owned `.yarn/releases/` and `.yarn/plugins/` at the root are allowed.
  */
 function inUnlintedFolder(path: string): boolean {
@@ -175,14 +177,15 @@ const eslintConfigName = /^(?:eslint\.config\.[cm]?[jt]s|\.eslintrc(?:\..+)?)$/;
 
 /**
  * Problems with the list of files git tracks (repo-relative, `/`-separated). Nothing may be committed where lint
- * never looks, and the root `eslint.config.mjs` is the only ESLint config.
+ * never looks, no saved Playwright login state (`playwright/.auth`) at any depth, and the root `eslint.config.mjs` is
+ * the only ESLint config.
  */
 export function trackedFileProblems(paths: readonly string[]): string[] {
   const problems: string[] = [];
   for (const path of paths) {
     if (inUnlintedFolder(path)) problems.push(`${path}: committed in a folder lint skips`);
-    else if (inPlaywrightAuth(path.split('/').slice(0, -1))) {
-      problems.push(`${path}: Saved Playwright login state must not be committed`);
+    else if (inPlaywrightAuth(path)) {
+      problems.push(`${path}: saved Playwright login state must not be committed`);
     }
     const name = path.slice(path.lastIndexOf('/') + 1);
     if (eslintConfigName.test(name) && path !== 'eslint.config.mjs') {

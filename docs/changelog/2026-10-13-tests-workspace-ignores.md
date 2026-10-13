@@ -5,10 +5,10 @@
   workspace. It is not yet in the root `package.json` workspaces.
 - **Tracked-file check** (`infra/checks/src/checks.ts`, `trackedFileProblems`): fails on any tracked file under `tests/*/dist`,
   `tests/*/coverage`, or any tracked file under `test-results/`, `playwright-report/` or `blob-report/` at any depth. It also
-  fails on any tracked file under `playwright/.auth/` (saved login state). Traces can hold
+  fails on any tracked file under `playwright/.auth/` at any depth (saved login state). Traces can hold
   cookies, auth headers and credit-app fields.
-- **`.gitignore`**: `test-results/`, `playwright-report/`, `blob-report/` and `playwright/.auth/`, with a comment on why.
-- **`.prettierignore`**: `test-results`, `playwright-report`, `blob-report` and `playwright/.auth`. `dist` and `coverage` already
+- **`.gitignore`**: `test-results/`, `playwright-report/`, `blob-report/` and `**/playwright/.auth/` (any depth), with a comment on why.
+- **`.prettierignore`**: `test-results`, `playwright-report`, `blob-report` and `**/playwright/.auth` (any depth). `dist` and `coverage` already
   skip the `tests/*` build folders at any depth.
 - **Tests** (`infra/checks`): lint ignores and non-ignored source files under `tests/*`, the tracked-file rules, and the
   `.gitignore` and `.prettierignore` entries.

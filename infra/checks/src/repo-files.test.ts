@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import * as prettier from 'prettier';
 import { describe, expect, it } from 'vitest';
 import { envValueProblems } from './checks.js';
 import { parseEnvTemplate, readText } from './repo.js';
@@ -81,10 +84,20 @@ describe('.prettierignore', () => {
     'test-results',
     'playwright-report',
     'blob-report',
-    'playwright/.auth',
+    '**/playwright/.auth',
   ])('skips the build or test output %s', (entry) => {
     expect(lines).toContain(entry);
   });
+
+  it.each(['tests/e2e/playwright/.auth/user.json', 'playwright/.auth/user.json'])(
+    'Prettier ignores the saved login state %s',
+    async (path) => {
+      const info = await prettier.getFileInfo(join(root, path), {
+        ignorePath: join(root, '.prettierignore'),
+      });
+      expect(info.ignored).toBe(true);
+    },
+  );
 });
 
 describe('.gitignore', () => {
@@ -96,8 +109,16 @@ describe('.gitignore', () => {
     'test-results/',
     'playwright-report/',
     'blob-report/',
-    'playwright/.auth/',
+    '**/playwright/.auth/',
   ])('ignores the build or test output %s', (entry) => {
     expect(lines).toContain(entry);
   });
+
+  it.each(['tests/e2e/playwright/.auth/user.json', 'playwright/.auth/user.json'])(
+    'git ignores the saved login state %s',
+    (path) => {
+      const result = spawnSync('git', ['check-ignore', '-q', '--no-index', path], { cwd: root });
+      expect(result.status).toBe(0);
+    },
+  );
 });

@@ -48,6 +48,8 @@ describe('lint ignores', () => {
       'tests/e2e/src/dist/y.ts',
       'packages/data/src/.nx/y.ts',
       'services/ai/.yarn/y.js',
+      'tests/e2e/src/test-results.ts',
+      'tests/e2e/playwright/config.ts',
     ]) {
       expect(await eslint.isPathIgnored(join(root, file)), file).toBe(false);
     }

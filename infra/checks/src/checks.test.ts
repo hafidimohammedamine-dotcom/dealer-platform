@@ -271,7 +271,7 @@ describe('trackedFileProblems', () => {
     'flags %s, saved Playwright login state',
     (path) => {
       expect(trackedFileProblems([path])).toEqual([
-        `${path}: Saved Playwright login state must not be committed`,
+        `${path}: saved Playwright login state must not be committed`,
       ]);
     },
   );
