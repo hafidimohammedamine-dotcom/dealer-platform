@@ -28,3 +28,6 @@ tests, runbook, pins). From the last reviews of #44 and #48:
   denials with jq (a multi-line denied command is one denial; tested). The self-replacing gitleaks stub and the
   real-gitleaks gate (`real_gitleaks <name>`: FAIL under CI without the binary, a recorded skip elsewhere) live in
   `scripts/check-testlib.sh` and are used by the three tests that need them; the coverage fixture calls them.
+- `check-claude-answer.sh answer`: when the session produced no text at all (an API error or the turn limit), the handed
+  text names the result's `subtype` and `is_error`, so the posted FAIL says why (`#52`'s review came back "missing or
+  wrong first line" twice with nothing to go on).

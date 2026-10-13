@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -120,7 +120,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -144,7 +144,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -232,7 +232,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -258,7 +258,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt
@@ -346,7 +346,7 @@ jobs:
           GH_CONFIG_DIR: ""
           HOME: /nonexistent
           TMPDIR: /tmp
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           export PATH=/usr/bin:/bin
           set -u
@@ -374,7 +374,7 @@ jobs:
           persist-credentials: false
       - name: The repository files this job runs are the reviewed ones (pinned here, outside any push's reach)
         env:
-          PINS_SHA256: "85afa40520d17ae3c6d8facdca01cb82b08eb81ede551ea631f50ffcb3c2872a"
+          PINS_SHA256: "8b0ccaaa68c360bef4aae9ebaceb6a7477aead5625a546b836d88baec9bccd82"
         run: |
           echo "$PINS_SHA256  .github/pins.txt" | sha256sum --check --strict --quiet
           sha256sum --check --strict --quiet .github/pins.txt

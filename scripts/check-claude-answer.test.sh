@@ -32,7 +32,7 @@ d=$(sed -n '2s/^answer<<//p' <<<"$out")
 out=$(bash "$SCRIPT" answer "$W/none.json"); [ "$out" = "has_result=false" ] && t PASS "answer: missing file" || t FAIL "answer: missing file"
 printf 'not json' > "$W/bad.json"; out=$(bash "$SCRIPT" answer "$W/bad.json"); [ "$out" = "has_result=false" ] && t PASS "answer: not an execution file" || t FAIL "answer: bad json"
 jq -n '[{"type":"result","result":"no text here" | ascii_upcase}]' > /dev/null; jq -n '[{"type":"result"}]' > "$W/noresult.json"; out=$(bash "$SCRIPT" answer "$W/noresult.json")
-[ "$(sed -n 1p <<<"$out")" = has_result=true ] && [ "$(sed -n 3p <<<"$out")" = "" ] && t PASS "answer: a result without text gives an empty answer (the post script posts the placeholder)" || { t FAIL "answer: no text"; echo "$out"; }
+[ "$(sed -n 1p <<<"$out")" = has_result=true ] && [[ "$(sed -n 3p <<<"$out")" == "(no answer text: the session ended with subtype="* ]] && t PASS "answer: a result without text hands over the notice that names the session's end (the post script posts FAIL with it)" || { t FAIL "answer: no text"; echo "$out"; }
 # handed <exec.json>: the answer text the post job would receive (the lines between the delimiters), in $H; bytes in $HB
 handed() { local out; out=$(bash "$SCRIPT" answer "$1"); rc=$?; H=$(handoff_text "$out"); HB=$(printf '%s' "$H" | wc -c); }
 utf8ok() { printf '%s' "$1" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null; }
@@ -42,6 +42,10 @@ WITHHELD="(answer withheld: nothing before the 120000-byte limit was safe to kee
   && t PASS "answer: 250000 characters with no line break or blank are withheld (notice plus marker), exit 0 (no SIGPIPE: a long review must still be posted)" || t FAIL "answer: cut"
 rep 90000 a | mk_exec "$W/mid.json"; handed "$W/mid.json"
 [ "$HB" = 90000 ] && ! grep -q "(truncated)" <<<"$H" && t PASS "answer: 90000 characters pass whole, no marker (the 60000 comment cut is the post script's, scanned before posting)" || t FAIL "answer: 90000 ($HB)"
+jq -n '[{"type":"result","subtype":"error_max_turns","is_error":true,"result":""}]' > "$W/empty.json"; handed "$W/empty.json"
+[ "$H" = "(no answer text: the session ended with subtype=error_max_turns is_error=true; a founder re-runs the review)" ] && t PASS "answer: an empty result names the session's subtype and error flag" || { t FAIL "answer: empty result ($H)"; }
+jq -n '[{"type":"result"}]' > "$W/bare.json"; handed "$W/bare.json"
+[ "$H" = "(no answer text: the session ended with subtype=? is_error=?; a founder re-runs the review)" ] && t PASS "answer: a bare result without fields" || { t FAIL "answer: bare result ($H)"; }
 { rep 59999 x; echo; } | mk_exec "$W/nl.json"; handed "$W/nl.json"; [ "$HB" = 59999 ] && t PASS "answer: a trailing newline is not kept" || t FAIL "answer: trailing newline ($HB)"
 python3 -c 'print("\U0001F600"*60000, end="")' | mk_exec "$W/wide.json"   # 60000 four-byte characters = 240000 bytes
 handed "$W/wide.json"; [ "$H" = "$WITHHELD" ] && t PASS "answer: 240000 bytes of four-byte characters with no blank are withheld (never cut inside, never over 128 KiB)" || t FAIL "answer: wide ($HB)"
