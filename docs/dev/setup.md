@@ -63,7 +63,7 @@ Notes:
   config test in `infra/checks` fails if one is committed anywhere else (`src/lint-config.test.ts`).
 - Lint skips only install, cache, build and Playwright output: `node_modules` (any depth), the root `.nx` and `.yarn`, each
   workspace's own `dist/` and `coverage/` in `apps/*`, `services/*`, `packages/*`, `infra/*` and `tests/*`, and the Playwright
-  folders `test-results/`, `playwright-report/` and `blob-report/` under `tests/<workspace>/`. `tests/*` is reserved for the
+  folders `test-results/`, `playwright-report/` and `blob-report/` at any depth. `tests/*` is reserved for the
   e2e workspace. It is not in the root `package.json` workspaces yet, so `yarn install` does not link it, but lint and the
   tracked-file check already cover it. A config test fails if git tracks any file in those folders (apart from the founder-owned
   `.yarn/releases/` and `.yarn/plugins/`), so nothing can be committed where lint does not look.

@@ -16,10 +16,11 @@ export default defineConfig(
     ignores: [
       '{apps,services,packages,infra,tests}/*/dist/**',
       '{apps,services,packages,infra,tests}/*/coverage/**',
-      // Playwright output (the HTML reporter writes JS into playwright-report).
-      'tests/*/test-results/**',
-      'tests/*/playwright-report/**',
-      'tests/*/blob-report/**',
+      // Playwright output at any depth, the same scope as .gitignore and the tracked-file check (the HTML reporter writes JS
+      // into playwright-report).
+      '**/test-results/**',
+      '**/playwright-report/**',
+      '**/blob-report/**',
       '**/node_modules/**',
       '.nx/**',
       '.yarn/**',
